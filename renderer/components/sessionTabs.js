@@ -25,6 +25,18 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   terminalContextMenu.className = 'context-menu';
   document.body.appendChild(terminalContextMenu);
 
+  function renderLucide(root) {
+    const lucide = window.lucide;
+    if (!lucide || typeof lucide.createIcons !== 'function') return;
+    try {
+      lucide.createIcons({
+        root: root || document,
+        nameAttr: 'data-icon',
+        attrs: { width: '14', height: '14', 'stroke-width': '2.1' }
+      });
+    } catch (err) { }
+  }
+
   function hideTabContextMenu() {
     tabContextMenu.classList.remove('open');
     tabContextMenu.innerHTML = '';
@@ -104,8 +116,35 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     if (tab.id === state.activeTabId) {
       ensureHostOption(tab.host);
       hostSelect.value = tab.host;
+      if (filesPanel) {
+        filesPanel.renderSavedLocations();
+        filesPanel.renderRecentLocations();
+      }
     }
     persistenceService.persistTabs();
+  }
+
+  function getTabTitleMode() {
+    if (!settingsService || typeof settingsService.readSettingValue !== 'function') {
+      return 'connection';
+    }
+    const value = settingsService.readSettingValue('ui', 'session', 'tabTitleMode', 'connection');
+    return value === 'terminal-title' ? 'terminal-title' : 'connection';
+  }
+
+  function getConnectionLabel(tab) {
+    if (!tab) return 'ssh:new';
+    if (tab.sessionType === 'local') return 'local';
+    return tab.host ? `ssh:${tab.host}` : 'ssh:new';
+  }
+
+  function getSessionTabLabel(tab) {
+    const connectionLabel = getConnectionLabel(tab);
+    if (getTabTitleMode() === 'terminal-title') {
+      const title = tab.terminalTitle ? String(tab.terminalTitle).trim() : '';
+      if (title) return title;
+    }
+    return connectionLabel;
   }
 
   function renderSessionTabs() {
@@ -115,15 +154,16 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       const button = document.createElement('button');
       button.className = 'session-tab';
       button.classList.toggle('active', tab.id === state.activeTabId);
-      const label = tab.sessionType === 'local'
-        ? 'local'
-        : (tab.host ? `ssh:${tab.host}` : 'ssh:new');
+      const label = getSessionTabLabel(tab);
       button.textContent = label;
-      button.title = label;
+      const connectionLabel = getConnectionLabel(tab);
+      button.title = getTabTitleMode() === 'terminal-title'
+        ? `${label}\n${connectionLabel}`
+        : label;
 
       const closeBtn = document.createElement('span');
       closeBtn.className = 'close-btn';
-      closeBtn.textContent = '×';
+      closeBtn.innerHTML = '<i data-icon="x"></i>';
       closeBtn.addEventListener('click', (event) => {
         event.stopPropagation();
         closeTab(tab.id);
@@ -140,6 +180,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       });
       sessionTabs.appendChild(button);
     }
+    renderLucide(sessionTabs);
   }
 
   function setActiveSessionTab(tabId, options = {}) {
@@ -153,6 +194,9 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     renderSessionTabs();
     syncUiToActiveTab();
     fitActiveTerminal();
+    try {
+      window.dispatchEvent(new CustomEvent('marinashell:active-tab-changed', { detail: { tabId } }));
+    } catch (err) { }
     if (!options.skipPersist) {
       persistenceService.persistTabs();
     }
@@ -277,6 +321,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       host: initial.host || '',
       sessionType: initial.sessionType || (initial.host === LOCAL_HOST_VALUE ? 'local' : 'ssh'),
       connected: false,
+      terminalTitle: '',
       term,
       fitAddon,
       container,
@@ -293,8 +338,20 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       restoreConnected: Boolean(initial.connected),
       isBusy: false,
       treeRefreshTimer: null,
-      remotePathStyle: inferredStyle
+      remotePathStyle: inferredStyle,
+      activeTunnels: new Map() // ID -> { type, config, status, error }
     };
+
+    let titleRenderTimer = null;
+    term.onTitleChange((title) => {
+      tabState.terminalTitle = title || '';
+      if (getTabTitleMode() !== 'terminal-title') return;
+      if (titleRenderTimer) return;
+      titleRenderTimer = setTimeout(() => {
+        titleRenderTimer = null;
+        renderSessionTabs();
+      }, 80);
+    });
 
     term.onData((data) => {
       if (tabState.connected) {
@@ -413,6 +470,73 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     }
   }
 
+  function formatBytes(value) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n) || n <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let v = n;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i += 1;
+    }
+    const digits = i === 0 ? 0 : (i === 1 ? 1 : 2);
+    return `${v.toFixed(digits)} ${units[i]}`;
+  }
+
+  function updateSidebarTransfer(tab, payload) {
+    const wrap = state.elements.statusTransfer;
+    const labelEl = state.elements.statusTransferLabel;
+    const metaEl = state.elements.statusTransferMeta;
+    const fillEl = state.elements.statusTransferFill;
+    if (!wrap || !labelEl || !metaEl || !fillEl) return;
+    if (!tab || tab.id !== state.activeTabId) return;
+    if (!payload || !payload.id) return;
+
+    // Track which transfer should be shown in the sidebar.
+    if (!tab.latestTransferId) {
+      tab.latestTransferId = payload.id;
+    }
+    if (tab.latestTransferId !== payload.id) {
+      // Only show the most recent transfer for this tab.
+      return;
+    }
+
+    wrap.classList.add('visible');
+    if (payload.text) {
+      wrap.classList.add('indeterminate');
+      labelEl.textContent = tab.latestTransferLabel || 'Transfer';
+      metaEl.textContent = String(payload.text);
+      fillEl.style.width = '40%';
+      return;
+    }
+    wrap.classList.remove('indeterminate');
+    const transferred = Number(payload.transferred || 0);
+    const total = Number(payload.total || 0);
+    labelEl.textContent = tab.latestTransferLabel || 'Transfer';
+    if (!total) {
+      metaEl.textContent = `${formatBytes(transferred)} / ?`;
+      fillEl.style.width = '0%';
+      return;
+    }
+    const pct = Math.min(100, Math.round((transferred / total) * 100));
+    metaEl.textContent = `${pct}% · ${formatBytes(transferred)} / ${formatBytes(total)}`;
+    fillEl.style.width = `${pct}%`;
+    if (pct >= 100) {
+      setTimeout(() => {
+        // Hide once complete, but only if we're still showing the same transfer.
+        if (!wrap.classList.contains('visible')) return;
+        const active = getTab(state, tab.id);
+        if (!active || active.latestTransferId !== payload.id) return;
+        wrap.classList.remove('visible');
+        wrap.classList.remove('indeterminate');
+        fillEl.style.width = '0%';
+        labelEl.textContent = '';
+        metaEl.textContent = '';
+      }, 1200);
+    }
+  }
+
   function setupTerminalHandlers() {
     if (!state.api) {
       return;
@@ -443,25 +567,68 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     state.api.onSshExit((payload) => {
       const tab = getTab(state, payload.tabId);
       if (!tab) return;
+      if (tab.activeTunnels && typeof tab.activeTunnels.clear === 'function') {
+        tab.activeTunnels.clear();
+      }
       setConnectedForTab(tab, false);
       tab.isBusy = false;
       persistenceService.setStatus('Disconnected', true, tab);
       filesPanel.resetTreeForTab(tab, true);
       if (tab.id === state.activeTabId) {
         filesPanel.renderTree();
+        actionsPanel.renderTunnels();
       }
+      try {
+        window.dispatchEvent(new CustomEvent('marinashell:ssh-exit', { detail: payload }));
+      } catch (err) { }
     });
 
     state.api.onSshPrompt((payload) => {
       const tab = getTab(state, payload.tabId);
       if (!tab) return;
       tab.isBusy = false;
+      try {
+        window.dispatchEvent(new CustomEvent('marinashell:ssh-prompt', { detail: payload }));
+      } catch (err) { }
     });
 
     state.api.onSftpProgress((payload) => {
       if (!payload) return;
+      const tab = getTab(state, payload.tabId);
+      if (tab) {
+        if (!tab.latestTransferId) tab.latestTransferId = payload.id;
+        updateSidebarTransfer(tab, payload);
+      }
+      if (payload.text && typeof actionsPanel.updateTransferRowTextForTab === 'function') {
+        actionsPanel.updateTransferRowTextForTab(payload.tabId, payload.id, payload.text);
+        return;
+      }
       actionsPanel.updateTransferRowForTab(payload.tabId, payload.transferred, payload.total, payload.id);
     });
+
+    if (state.api.onTunnelStatus) { // check if exposed
+      state.api.onTunnelStatus((payload) => {
+        const tab = getTab(state, payload.tabId);
+        if (!tab) return;
+
+        const tunnelId = payload && (payload.tunnelId || payload.id) ? (payload.tunnelId || payload.id) : null;
+        if (!tunnelId) return;
+
+        const tunnel = tab.activeTunnels.get(tunnelId);
+        if (tunnel) {
+          if (payload.status === 'closed') {
+            tab.activeTunnels.delete(tunnelId);
+          } else {
+            tunnel.status = payload.status;
+            tunnel.error = payload.error;
+          }
+        }
+
+        if (tab.id === state.activeTabId) {
+          actionsPanel.renderTunnels();
+        }
+      });
+    }
 
     const resizeObserver = new ResizeObserver(() => {
       fitActiveTerminal();
@@ -493,6 +660,46 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     setTabHost(tab, host);
     persistenceService.setStatus(`Connected to ${label}`, false, tab);
 
+    // Start saved tunnels (optional)
+    const shouldAutoStart = settingsService && typeof settingsService.shouldAutoStartTunnels === 'function'
+      ? settingsService.shouldAutoStartTunnels()
+      : true;
+    const tunnelProfiles = shouldAutoStart ? persistenceService.getTunnelProfiles(host) : [];
+    if (tunnelProfiles && tunnelProfiles.length > 0) {
+      persistenceService.setStatus(`Starting ${tunnelProfiles.length} tunnels...`, false, tab);
+      for (const profile of tunnelProfiles) {
+        try {
+          const result = await state.api.createTunnel({
+            tabId: tab.id,
+            type: profile.type,
+            config: {
+              srcPort: profile.srcPort,
+              dstHost: profile.dstHost,
+              dstPort: profile.dstPort
+            }
+          });
+          if (result && result.ok) {
+            tab.activeTunnels.set(result.id, {
+              type: profile.type,
+              config: {
+                srcPort: profile.srcPort,
+                dstHost: profile.dstHost,
+                dstPort: profile.dstPort
+              },
+              status: 'ready'
+            });
+          }
+        } catch (err) {
+          console.error('Failed to start tunnel', err);
+        }
+      }
+      if (tab.id === state.activeTabId) {
+        actionsPanel.renderTunnels();
+      }
+      // Don’t leave the UI stuck on "Starting ... tunnels..."
+      persistenceService.setStatus(`Connected to ${label}`, false, tab);
+    }
+
     tab.navHistory = [];
     tab.navIndex = -1;
     tab.isBusy = false;
@@ -519,11 +726,15 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       return;
     }
     await state.api.disconnect(tab.id);
+    if (tab.activeTunnels && typeof tab.activeTunnels.clear === 'function') {
+      tab.activeTunnels.clear();
+    }
     setConnectedForTab(tab, false);
     persistenceService.setStatus('Disconnected', false, tab);
     filesPanel.resetTreeForTab(tab, true);
     if (tab.id === state.activeTabId) {
       filesPanel.renderTree();
+      actionsPanel.renderTunnels();
     }
   }
 
@@ -533,6 +744,9 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     if (tab.id === state.activeTabId) {
       updateConnectUi(tab);
     }
+    try {
+      window.dispatchEvent(new CustomEvent('marinashell:session-state-changed', { detail: { tabId: tab.id, connected: next } }));
+    } catch (err) { }
     persistenceService.persistTabs();
   }
 
@@ -579,12 +793,14 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     setupTerminalHandlers,
     createTabState,
     setActiveSessionTab,
+    fitActiveTerminal,
     connectTab,
     disconnectTab,
     renderSessionTabs,
     syncUiToActiveTab,
     createNewTab,
     closeActiveTab,
-    duplicateTab
+    duplicateTab,
+    setSidebarTab
   };
 }

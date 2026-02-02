@@ -4,7 +4,7 @@ const path = require('path');
 const { DEFAULT_SETTINGS } = require('../constants');
 
 function settingsPath() {
-  return path.join(os.homedir(), '.shelldock', 'settings.json');
+  return path.join(os.homedir(), '.marinashell', 'settings.json');
 }
 
 function mergeSettings(base, override) {

@@ -1,0 +1,8 @@
+{
+  "name": "tmux",
+  "version": "1.0.0",
+  "description": "tmux + GNU screen session manager",
+  "main": "main.js",
+  "renderer": "renderer.js"
+}
+

@@ -1,0 +1,8 @@
+{
+  "name": "screenshot",
+  "version": "1.0.0",
+  "description": "Capture MarinaShell window to clipboard or file",
+  "main": "main.js",
+  "renderer": "renderer.js"
+}
+

@@ -8,6 +8,7 @@ const { loadSettings, saveSettings } = require('./services/settingsStore');
 const { listConfigHosts, resolveHost } = require('./services/sshConfig');
 const { createSessionManager } = require('./services/sessionManager');
 const { createPasswordStore } = require('./services/passwordStore');
+const { createPluginManager } = require('./services/pluginManager');
 
 app.commandLine.appendSwitch('disable-background-networking');
 app.commandLine.appendSwitch(
@@ -24,8 +25,8 @@ const pendingPasswordRequests = new Map();
 let passwordRequestCounter = 0;
 
 function logDebug(...args) {
-  if (process.env.SHELLDOCK_DEBUG) {
-    console.log('[shelldock]', ...args);
+  if (process.env.MARINASHELL_DEBUG) {
+    console.log('[marinashell]', ...args);
   }
 }
 
@@ -177,6 +178,8 @@ app.whenReady().then(() => {
   state = loadState();
   settings = loadSettings();
   passwordStore = createPasswordStore({ app, logDebug });
+  pluginManager = createPluginManager({ app, sessionManager, getMainWindow: () => mainWindow, getSettings: () => settings });
+  pluginManager.init();
   buildMenu();
 
   ipcMain.handle('app:get-state', () => state);
@@ -193,7 +196,31 @@ app.whenReady().then(() => {
     if (!patch || typeof patch !== 'object') {
       return settings;
     }
+    const readDisabled = (value) => {
+      const node = value && value.plugins && value.plugins.disabled ? value.plugins.disabled.list : null;
+      const arr = node && typeof node === 'object' && Array.isArray(node.value) ? node.value : [];
+      return arr.map((v) => String(v));
+    };
+    const beforeDisabled = readDisabled(settings);
     settings = saveSettings(patch);
+    const afterDisabled = readDisabled(settings);
+    if (beforeDisabled.join('|') !== afterDisabled.join('|')) {
+      try {
+        if (pluginManager && typeof pluginManager.syncEnabled === 'function') {
+          pluginManager.syncEnabled();
+        }
+      } catch (err) {
+      }
+      try {
+        const windows = BrowserWindow.getAllWindows();
+        for (const w of windows) {
+          try {
+            w.webContents.send('plugins:changed', { disabled: afterDisabled });
+          } catch (err) { }
+        }
+      } catch (err) {
+      }
+    }
     return settings;
   });
 
@@ -265,6 +292,31 @@ app.whenReady().then(() => {
     const tabId = payload && payload.tabId ? payload.tabId : null;
     if (tabId) {
       await sessionManager.kill(tabId);
+    }
+    return { ok: true };
+  });
+
+  ipcMain.handle('ssh:create-tunnel', async (event, payload) => {
+    const tabId = payload && payload.tabId ? payload.tabId : null;
+    const type = payload && payload.type ? payload.type : 'local';
+    const config = payload && payload.config ? payload.config : {};
+
+    if (!tabId) return { ok: false, error: 'Missing tabId' };
+
+    try {
+      const result = await sessionManager.createTunnel(tabId, type, config);
+      return { ok: true, ...result };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('ssh:close-tunnel', async (event, payload) => {
+    const tabId = payload && payload.tabId ? payload.tabId : null;
+    const tunnelId = payload && payload.tunnelId ? payload.tunnelId : null;
+
+    if (tabId && tunnelId) {
+      sessionManager.closeTunnel(tabId, tunnelId);
     }
     return { ok: true };
   });
@@ -368,6 +420,84 @@ app.whenReady().then(() => {
     return { ok: true, localPath, id: transferId };
   });
 
+  function shellSingleQuote(value) {
+    return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+  }
+
+  ipcMain.handle('sftp:download-folder', async (_event, payload) => {
+    const tabId = payload && payload.tabId ? payload.tabId : null;
+    const remotePathRaw = payload && payload.remotePath ? String(payload.remotePath) : '';
+    if (!remotePathRaw) {
+      return { ok: false, error: 'Missing remote path' };
+    }
+    // Normalize trailing slash
+    const remotePath = remotePathRaw.replace(/\/+$/, '') || '/';
+    if (remotePath === '/') {
+      return { ok: false, error: 'Refusing to download "/" as an archive' };
+    }
+
+    let localPath = payload.localPath || '';
+    if (!localPath) {
+      const base = path.posix.basename(remotePath) || 'folder';
+      const result = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: `${base}.tar.gz`
+      });
+      if (result.canceled) {
+        return { ok: false, error: 'Download canceled' };
+      }
+      localPath = result.filePath;
+    }
+
+    const baseName = path.posix.basename(remotePath);
+    const parentDir = path.posix.dirname(remotePath);
+    const safeBase = String(baseName || 'folder').replace(/[^\w.-]+/g, '_').slice(0, 64) || 'folder';
+    const tmpRemote = `/tmp/marinashell-${Date.now()}-${safeBase}.tar.gz`;
+    const transferId = payload.id || `download-${Date.now()}`;
+
+    function sendTransferText(text) {
+      try {
+        const windows = BrowserWindow.getAllWindows();
+        for (const w of windows) {
+          try { w.webContents.send('sftp:progress', { tabId, id: transferId, text: String(text || '') }); } catch (err) { }
+        }
+      } catch (err) { }
+    }
+
+    try {
+      sendTransferText('Archiving…');
+      const tarCmd = `tar -C ${shellSingleQuote(parentDir)} -czf ${shellSingleQuote(tmpRemote)} ${shellSingleQuote(baseName)}`;
+      const res = await sessionManager.exec(tabId, tarCmd, { timeoutMs: 0 });
+      if (res && res.exitCode && Number(res.exitCode) !== 0) {
+        const combined = `${res.stderr || ''}\n${res.stdout || ''}`.trim();
+        throw new Error(combined || 'Failed to create archive');
+      }
+      sendTransferText('Downloading…');
+      await sessionManager.download(tabId, tmpRemote, localPath, transferId);
+      return { ok: true, localPath, id: transferId, archive: true };
+    } catch (err) {
+      return { ok: false, error: err && err.message ? err.message : 'Download failed' };
+    } finally {
+      try {
+        await sessionManager.exec(tabId, `rm -f ${shellSingleQuote(tmpRemote)}`, { timeoutMs: 8000 });
+      } catch (err) { }
+    }
+  });
+
+  ipcMain.handle('files:rename', async (_event, payload) => {
+    const tabId = payload && payload.tabId ? payload.tabId : null;
+    const oldPath = payload && payload.oldPath ? payload.oldPath : null;
+    const newPath = payload && payload.newPath ? payload.newPath : null;
+    if (!oldPath || !newPath) {
+      return { ok: false, error: 'Missing path' };
+    }
+    try {
+      await sessionManager.renamePath(tabId, oldPath, newPath);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err && err.message ? err.message : 'Rename failed' };
+    }
+  });
+
   ipcMain.handle('sftp:upload', async (event, payload) => {
     const tabId = payload && payload.tabId ? payload.tabId : null;
     const localPath = payload && payload.localPath ? payload.localPath : null;
@@ -386,6 +516,17 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+
+  ipcMain.handle('plugins:list', () => pluginManager ? pluginManager.getPluginsList() : []);
+  ipcMain.handle('plugins:install', async (event, payload) => {
+    if (!pluginManager) return { ok: false, error: 'Plugin manager not initialized' };
+    try {
+      const result = await pluginManager.installPlugin(payload.url);
+      return { ok: true, result };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
 });
 
 app.on('window-all-closed', () => {

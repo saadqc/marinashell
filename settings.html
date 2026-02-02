@@ -1,171 +1,221 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Shelldock Settings</title>
-    <style>
-      :root {
-        color-scheme: dark;
-      }
-      *,
-      *::before,
-      *::after {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        font-family: "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-        background: #0b0e14;
-        color: #e6e6e6;
-      }
-      header {
-        padding: 16px;
-        border-bottom: 1px solid #1f2430;
-      }
-      h1 {
-        font-size: 18px;
-        margin: 0;
-      }
-      main {
-        padding: 16px;
-        display: grid;
-        gap: 16px;
-      }
-      .card {
-        border: 1px solid #1f2430;
-        background: #0f1420;
-        border-radius: 10px;
-        padding: 12px;
-      }
-      .card h2 {
-        margin: 0 0 8px;
-        font-size: 14px;
-        color: #9aa4b2;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-      label {
-        display: block;
-        font-size: 12px;
-        margin-bottom: 6px;
-        color: #b5bfcc;
-      }
-      input,
-      select,
-      textarea {
-        width: 100%;
-        font-size: 12px;
-        padding: 8px;
-        border-radius: 6px;
-        border: 1px solid #2a2f3a;
-        background: #141a26;
-        color: #e6e6e6;
-        margin-bottom: 10px;
-      }
-      textarea {
-        min-height: 120px;
-        font-family: "SF Mono", Menlo, monospace;
-        resize: vertical;
-      }
-      .checkbox-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-      .checkbox-row input[type="checkbox"] {
-        width: auto;
-        margin: 0;
-      }
-      .checkbox-row label {
-        margin: 0;
-      }
-      .hint {
-        font-size: 11px;
-        color: #7c8796;
-        margin-top: -6px;
-        margin-bottom: 10px;
-      }
-      .status {
-        font-size: 12px;
-        color: #8dd0ff;
-      }
-      .status.error {
-        color: #f38ba8;
-      }
-    </style>
-  </head>
-  <body>
-    <header>
-      <h1>Settings</h1>
-    </header>
-    <main>
-      <div class="card">
-        <h2>Editor</h2>
-        <label for="editor-mode">Open mode</label>
-        <select id="editor-mode">
-          <option value="remote-shell">Remote shell command</option>
-          <option value="local-command">Local command</option>
-          <option value="local-download">Download and open locally</option>
-          <option value="sftp-uri">Open sftp:// URI</option>
-        </select>
-        <label for="editor-command">Remote command template</label>
-        <input id="editor-command" type="text" />
-        <div class="hint">Use {path}, {escapedPath}, {host}, {user}, {port}</div>
-        <label for="editor-local-command">Local command template</label>
-        <input id="editor-local-command" type="text" />
-        <div class="hint">Use {path}, {host}, {user}, {port}, {sftpUri}</div>
-        <label for="editor-uri">SFTP URI template</label>
-        <input id="editor-uri" type="text" />
-        <div class="hint">Use {path}, {host}, {user}, {port}</div>
-        <label for="editor-associations">File associations (JSON)</label>
-        <textarea id="editor-associations"></textarea>
-        <div class="hint">Array of {pattern, mode, commandTemplate, localCommandTemplate, sftpUriTemplate}</div>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>MarinaShell - Settings</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background: #0b0e14;
+      color: #e6e6e6;
+    }
+
+    header {
+      padding: 16px;
+      border-bottom: 1px solid #1f2430;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin: 0;
+    }
+
+    main {
+      padding: 16px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .card {
+      border: 1px solid #1f2430;
+      background: #0f1420;
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #9aa4b2;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 6px;
+      color: #b5bfcc;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      font-size: 12px;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #2a2f3a;
+      background: #141a26;
+      color: #e6e6e6;
+      margin-bottom: 10px;
+    }
+
+    textarea {
+      min-height: 120px;
+      font-family: "SF Mono", Menlo, monospace;
+      resize: vertical;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+
+    .checkbox-row label {
+      margin: 0;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: #7c8796;
+      margin-top: -6px;
+      margin-bottom: 10px;
+    }
+
+    .status {
+      font-size: 12px;
+      color: #8dd0ff;
+    }
+
+    .status.error {
+      color: #f38ba8;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Settings</h1>
+  </header>
+  <main>
+    <div class="card">
+      <h2>Editor</h2>
+      <label for="editor-mode">Open mode</label>
+      <select id="editor-mode">
+        <option value="remote-shell">Remote shell command</option>
+        <option value="local-command">Local command</option>
+        <option value="local-download">Download and open locally</option>
+        <option value="sftp-uri">Open sftp:// URI</option>
+      </select>
+      <label for="editor-command">Remote command template</label>
+      <input id="editor-command" type="text" />
+      <div class="hint">Use {path}, {escapedPath}, {host}, {user}, {port}</div>
+      <label for="editor-local-command">Local command template</label>
+      <input id="editor-local-command" type="text" />
+      <div class="hint">Use {path}, {host}, {user}, {port}, {sftpUri}</div>
+      <label for="editor-uri">SFTP URI template</label>
+      <input id="editor-uri" type="text" />
+      <div class="hint">Use {path}, {host}, {user}, {port}</div>
+      <label for="editor-associations">File associations (JSON)</label>
+      <textarea id="editor-associations"></textarea>
+      <div class="hint">Array of {pattern, mode, commandTemplate, localCommandTemplate, sftpUriTemplate}</div>
+    </div>
+    <div class="card">
+      <h2>UI</h2>
+      <label for="tree-page-size">Tree page size</label>
+      <input id="tree-page-size" type="number" min="100" max="2000" step="50" />
+      <div class="hint">Maximum nodes per directory page in the tree view.</div>
+      <label for="session-tab-title-mode">Session tab title</label>
+      <select id="session-tab-title-mode">
+        <option value="connection">Connection (ssh:host)</option>
+        <option value="terminal-title">Terminal title (shell/process title)</option>
+      </select>
+      <div class="hint">“Terminal title” uses OSC title updates from your shell when available.</div>
+      <div class="checkbox-row">
+        <input id="restore-tabs" type="checkbox" />
+        <label for="restore-tabs">Restore tabs on launch</label>
       </div>
-      <div class="card">
-        <h2>UI</h2>
-        <label for="tree-page-size">Tree page size</label>
-        <input id="tree-page-size" type="number" min="100" max="2000" step="50" />
-        <div class="hint">Maximum nodes per directory page in the tree view.</div>
-        <div class="checkbox-row">
-          <input id="restore-tabs" type="checkbox" />
-          <label for="restore-tabs">Restore tabs on launch</label>
-        </div>
-        <div class="hint">Reopen tabs with their last known host and directory.</div>
-        <div class="checkbox-row">
-          <input id="auto-connect" type="checkbox" />
-          <label for="auto-connect">Auto connect on host select</label>
-        </div>
-        <div class="hint">Connect immediately when selecting a host from the dropdown.</div>
+      <div class="hint">Reopen tabs with their last known host and directory.</div>
+      <div class="checkbox-row">
+        <input id="auto-connect" type="checkbox" />
+        <label for="auto-connect">Auto connect on host select</label>
       </div>
-      <div class="card">
-        <h2>Local shell</h2>
-        <label for="local-shell-command">Shell command</label>
-        <input id="local-shell-command" type="text" placeholder="auto" />
-        <div class="hint">Leave blank for defaults: macOS /bin/zsh, Linux /bin/bash, Windows cmd.exe.</div>
-        <label for="local-shell-args">Shell args</label>
-        <input id="local-shell-args" type="text" placeholder="auto" />
-        <div class="hint">Leave blank for auto: login shell on macOS/Linux, none on Windows.</div>
-        <label for="local-shell-path-prepend">PATH prepend</label>
-        <input id="local-shell-path-prepend" type="text" placeholder="auto" />
-        <div class="hint">Optional. Use : (macOS/Linux) or ; (Windows) separators.</div>
-        <div class="checkbox-row">
-          <input id="local-shell-mac-paths" type="checkbox" />
-          <label for="local-shell-mac-paths">Inject macOS Homebrew PATH</label>
-        </div>
-        <div class="hint">Adds /opt/homebrew and /usr/local entries on macOS when enabled.</div>
+      <div class="hint">Connect immediately when selecting a host from the dropdown.</div>
+      <div class="checkbox-row">
+        <input id="auto-start-tunnels" type="checkbox" />
+        <label for="auto-start-tunnels">Auto start saved tunnels on connect</label>
       </div>
-      <div class="card">
-        <h2>Shortcuts</h2>
-        <label for="shortcut-new-tab">New tab</label>
-        <input id="shortcut-new-tab" type="text" placeholder="mod+t" />
-        <div class="hint">Use mod for Cmd/Ctrl. Example: mod+t or ctrl+t.</div>
-        <label for="shortcut-close-tab">Close tab</label>
-        <input id="shortcut-close-tab" type="text" placeholder="mod+w" />
-        <div class="hint">Example: mod+w or cmd+w.</div>
+      <div class="hint">Starts your saved Port Forwarding profiles whenever you connect.</div>
+      <div class="checkbox-row">
+        <input id="enable-docker-rpc" type="checkbox" />
+        <label for="enable-docker-rpc">Enable Docker RPC (Experimental)</label>
       </div>
-      <div class="status" id="settings-status">Saved</div>
-    </main>
-    <script src="settings.js"></script>
-  </body>
+      <div class="hint">Allow plugins to run RPC servers on remote mainframes.</div>
+    </div>
+    <div class="card">
+      <h2>Local shell</h2>
+      <label for="local-shell-command">Shell command</label>
+      <input id="local-shell-command" type="text" placeholder="auto" />
+      <div class="hint">Leave blank for defaults: macOS /bin/zsh, Linux /bin/bash, Windows cmd.exe.</div>
+      <label for="local-shell-args">Shell args</label>
+      <input id="local-shell-args" type="text" placeholder="auto" />
+      <div class="hint">Leave blank for auto: login shell on macOS/Linux, none on Windows.</div>
+      <label for="local-shell-path-prepend">PATH prepend</label>
+      <input id="local-shell-path-prepend" type="text" placeholder="auto" />
+      <div class="hint">Optional. Use : (macOS/Linux) or ; (Windows) separators.</div>
+      <div class="checkbox-row">
+        <input id="local-shell-mac-paths" type="checkbox" />
+        <label for="local-shell-mac-paths">Inject macOS Homebrew PATH</label>
+      </div>
+      <div class="hint">Adds /opt/homebrew and /usr/local entries on macOS when enabled.</div>
+    </div>
+    <div class="card">
+      <h2>Shortcuts</h2>
+      <label for="shortcut-new-tab">New tab</label>
+      <input id="shortcut-new-tab" type="text" placeholder="mod+t" />
+      <div class="hint">Use mod for Cmd/Ctrl. Example: mod+t or ctrl+t.</div>
+      <label for="shortcut-close-tab">Close tab</label>
+      <input id="shortcut-close-tab" type="text" placeholder="mod+w" />
+      <div class="hint">Example: mod+w or cmd+w.</div>
+    </div>
+    <div class="card">
+      <h2>Plugins</h2>
+      <div id="plugin-list" style="margin-bottom: 15px; display: flex; flex-direction: column; gap: 8px;">
+        <!-- Plugin list items injected here -->
+        <div class="hint">No plugins installed.</div>
+      </div>
+      <label for="plugin-install-url">Install from GitHub</label>
+      <div style="display: flex; gap: 8px;">
+        <input id="plugin-install-url" type="text" placeholder="https://github.com/user/repo"
+          style="margin-bottom: 0;" />
+        <button id="plugin-install-btn"
+          style="white-space: nowrap; cursor: pointer; padding: 0 12px; background: #2a2f3a; color: #e6e6e6; border: 1px solid #1f2430; border-radius: 6px;">Install</button>
+      </div>
+      <div class="hint" style="margin-top: 6px;">Enter a Git repository URL to clone into ~/.marinashell/plugins/</div>
+    </div>
+    <div class="status" id="settings-status">Saved</div>
+  </main>
+  <script src="settings.js"></script>
+</body>
+
 </html>

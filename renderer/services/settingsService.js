@@ -58,6 +58,10 @@ export function createSettingsService(state) {
     return Boolean(readSettingValue('ui', 'connection', 'autoConnectOnSelect', false));
   }
 
+  function shouldAutoStartTunnels() {
+    return Boolean(readSettingValue('ui', 'connection', 'autoStartTunnels', true));
+  }
+
   return {
     readSettingValue,
     readSettingList,
@@ -65,6 +69,7 @@ export function createSettingsService(state) {
     shouldRestoreTabs,
     getEditorSettings,
     getShortcutBindings,
-    shouldAutoConnectOnSelect
+    shouldAutoConnectOnSelect,
+    shouldAutoStartTunnels
   };
 }

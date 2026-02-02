@@ -1,9 +1,12 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { exec: execChildProcess } = require('child_process');
 const pty = require('node-pty');
 const SftpClient = require('ssh2-sftp-client');
 require('ssh2');
+const tunnelService = require('./tunnelService');
+const { Client: SshClient } = require('ssh2');
 
 const OSC7_PREFIX = '\u001b]7;file://';
 const OSC7_BEL = '\u0007';
@@ -11,6 +14,58 @@ const OSC7_ST = '\u001b\\';
 const MAX_PASSWORD_ATTEMPTS = 3;
 const PASSWORD_PROMPT_REGEX = /(password:|passphrase[^:]*:)/i;
 const WINDOWS_PROMPT_REGEX = /(?:^|[\r\n])\s*(?:PS\s+)?([A-Za-z]:\\[^\r\n>]*)>\s?/g;
+const METRICS_INTERVAL_MS = 2000;
+const METRICS_TIMEOUT_MS = 8000;
+const METRICS_MARKERS = ['__MS_STAT__', '__MS_MEM__', '__MS_NET__', '__MS_DF__', '__MS_DF_ALL__'];
+
+function normalizePosixCwd(value) {
+  const cwd = String(value || '').trim();
+  if (!cwd) return '/';
+  // Only accept POSIX-like paths for remote `sh -c` commands.
+  if (cwd.startsWith('/')) return cwd;
+  return '/';
+}
+
+function buildSshMetricsCommand(cwd) {
+  const safeCwd = normalizePosixCwd(cwd);
+  const dfCwdPart = [
+    `cd ${shellQuote(safeCwd)} 2>/dev/null && df -P -B1 . 2>/dev/null`,
+    'df -P -B1 / 2>/dev/null',
+    'true'
+  ].join(' || ');
+  return [
+    'sh -c',
+    shellQuote([
+      'echo __MS_STAT__',
+      'cat /proc/stat 2>/dev/null || true',
+      'echo __MS_MEM__',
+      'cat /proc/meminfo 2>/dev/null || true',
+      'echo __MS_NET__',
+      'cat /proc/net/dev 2>/dev/null || true',
+      'echo __MS_DF__',
+      dfCwdPart,
+      'echo __MS_DF_ALL__',
+      'df -P -B1 2>/dev/null || true'
+    ].join('; '))
+  ].join(' ');
+}
+
+function buildLocalDfCommand(cwd) {
+  const target = String(cwd || '').trim() || os.homedir();
+  // `-P` is portable; `-k` works on macOS + Linux and makes parsing easier.
+  return `df -P -k ${shellQuote(target)} 2>/dev/null`;
+}
+
+function buildLocalDfAllCommand(cwd) {
+  const target = String(cwd || '').trim() || os.homedir();
+  const script = [
+    'echo __MS_DF__',
+    `df -P -k ${shellQuote(target)} 2>/dev/null || true`,
+    'echo __MS_DF_ALL__',
+    'df -P -k 2>/dev/null || true'
+  ].join('; ');
+  return ['sh -c', shellQuote(script)].join(' ');
+}
 
 function stripAnsi(value) {
   return String(value || '').replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
@@ -107,6 +162,125 @@ function isAuthError(err) {
     || message.includes('auth fail');
 }
 
+function parseMarkedSections(stdout) {
+  const text = String(stdout || '');
+  const markers = METRICS_MARKERS;
+  const sections = new Map();
+  for (let i = 0; i < markers.length; i += 1) {
+    const marker = markers[i];
+    const start = text.indexOf(marker);
+    if (start === -1) continue;
+    const contentStart = start + marker.length;
+    const end = i < markers.length - 1 ? text.indexOf(markers[i + 1], contentStart) : text.length;
+    const chunk = end === -1 ? text.slice(contentStart) : text.slice(contentStart, end);
+    sections.set(marker, chunk.trim());
+  }
+  return sections;
+}
+
+function parseProcStatCpu(section) {
+  const lines = String(section || '').split(/\r?\n/);
+  const cpuLine = lines.find((line) => line.startsWith('cpu '));
+  if (!cpuLine) return null;
+  const parts = cpuLine.trim().split(/\s+/).slice(1).map((v) => Number(v));
+  if (parts.length < 4 || parts.some((v) => !Number.isFinite(v))) return null;
+  const idle = parts[3] || 0;
+  const iowait = parts[4] || 0;
+  const idleAll = idle + iowait;
+  const total = parts.reduce((sum, v) => sum + (Number.isFinite(v) ? v : 0), 0);
+  return { total, idle: idleAll };
+}
+
+function parseMemInfo(section) {
+  const lines = String(section || '').split(/\r?\n/);
+  let totalKb = null;
+  let availKb = null;
+  for (const line of lines) {
+    const parts = line.split(':');
+    if (parts.length < 2) continue;
+    const key = parts[0].trim();
+    const rest = parts.slice(1).join(':').trim();
+    const value = Number(rest.split(/\s+/)[0]);
+    if (!Number.isFinite(value)) continue;
+    if (key === 'MemTotal') totalKb = value;
+    if (key === 'MemAvailable') availKb = value;
+  }
+  if (totalKb == null) return null;
+  return {
+    memTotal: totalKb * 1024,
+    memAvailable: availKb != null ? availKb * 1024 : null
+  };
+}
+
+function parseNetDev(section) {
+  const lines = String(section || '').split(/\r?\n/);
+  let rx = 0;
+  let tx = 0;
+  for (const line of lines) {
+    if (!line.includes(':')) continue;
+    const [ifaceRaw, rest] = line.split(':', 2);
+    const iface = (ifaceRaw || '').trim();
+    if (!iface || iface === 'lo') continue;
+    const fields = String(rest || '').trim().split(/\s+/);
+    const rxBytes = Number(fields[0]);
+    const txBytes = Number(fields[8]);
+    if (Number.isFinite(rxBytes)) rx += rxBytes;
+    if (Number.isFinite(txBytes)) tx += txBytes;
+  }
+  if (!Number.isFinite(rx) || !Number.isFinite(tx)) return null;
+  return { rxBytes: rx, txBytes: tx };
+}
+
+function parseDfLinePortable(line, unitBytes) {
+  const tokens = String(line || '').trim().split(/\s+/).filter(Boolean);
+  // We support both Linux and macOS `df -P` output.
+  // Strategy: find the first 3 integer tokens (blocks, used, available) and take the last token as mount.
+  if (tokens.length < 6) return null;
+  const mount = tokens[tokens.length - 1] || '';
+  let firstNumIdx = -1;
+  const nums = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (/^\d+$/.test(tokens[i])) {
+      if (firstNumIdx === -1) firstNumIdx = i;
+      nums.push(Number(tokens[i]));
+      if (nums.length >= 3) break;
+    }
+  }
+  if (nums.length < 3 || firstNumIdx === -1) return null;
+  const filesystem = tokens.slice(0, firstNumIdx).join(' ');
+  const total = nums[0] * unitBytes;
+  const used = nums[1] * unitBytes;
+  const available = nums[2] * unitBytes;
+  const capacity = tokens.find((t) => /^\d+%$/.test(t)) || '';
+  if (!Number.isFinite(total) || !Number.isFinite(used)) return null;
+  return {
+    filesystem,
+    total,
+    used,
+    available: Number.isFinite(available) ? available : null,
+    capacity,
+    mount
+  };
+}
+
+function parseDfList(section, unitBytes) {
+  const lines = String(section || '').split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const body = lines.filter((line) => !String(line).trim().toLowerCase().startsWith('filesystem'));
+  const entries = [];
+  for (const line of body) {
+    const parsed = parseDfLinePortable(line, unitBytes);
+    if (!parsed || !parsed.mount) continue;
+    entries.push(parsed);
+  }
+  return entries;
+}
+
+function parseDfSingle(section, unitBytes) {
+  const list = parseDfList(section, unitBytes);
+  return list.length ? list[0] : null;
+}
+
 function getDefaultLocalShell() {
   if (process.platform === 'win32') {
     return process.env.COMSPEC || 'cmd.exe';
@@ -176,7 +350,7 @@ function buildLocalBootstrapScript(settings) {
   }
   const quotedEntries = prependEntries.map((entry) => shellQuote(entry)).join(' ');
   return [
-    '__shelldock_prepend_path() {',
+    '__marinashell_prepend_path() {',
     '  local entry',
     `  for entry in ${quotedEntries}; do`,
     '    case ":$PATH:" in',
@@ -186,7 +360,7 @@ function buildLocalBootstrapScript(settings) {
     '  done',
     '  export PATH',
     '}',
-    '__shelldock_prepend_path'
+    '__marinashell_prepend_path'
   ].join('\n');
 }
 
@@ -354,14 +528,7 @@ function injectPromptTracking(session, settings) {
   if (localBootstrap) {
     parts.push(localBootstrap);
   }
-  parts.push([
-    '__shelldock_pwd() { printf "\\033]7;file://%s%s\\007" "${HOSTNAME:-localhost}" "$PWD"; }',
-    'if [ -n "$ZSH_VERSION" ]; then',
-    '  precmd_functions+=(__shelldock_pwd)',
-    'else',
-    '  export PROMPT_COMMAND="__shelldock_pwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"',
-    'fi'
-  ].join('\n'));
+  parts.push(' __marinashell_pwd() { printf "\\033]7;file://%s%s\\007" "${HOSTNAME:-localhost}" "$PWD"; }; if [ -n "$ZSH_VERSION" ]; then precmd_functions+=(__marinashell_pwd); else export PROMPT_COMMAND="__marinashell_pwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; fi');
   session.ptyProcess.write(`${parts.join('\n')}\n`);
 }
 
@@ -390,7 +557,13 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
         lastPassword: null,
         rememberPassword: false,
         hostKey: '',
-        authWindowUntil: 0
+        authWindowUntil: 0,
+        tunnelClient: null,
+        activeTunnels: new Set(),
+        disconnecting: false,
+        metricsTimer: null,
+        metricsInFlight: false,
+        metricsPrev: null
       });
     }
     return sessions.get(tabId);
@@ -400,6 +573,354 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     if (typeof sendToRenderer === 'function') {
       sendToRenderer(channel, payload);
     }
+  }
+
+  function getLocalExecContext() {
+    const settings = typeof getSettings === 'function' ? getSettings() : null;
+    const commandSetting = readSetting(settings, 'shell', 'local', 'command', '');
+    const normalizedCommand = stripWrappingQuotes(commandSetting);
+    const useDefault = !normalizedCommand || normalizedCommand.toLowerCase() === 'auto';
+    let shell = useDefault ? getDefaultLocalShell() : normalizedCommand;
+    // `child_process.exec` expects a shell path (no args). If misconfigured, fall back.
+    if (/\s/.test(shell)) {
+      shell = getDefaultLocalShell();
+    }
+    const env = buildLocalEnv(shell, settings);
+    return { shell, env };
+  }
+
+  function execLocalCommand(command, timeoutMs) {
+    const { shell, env } = getLocalExecContext();
+    return new Promise((resolve) => {
+      execChildProcess(
+        command,
+        {
+          shell,
+          env,
+          timeout: timeoutMs > 0 ? timeoutMs : undefined,
+          maxBuffer: 10 * 1024 * 1024
+        },
+        (err, stdout, stderr) => {
+          if (!err) {
+            resolve({ stdout: stdout || '', stderr: stderr || '', exitCode: 0 });
+            return;
+          }
+          const code = typeof err.code === 'number' ? err.code : 1;
+          const out = stdout || '';
+          const errOut = stderr || (err && err.message ? String(err.message) : '');
+          resolve({ stdout: out, stderr: errOut, exitCode: code });
+        }
+      );
+    });
+  }
+
+  function getMetricsClient(session) {
+    if (session && session.sftpClient && session.sftpClient.client && typeof session.sftpClient.client.exec === 'function') {
+      return session.sftpClient.client;
+    }
+    if (session && session.tunnelClient && typeof session.tunnelClient.exec === 'function') {
+      return session.tunnelClient;
+    }
+    return null;
+  }
+
+  function execWithClient(client, command, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      let timer = null;
+      let stdout = '';
+      let stderr = '';
+      let exitCode = null;
+      let streamRef = null;
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      };
+
+      client.exec(command, (err, stream) => {
+        if (err) {
+          cleanup();
+          reject(err);
+          return;
+        }
+        streamRef = stream;
+
+        if (timeoutMs > 0) {
+          timer = setTimeout(() => {
+            cleanup();
+            try {
+              streamRef && typeof streamRef.close === 'function' ? streamRef.close() : streamRef.destroy();
+            } catch (e) { }
+            reject(new Error('Remote command timed out'));
+          }, timeoutMs);
+        }
+
+        stream.on('data', (chunk) => { stdout += chunk.toString(); });
+        if (stream.stderr && typeof stream.stderr.on === 'function') {
+          stream.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+        }
+        stream.on('exit', (code) => { exitCode = code; });
+        stream.on('close', () => {
+          cleanup();
+          resolve({ stdout, stderr, exitCode });
+        });
+        stream.on('error', (streamErr) => {
+          cleanup();
+          reject(streamErr);
+        });
+      });
+    });
+  }
+
+  function stopMetrics(tabId) {
+    const session = getSession(tabId);
+    if (!session) return;
+    if (session.metricsTimer) {
+      clearInterval(session.metricsTimer);
+      session.metricsTimer = null;
+    }
+    session.metricsInFlight = false;
+    session.metricsPrev = null;
+    send('ssh:metrics', { tabId, connected: false });
+  }
+
+  async function pollMetrics(tabId) {
+    const session = getSession(tabId);
+    if (!session) return;
+    if (session.disconnecting) return;
+    if (!session.hostConfig || (session.sessionType !== 'ssh' && session.sessionType !== 'local')) return;
+    if (session.metricsInFlight) return;
+
+    session.metricsInFlight = true;
+    try {
+      const now = Date.now();
+      const payload = { tabId, connected: true };
+
+      if (session.sessionType === 'ssh') {
+        const client = getMetricsClient(session);
+        if (!client) return;
+        const cmd = buildSshMetricsCommand(session.lastCwd);
+        const { stdout } = await execWithClient(client, cmd, METRICS_TIMEOUT_MS);
+        const sections = parseMarkedSections(stdout);
+
+        const cpu = parseProcStatCpu(sections.get('__MS_STAT__'));
+        const mem = parseMemInfo(sections.get('__MS_MEM__'));
+        const net = parseNetDev(sections.get('__MS_NET__'));
+        const disk = parseDfSingle(sections.get('__MS_DF__'), 1);
+        const disksAll = parseDfList(sections.get('__MS_DF_ALL__'), 1);
+
+        payload.host = session.hostConfig.hostName || session.hostConfig.alias || '';
+        payload.user = session.hostConfig.user || process.env.USER || '';
+
+        if (mem && mem.memTotal != null) {
+          payload.memTotal = mem.memTotal;
+          if (mem.memAvailable != null) {
+            payload.memUsed = Math.max(0, mem.memTotal - mem.memAvailable);
+          }
+        }
+
+        if (disk && disk.total != null) {
+          payload.diskTotal = disk.total;
+          payload.diskUsed = disk.used;
+          if (disk.mount) payload.diskMount = disk.mount;
+          if (disk.filesystem) payload.diskFs = disk.filesystem;
+        }
+
+        if (disksAll && disksAll.length) {
+          payload.disks = disksAll.map((d) => ({
+            filesystem: d.filesystem || '',
+            mount: d.mount || '',
+            total: d.total,
+            used: d.used,
+            available: d.available
+          }));
+        }
+
+        if (cpu && cpu.total != null && cpu.idle != null) {
+          if (session.metricsPrev && session.metricsPrev.cpuTotal != null && session.metricsPrev.cpuIdle != null) {
+            const totalDelta = cpu.total - session.metricsPrev.cpuTotal;
+            const idleDelta = cpu.idle - session.metricsPrev.cpuIdle;
+            if (totalDelta > 0) {
+              payload.cpuPct = Math.max(0, Math.min(100, ((totalDelta - idleDelta) / totalDelta) * 100));
+            }
+          }
+        }
+
+        if (net && Number.isFinite(net.rxBytes) && Number.isFinite(net.txBytes)) {
+          if (session.metricsPrev && session.metricsPrev.netAt && Number.isFinite(session.metricsPrev.rxBytes) && Number.isFinite(session.metricsPrev.txBytes)) {
+            const dt = (now - session.metricsPrev.netAt) / 1000;
+            if (dt > 0) {
+              payload.rxBps = Math.max(0, (net.rxBytes - session.metricsPrev.rxBytes) / dt);
+              payload.txBps = Math.max(0, (net.txBytes - session.metricsPrev.txBytes) / dt);
+            }
+          }
+        }
+
+        session.metricsPrev = {
+          cpuTotal: cpu ? cpu.total : null,
+          cpuIdle: cpu ? cpu.idle : null,
+          rxBytes: net ? net.rxBytes : null,
+          txBytes: net ? net.txBytes : null,
+          netAt: now
+        };
+      } else {
+        // Local session: best-effort metrics. CPU/mem from Node, disk via `df`.
+        payload.host = os.hostname();
+        payload.user = process.env.USER || process.env.USERNAME || '';
+
+        try {
+          const totalMem = os.totalmem();
+          const freeMem = os.freemem();
+          if (Number.isFinite(totalMem) && totalMem > 0) {
+            payload.memTotal = totalMem;
+            payload.memUsed = Math.max(0, totalMem - (Number.isFinite(freeMem) ? freeMem : 0));
+          }
+        } catch (err) { }
+
+        try {
+          const cpus = os.cpus();
+          if (Array.isArray(cpus) && cpus.length) {
+            let total = 0;
+            let idle = 0;
+            for (const cpu of cpus) {
+              const times = cpu && cpu.times ? cpu.times : null;
+              if (!times) continue;
+              total += (times.user || 0) + (times.nice || 0) + (times.sys || 0) + (times.idle || 0) + (times.irq || 0);
+              idle += (times.idle || 0);
+            }
+            if (session.metricsPrev && session.metricsPrev.cpuTotal != null && session.metricsPrev.cpuIdle != null) {
+              const totalDelta = total - session.metricsPrev.cpuTotal;
+              const idleDelta = idle - session.metricsPrev.cpuIdle;
+              if (totalDelta > 0) {
+                payload.cpuPct = Math.max(0, Math.min(100, ((totalDelta - idleDelta) / totalDelta) * 100));
+              }
+            }
+            session.metricsPrev = { ...(session.metricsPrev || {}), cpuTotal: total, cpuIdle: idle, netAt: now };
+          }
+        } catch (err) { }
+
+        if (process.platform !== 'win32') {
+          try {
+            const cwd = session.lastCwd || os.homedir();
+            const cmd = buildLocalDfAllCommand(cwd);
+            const { stdout } = await new Promise((resolve) => {
+              execChildProcess(cmd, { timeout: METRICS_TIMEOUT_MS }, (error, out, _err) => {
+                if (error) return resolve({ stdout: '' });
+                resolve({ stdout: out || '' });
+              });
+            });
+            const sections = parseMarkedSections(stdout);
+            const disk = parseDfSingle(sections.get('__MS_DF__'), 1024);
+            const disksAll = parseDfList(sections.get('__MS_DF_ALL__'), 1024);
+            if (disk && disk.total != null) {
+              payload.diskTotal = disk.total;
+              payload.diskUsed = disk.used;
+              if (disk.mount) payload.diskMount = disk.mount;
+              if (disk.filesystem) payload.diskFs = disk.filesystem;
+            }
+            if (disksAll && disksAll.length) {
+              payload.disks = disksAll.map((d) => ({
+                filesystem: d.filesystem || '',
+                mount: d.mount || '',
+                total: d.total,
+                used: d.used,
+                available: d.available
+              }));
+            }
+          } catch (err) { }
+        }
+      }
+
+      send('ssh:metrics', payload);
+    } catch (err) {
+      send('ssh:metrics', {
+        tabId,
+        connected: true,
+        host: session.sessionType === 'local'
+          ? os.hostname()
+          : (session.hostConfig && (session.hostConfig.hostName || session.hostConfig.alias) ? (session.hostConfig.hostName || session.hostConfig.alias) : ''),
+        user: session.sessionType === 'local'
+          ? (process.env.USER || process.env.USERNAME || '')
+          : (session.hostConfig && session.hostConfig.user ? session.hostConfig.user : (process.env.USER || ''))
+      });
+    } finally {
+      session.metricsInFlight = false;
+    }
+  }
+
+  function startMetrics(tabId) {
+    const session = getSession(tabId);
+    if (!session) return;
+    if (session.sessionType !== 'ssh' && session.sessionType !== 'local') return;
+    stopMetrics(tabId);
+    session.metricsTimer = setInterval(() => {
+      pollMetrics(tabId).catch(() => { });
+    }, METRICS_INTERVAL_MS);
+    pollMetrics(tabId).catch(() => { });
+  }
+
+  async function exec(tabId, command, options = {}) {
+    const session = getSession(tabId);
+    if (!session) throw new Error('Invalid tab');
+    const timeoutMs = options.timeoutMs ? Number(options.timeoutMs) : 20000;
+    if (session.sessionType === 'local') {
+      return execLocalCommand(command, timeoutMs);
+    }
+    if (!session.hostConfig) {
+      throw new Error('Not connected');
+    }
+
+    if (!session.tunnelClient) {
+      await ensureTunnelConnection(tabId, session.hostConfig);
+    }
+    const client = session.tunnelClient;
+
+    return new Promise((resolve, reject) => {
+      let timer = null;
+      let stdout = '';
+      let stderr = '';
+      let exitCode = null;
+      let streamRef = null;
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      };
+
+      client.exec(command, (err, stream) => {
+        if (err) {
+          cleanup();
+          reject(err);
+          return;
+        }
+        streamRef = stream;
+
+        if (timeoutMs > 0) {
+          timer = setTimeout(() => {
+            cleanup();
+            try {
+              streamRef && typeof streamRef.close === 'function' ? streamRef.close() : streamRef.destroy();
+            } catch (e) { }
+            reject(new Error('Remote command timed out'));
+          }, timeoutMs);
+        }
+
+        stream.on('data', (chunk) => { stdout += chunk.toString(); });
+        if (stream.stderr && typeof stream.stderr.on === 'function') {
+          stream.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+        }
+
+        stream.on('exit', (code) => { exitCode = code; });
+        stream.on('close', () => {
+          cleanup();
+          resolve({ stdout, stderr, exitCode });
+        });
+        stream.on('error', (streamErr) => {
+          cleanup();
+          reject(streamErr);
+        });
+      });
+    });
   }
 
   function resetPasswordState(session) {
@@ -540,7 +1061,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
 
     session.ptyProcess.onData((data) => {
       if (detectPasswordPrompt(session, data)) {
-        handlePasswordPrompt(tabId, session).catch(() => {});
+        handlePasswordPrompt(tabId, session).catch(() => { });
       }
       const cwdUpdates = consumeOsc7Sequences(session, data);
       for (const cwd of cwdUpdates) {
@@ -565,6 +1086,9 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
 
     session.ptyProcess.onExit(() => {
       send('ssh:exit', { tabId });
+      // Ensure tunnel forwards are always closed when the SSH terminal ends unexpectedly.
+      // (Port forwarding runs on `tunnelClient`, which can outlive the PTY unless we clean it up.)
+      disconnect(tabId).catch(() => { });
     });
 
     setTimeout(() => injectPromptTracking(session, null), 600);
@@ -629,27 +1153,51 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     if (!session) {
       return;
     }
-    if (session.ptyProcess) {
-      try {
-        session.ptyProcess.kill();
-      } catch (err) {
-      }
-      session.ptyProcess = null;
+    if (session.disconnecting) {
+      return;
     }
-    if (session.sftpClient) {
-      try {
-        await session.sftpClient.end();
-      } catch (err) {
+    session.disconnecting = true;
+    try {
+      stopMetrics(tabId);
+      if (session.ptyProcess) {
+        try {
+          session.ptyProcess.kill();
+        } catch (err) {
+        }
+        session.ptyProcess = null;
       }
-      session.sftpClient = null;
+      if (session.sftpClient) {
+        try {
+          await session.sftpClient.end();
+        } catch (err) {
+        }
+        session.sftpClient = null;
+      }
+      session.listCache.clear();
+      session.osc7Buffer = '';
+      session.lastCwd = '';
+      session.hostConfig = null;
+      session.sessionType = null;
+      session.hostKey = '';
+
+      if (session.tunnelClient) {
+        try {
+          session.tunnelClient.end();
+        } catch (err) { }
+        session.tunnelClient = null;
+      }
+
+      if (session.activeTunnels && session.activeTunnels.size > 0) {
+        for (const tunnelId of session.activeTunnels) {
+          tunnelService.closeTunnel(tunnelId);
+        }
+        session.activeTunnels.clear();
+      }
+
+      resetPasswordState(session);
+    } finally {
+      session.disconnecting = false;
     }
-    session.listCache.clear();
-    session.osc7Buffer = '';
-    session.lastCwd = '';
-    session.hostConfig = null;
-    session.sessionType = null;
-    session.hostKey = '';
-    resetPasswordState(session);
   }
 
   async function kill(tabId) {
@@ -657,31 +1205,55 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     if (!session) {
       return;
     }
-    if (session.ptyProcess) {
-      try {
-        session.ptyProcess.kill('SIGKILL');
-      } catch (err) {
+    if (session.disconnecting) {
+      return;
+    }
+    session.disconnecting = true;
+    try {
+      stopMetrics(tabId);
+      if (session.ptyProcess) {
         try {
-          session.ptyProcess.kill();
-        } catch (innerErr) {
+          session.ptyProcess.kill('SIGKILL');
+        } catch (err) {
+          try {
+            session.ptyProcess.kill();
+          } catch (innerErr) {
+          }
         }
+        session.ptyProcess = null;
       }
-      session.ptyProcess = null;
-    }
-    if (session.sftpClient) {
-      try {
-        await session.sftpClient.end();
-      } catch (err) {
+      if (session.sftpClient) {
+        try {
+          await session.sftpClient.end();
+        } catch (err) {
+        }
+        session.sftpClient = null;
       }
-      session.sftpClient = null;
+      session.listCache.clear();
+      session.osc7Buffer = '';
+      session.lastCwd = '';
+      session.hostConfig = null;
+      session.sessionType = null;
+      session.hostKey = '';
+
+      if (session.tunnelClient) {
+        try {
+          session.tunnelClient.end();
+        } catch (err) { }
+        session.tunnelClient = null;
+      }
+
+      if (session.activeTunnels && session.activeTunnels.size > 0) {
+        for (const tunnelId of session.activeTunnels) {
+          tunnelService.closeTunnel(tunnelId);
+        }
+        session.activeTunnels.clear();
+      }
+
+      resetPasswordState(session);
+    } finally {
+      session.disconnecting = false;
     }
-    session.listCache.clear();
-    session.osc7Buffer = '';
-    session.lastCwd = '';
-    session.hostConfig = null;
-    session.sessionType = null;
-    session.hostKey = '';
-    resetPasswordState(session);
   }
 
   function ensureSftpReady(tabId) {
@@ -713,6 +1285,67 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
       }
     });
     sendProgress(tabId, id, totalSize, totalSize);
+  }
+
+  async function renamePath(tabId, oldPath, newPath) {
+    const session = getSession(tabId);
+    if (!session) {
+      throw new Error('Invalid tab');
+    }
+    const from = String(oldPath || '');
+    const to = String(newPath || '');
+    if (!from || !to) {
+      throw new Error('Missing path');
+    }
+    if (session.sessionType === 'local') {
+      await fs.promises.rename(from, to);
+      return;
+    }
+    const sftpSession = ensureSftpReady(tabId);
+    const q = (value) => `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+    try {
+      const existsTo = await sftpSession.sftpClient.exists(to);
+      if (existsTo) {
+        throw new Error('Target already exists');
+      }
+    } catch (err) {
+      if (err && err.message === 'Target already exists') throw err;
+    }
+    try {
+      const existsFrom = await sftpSession.sftpClient.exists(from);
+      if (!existsFrom) {
+        throw new Error('Source not found');
+      }
+    } catch (err) {
+      if (err && err.message === 'Source not found') throw err;
+    }
+
+    try {
+      await sftpSession.sftpClient.rename(from, to);
+    } catch (err) {
+      // Some servers return generic "Failure" even when the rename succeeds.
+      // Double-check before attempting a fallback.
+      try {
+        const toExists = await sftpSession.sftpClient.exists(to);
+        const fromExists = await sftpSession.sftpClient.exists(from);
+        if (toExists && !fromExists) {
+          return;
+        }
+      } catch (innerErr) { }
+
+      // Some servers return generic "Failure" for directory renames via SFTP.
+      // Fall back to a shell mv over SSH (still safe because we verified target doesn't exist).
+      const res = await exec(tabId, `mv -- ${q(from)} ${q(to)}`, { timeoutMs: 20000 });
+      if (res && res.exitCode && Number(res.exitCode) !== 0) {
+        const combined = `${res.stderr || ''}\n${res.stdout || ''}`.trim();
+        const msg = combined || (err && err.message ? err.message : '') || 'Rename failed';
+        throw new Error(msg);
+      }
+    }
+    try {
+      sftpSession.listCache.delete(path.posix.dirname(from));
+      sftpSession.listCache.delete(path.posix.dirname(to));
+    } catch (err) { }
   }
 
   async function upload(tabId, localPath, remotePath, id) {
@@ -799,10 +1432,12 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     try {
       if (hostConfig && hostConfig.type === 'local') {
         spawnLocalShell(tabId);
+        startMetrics(tabId);
         return;
       }
       spawnSshShell(tabId, hostConfig);
       await ensureSftpConnection(tabId, hostConfig);
+      startMetrics(tabId);
     } catch (err) {
       await disconnect(tabId);
       throw err;
@@ -813,6 +1448,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     await disconnect(tabId);
     try {
       spawnLocalShell(tabId);
+      startMetrics(tabId);
     } catch (err) {
       await disconnect(tabId);
       throw err;
@@ -897,7 +1533,81 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     }
   }
 
-  return {
+  async function ensureTunnelConnection(tabId, hostConfig) {
+    const session = getSession(tabId);
+    if (!session) throw new Error('Session not found');
+
+    if (session.tunnelClient) return session.tunnelClient;
+
+    const client = new SshClient();
+    const connectConfig = {
+      host: hostConfig.hostName || hostConfig.alias,
+      port: hostConfig.port ? Number(hostConfig.port) : 22,
+      username: hostConfig.user || process.env.USER,
+      keepaliveInterval: 10000,
+      readyTimeout: 20000
+    };
+
+    if (process.env.SSH_AUTH_SOCK) {
+      connectConfig.agent = process.env.SSH_AUTH_SOCK;
+    }
+
+    if (hostConfig.identityFile) {
+      try {
+        connectConfig.privateKey = fs.readFileSync(hostConfig.identityFile, 'utf8');
+      } catch (err) { }
+    }
+
+    if (session.lastPassword) {
+      connectConfig.password = session.lastPassword;
+    }
+
+    return new Promise((resolve, reject) => {
+      client.on('ready', () => {
+        session.tunnelClient = client;
+        resolve(client);
+      });
+
+      client.on('error', (err) => {
+        session.tunnelClient = null;
+        reject(err);
+      });
+
+      client.on('tcpip', (accept, reject, info) => {
+        tunnelService.handleRemoteConnection(client, info, accept, reject);
+      });
+
+      client.connect(connectConfig);
+    });
+  }
+
+  const manager = {
+    createSession: (tabId, hostConfig) => connect(tabId, hostConfig),
+    createTunnel: async (tabId, type, config) => {
+      const session = getSession(tabId);
+      if (!session) throw new Error('Invalid tab');
+      if (!session.tunnelClient) {
+        await ensureTunnelConnection(tabId, session.hostConfig);
+      }
+      const id = `tunnel-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      let resultInfo = {};
+      if (type === 'remote') {
+        await tunnelService.createRemoteForward(session.tunnelClient, id, config);
+      } else {
+        const res = await tunnelService.createLocalForward(session.tunnelClient, id, { ...config, type });
+        if (res && res.localPort) resultInfo.localPort = res.localPort;
+      }
+      session.activeTunnels.add(id);
+      return { id, ...resultInfo };
+    },
+    closeTunnel: (tabId, tunnelId) => {
+      const session = getSession(tabId);
+      if (session) {
+        tunnelService.closeTunnel(tunnelId);
+        session.activeTunnels.delete(tunnelId);
+      }
+    },
     connect,
     connectLocal,
     disconnect,
@@ -908,10 +1618,28 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     list,
     listLocal,
     download,
+    renamePath,
     upload,
+    exec,
     ensureSftpReady,
     getSession
   };
+
+  tunnelService.on('tunnel:status', (payload) => {
+    // Find which session owns this tunnel
+    let foundTabId = null;
+    for (const [tabId, session] of sessions.entries()) {
+      if (session.activeTunnels && session.activeTunnels.has(payload.id)) {
+        foundTabId = tabId;
+        break;
+      }
+    }
+    if (foundTabId) {
+      send('tunnel:status', { ...payload, tabId: foundTabId });
+    }
+  });
+
+  return manager;
 }
 
 module.exports = {

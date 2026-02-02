@@ -1,0 +1,7 @@
+{
+    "name": "docker",
+    "version": "1.0.0",
+    "description": "Docker & Docker Compose management for MarinaShell",
+    "main": "main.js",
+    "renderer": "renderer.js"
+}

@@ -61,11 +61,30 @@ export function createPersistenceService(state, settingsService) {
     }
   }
 
+  function getTunnelProfiles(host) {
+    if (!state.appState || !state.appState.tunnelProfiles || !host) {
+      return [];
+    }
+    return Array.isArray(state.appState.tunnelProfiles[host]) ? state.appState.tunnelProfiles[host] : [];
+  }
+
+  function saveTunnelProfiles(host, profiles) {
+    if (!state.appState || !host) return;
+    const nextMap = { ...(state.appState.tunnelProfiles || {}) };
+    nextMap[host] = profiles;
+    state.appState = { ...state.appState, tunnelProfiles: nextMap };
+    state.api.updateState({ tunnelProfiles: nextMap });
+  }
+
   return {
     getHostState,
     updateHostState,
     persistTabs,
     getDefaultHost,
-    setStatus
+    persistTabs,
+    getDefaultHost,
+    setStatus,
+    getTunnelProfiles,
+    saveTunnelProfiles
   };
 }

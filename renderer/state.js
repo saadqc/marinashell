@@ -14,7 +14,8 @@ export function createState(api, elements) {
     sectionState: {
       tree: true,
       saved: true,
-      recent: true
+      recent: true,
+      tunnels: true
     }
   };
 }

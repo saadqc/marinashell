@@ -8,6 +8,7 @@ const DEFAULT_STATE = {
   lastHost: '',
   recentLocations: {},
   savedLocations: {},
+  diskMountSelection: {},
   tabs: [],
   activeTabId: '',
   commands: [
@@ -45,14 +46,16 @@ const DEFAULT_SETTINGS = {
       pageSize: { type: 'number', value: 500 }
     },
     session: {
-      restoreTabs: { type: 'boolean', value: false }
+      restoreTabs: { type: 'boolean', value: false },
+      tabTitleMode: { type: 'string', value: 'connection' }
     },
     shortcuts: {
       newTab: { type: 'string', value: 'mod+t' },
       closeTab: { type: 'string', value: 'mod+w' }
     },
     connection: {
-      autoConnectOnSelect: { type: 'boolean', value: false }
+      autoConnectOnSelect: { type: 'boolean', value: false },
+      autoStartTunnels: { type: 'boolean', value: true }
     }
   },
   shell: {
@@ -61,6 +64,14 @@ const DEFAULT_SETTINGS = {
       args: { type: 'string', value: '' },
       pathPrepend: { type: 'string', value: '' },
       injectMacPaths: { type: 'boolean', value: true }
+    }
+  },
+  plugins: {
+    disabled: {
+      list: { type: 'array', value: [] }
+    },
+    docker: {
+      enableRpc: { type: 'boolean', value: false }
     }
   }
 };

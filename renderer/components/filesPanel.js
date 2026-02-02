@@ -30,33 +30,216 @@ export function createFilesPanel(state, persistenceService, editorService, actio
     contextMenu.innerHTML = '';
   }
 
-  function showContextMenu(x, y, itemPath, isDirectory) {
+  let renameCleanup = null;
+
+  function beginInlineRename(tab, item, row, labelEl) {
+    if (!tab || !item || !row || !labelEl) return;
+    if (!state.api || typeof state.api.renamePath !== 'function') {
+      persistenceService.setStatus('Rename unavailable', true, tab);
+      return;
+    }
+    if (renameCleanup) {
+      try { renameCleanup(); } catch (err) { }
+      renameCleanup = null;
+    }
+
+    const originalName = String(item.name || '');
+    const originalPath = String(item.path || '');
+    if (!originalName || !originalPath) return;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = originalName;
+    input.className = 'tree-rename-input';
+    input.style.width = '100%';
+    input.style.maxWidth = '220px';
+    input.style.background = 'rgba(15, 19, 32, 0.65)';
+    input.style.border = '1px solid rgba(255,255,255,0.12)';
+    input.style.borderRadius = '8px';
+    input.style.color = 'rgba(255,255,255,0.92)';
+    input.style.padding = '4px 6px';
+    input.style.fontSize = '12px';
+    input.style.outline = 'none';
+
+    const parentPath = tab.sessionType === 'local'
+      ? (originalPath.includes('\\') ? originalPath.replace(/\\[^\\]+$/, '') : originalPath.replace(/\/[^/]+$/, ''))
+      : (originalPath.replace(/\/[^/]+$/, '') || '/');
+
+    const commit = async (mode) => {
+      const nextName = String(input.value || '').trim();
+      cleanup();
+      if (mode !== 'save') return;
+      if (!nextName || nextName === originalName) return;
+      if (/[\/\\]/.test(nextName)) {
+        persistenceService.setStatus('Invalid name', true, tab);
+        return;
+      }
+
+      persistenceService.setStatus('Renaming...', false, tab);
+      const newPath = tab.sessionType === 'local'
+        ? (parentPath ? `${parentPath}${parentPath.endsWith('\\') || parentPath.endsWith('/') ? '' : (originalPath.includes('\\') ? '\\' : '/')}${nextName}` : nextName)
+        : `${(parentPath === '/' ? '' : parentPath)}/${nextName}`;
+
+      const res = await state.api.renamePath(tab.id, { oldPath: originalPath, newPath });
+      if (!res || !res.ok) {
+        persistenceService.setStatus(res && res.error ? res.error : 'Rename failed', true, tab);
+        return;
+      }
+
+      // Update local tree caches
+      try {
+        // clear parent listing cache
+        tab.treeCache.delete(parentPath || '/');
+        // clear renamed subtree caches (best-effort)
+        const sep = tab.sessionType === 'local'
+          ? (originalPath.includes('\\') ? '\\' : '/')
+          : '/';
+        for (const key of Array.from(tab.treeCache.keys())) {
+          if (key === originalPath || key.startsWith(`${originalPath}${sep}`)) {
+            tab.treeCache.delete(key);
+          }
+        }
+        // remap expanded dirs
+        if (item.type === 'd') {
+          const nextExpanded = new Set();
+          for (const p of tab.expandedDirs) {
+            const sp = String(p || '');
+            if (sp === originalPath || sp.startsWith(`${originalPath}${sep}`)) {
+              nextExpanded.add(newPath + sp.slice(originalPath.length));
+            } else {
+              nextExpanded.add(sp);
+            }
+          }
+          tab.expandedDirs.clear();
+          for (const p of nextExpanded) tab.expandedDirs.add(p);
+        }
+      } catch (err) { }
+
+      setSelectedPath(tab, newPath);
+      await loadDirectoryForTab(tab, parentPath || '/');
+      if (tab.id === state.activeTabId) {
+        renderTree();
+      }
+      persistenceService.setStatus('Renamed', false, tab);
+    };
+
+    const cleanup = () => {
+      if (renameCleanup) {
+        try { renameCleanup(); } catch (err) { }
+      }
+      renameCleanup = null;
+    };
+
+    const restore = () => {
+      if (!row.isConnected) return;
+      const label = document.createElement('span');
+      label.className = 'tree-label';
+      label.textContent = originalName;
+      try {
+        input.replaceWith(label);
+      } catch (err) {
+        // fallback
+        labelEl.textContent = originalName;
+        if (labelEl.parentElement) {
+          labelEl.parentElement.replaceChild(label, labelEl);
+        }
+      }
+    };
+
+    renameCleanup = () => {
+      try { restore(); } catch (err) { }
+    };
+
+    labelEl.replaceWith(input);
+    setTimeout(() => {
+      try { input.focus(); input.select(); } catch (err) { }
+    }, 0);
+
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        restore();
+        cleanup();
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        commit('save').catch(() => { });
+      }
+    });
+    input.addEventListener('blur', () => {
+      commit('save').catch(() => { });
+    });
+  }
+
+  function showContextMenu(x, y, tab, item, row, labelEl) {
     contextMenu.innerHTML = '';
     const copyButton = document.createElement('button');
     copyButton.type = 'button';
     copyButton.textContent = 'Copy path';
     copyButton.addEventListener('click', async () => {
-      await state.api.copyToClipboard(itemPath);
+      await state.api.copyToClipboard(item.path);
       hideContextMenu();
-      const tab = getActiveTab(state);
       persistenceService.setStatus('Path copied', false, tab);
     });
     contextMenu.appendChild(copyButton);
 
-    if (isDirectory) {
-      const saveButton = document.createElement('button');
-      saveButton.type = 'button';
-      saveButton.textContent = 'Save folder';
-      saveButton.addEventListener('click', () => {
-        const tab = getActiveTab(state);
+    const downloadButton = document.createElement('button');
+    downloadButton.type = 'button';
+    downloadButton.textContent = item.type === 'd' ? 'Download folder…' : 'Download…';
+    downloadButton.addEventListener('click', async () => {
+      hideContextMenu();
+      if (!tab || !tab.connected) {
+        persistenceService.setStatus('Not connected', true, tab);
+        return;
+      }
+      if (tab.sessionType === 'local') {
+        persistenceService.setStatus('Download from local tree not implemented yet', true, tab);
+        return;
+      }
+      const id = `download-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      actionsBridge && actionsBridge.createTransferRow && actionsBridge.createTransferRow(
+        id,
+        item.type === 'd' ? `Download ${item.name}.tar.gz` : `Download ${item.name}`
+      );
+      persistenceService.setStatus('Downloading...', false, tab);
+      const result = item.type === 'd'
+        ? await state.api.downloadFolder(tab.id, { remotePath: item.path, id })
+        : await state.api.download(tab.id, { remotePath: item.path, id });
+      if (result && result.ok) {
+        actionsBridge && actionsBridge.markTransferComplete && actionsBridge.markTransferComplete(id, 'downloaded');
+        persistenceService.setStatus('Downloaded', false, tab);
+      } else {
+        actionsBridge && actionsBridge.markTransferComplete && actionsBridge.markTransferComplete(id, 'error');
+        persistenceService.setStatus(result && result.error ? result.error : 'Download failed', true, tab);
+      }
+    });
+    contextMenu.appendChild(downloadButton);
+
+    const renameButton = document.createElement('button');
+    renameButton.type = 'button';
+    renameButton.textContent = 'Rename…';
+    renameButton.addEventListener('click', () => {
+      hideContextMenu();
+      beginInlineRename(tab, item, row, labelEl);
+    });
+    contextMenu.appendChild(renameButton);
+
+    if (item.type === 'd') {
+      const bookmarkButton = document.createElement('button');
+      bookmarkButton.type = 'button';
+      bookmarkButton.textContent = 'Bookmark folder';
+      bookmarkButton.addEventListener('click', () => {
         if (!tab || !tab.host) {
           persistenceService.setStatus('No host selected', true, tab);
           hideContextMenu();
           return;
         }
         const saved = persistenceService.getHostState(state.appState.savedLocations, tab.host);
-        if (!saved.includes(itemPath)) {
-          const next = [itemPath, ...saved];
+        if (!saved.includes(item.path)) {
+          const next = [item.path, ...saved];
           persistenceService.updateHostState('savedLocations', tab.host, next);
           if (tab.id === state.activeTabId) {
             renderSavedLocations();
@@ -64,8 +247,9 @@ export function createFilesPanel(state, persistenceService, editorService, actio
         }
         hideContextMenu();
       });
-      contextMenu.appendChild(saveButton);
+      contextMenu.appendChild(bookmarkButton);
     }
+
     contextMenu.style.left = `${x}px`;
     contextMenu.style.top = `${y}px`;
     contextMenu.classList.add('open');
@@ -81,8 +265,11 @@ export function createFilesPanel(state, persistenceService, editorService, actio
       forwardButton.disabled = true;
       return;
     }
-    backButton.disabled = tab.navIndex <= 0;
-    forwardButton.disabled = tab.navIndex === -1 || tab.navIndex >= tab.navHistory.length - 1;
+    // Back button now behaves as "Up"
+    const isRoot = tab.currentPath === '/' || /^[A-Za-z]:\\?$/.test(tab.currentPath);
+    backButton.disabled = isRoot;
+    backButton.title = 'Go up';
+    if (forwardButton) forwardButton.style.display = 'none';
   }
 
   function setPathInputValue(tab, value) {
@@ -291,6 +478,7 @@ export function createFilesPanel(state, persistenceService, editorService, actio
     for (const item of visible) {
       const row = document.createElement('div');
       row.className = 'tree-row';
+      row.dataset.path = item.path;
       if (tab.selectedPath === item.path) {
         row.classList.add('selected');
       }
@@ -355,8 +543,21 @@ export function createFilesPanel(state, persistenceService, editorService, actio
       row.addEventListener('contextmenu', (event) => {
         event.preventDefault();
         event.stopPropagation();
+        // setSelectedPath() triggers a re-render, so resolve fresh DOM nodes after it runs.
         setSelectedPath(tab, item.path);
-        showContextMenu(event.clientX, event.clientY, item.path, item.type === 'd');
+        let nextRow = null;
+        let nextLabel = null;
+        try {
+          const rows = fileTree.querySelectorAll('.tree-row');
+          for (const r of rows) {
+            if (r && r.dataset && r.dataset.path === item.path) {
+              nextRow = r;
+              nextLabel = r.querySelector('.tree-label');
+              break;
+            }
+          }
+        } catch (err) { }
+        showContextMenu(event.clientX, event.clientY, tab, item, nextRow || row, nextLabel || label);
       });
 
       row.addEventListener('dragover', (event) => {
@@ -457,7 +658,7 @@ export function createFilesPanel(state, persistenceService, editorService, actio
   function renderSavedLocations() {
     if (!savedPaths) return;
     const tab = getActiveTab(state);
-    if (!tab || !tab.connected || !tab.host) {
+    if (!tab || !tab.host) {
       renderPathList(savedPaths, []);
       return;
     }
@@ -475,7 +676,7 @@ export function createFilesPanel(state, persistenceService, editorService, actio
   function renderRecentLocations() {
     if (!recentPaths) return;
     const tab = getActiveTab(state);
-    if (!tab || !tab.connected || !tab.host) {
+    if (!tab || !tab.host) {
       renderPathList(recentPaths, []);
       return;
     }
@@ -515,12 +716,20 @@ export function createFilesPanel(state, persistenceService, editorService, actio
 
   function bindEvents() {
     backButton.addEventListener('click', () => {
-      navigateHistory(-1);
+      const tab = getActiveTab(state);
+      if (!tab || !tab.currentPath) return;
+      const separator = tab.remotePathStyle === 'windows' ? '\\' : '/';
+      const parts = tab.currentPath.split(separator).filter(Boolean);
+      parts.pop();
+      const parent = parts.length === 0 ? '/' : (tab.remotePathStyle === 'windows' ? parts.join(separator) : '/' + parts.join(separator));
+
+      setSelectedPath(tab, parent);
+      navigateToPathForTab(tab, parent, { pushNav: true, recordRecent: true, clearCache: true });
     });
 
-    forwardButton.addEventListener('click', () => {
-      navigateHistory(1);
-    });
+    if (forwardButton) {
+      forwardButton.style.display = 'none';
+    }
 
     pathGoButton.addEventListener('click', () => {
       const tab = getActiveTab(state);

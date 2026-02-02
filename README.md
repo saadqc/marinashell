@@ -1,6 +1,6 @@
-# Shelldock
+# MarinaShell
 
-Shelldock is a lightweight Electron desktop SSH client focused on fast, reliable remote terminal workflows. It combines a persistent SSH terminal (xterm.js + node-pty) with any editor like nano/vi or even VS Code–style explorer for browsing remote files over SFTP, running saved commands, and transferring files.
+MarinaShell is a lightweight Electron desktop SSH client focused on fast, reliable remote terminal workflows. It combines a persistent SSH terminal (xterm.js + node-pty) with any editor like nano/vi or even VS Code–style explorer for browsing remote files over SFTP, running saved commands, and transferring files.
 
 
 
@@ -56,11 +56,11 @@ Shelldock is a lightweight Electron desktop SSH client focused on fast, reliable
 
 ## Settings & persistence
 
-- **Settings file**: `~/.shelldock/settings.json`
+- **Settings file**: `~/.marinashell/settings.json`
 - **State file** (commands, known hosts, recents/saved, tab restore data): Electron user data folder
-  - macOS: `~/Library/Application Support/Shelldock/state.json`
-  - Windows: `%APPDATA%\\Shelldock\\state.json`
-  - Linux: `~/.config/Shelldock/state.json`
+  - macOS: `~/Library/Application Support/MarinaShell/state.json`
+  - Windows: `%APPDATA%\\MarinaShell\\state.json`
+  - Linux: `~/.config/MarinaShell/state.json`
 
 Settings are stored as nested objects with `{ type, value }` per field.
 
@@ -136,7 +136,7 @@ This project is **not code-signed** by default. For distribution outside your ma
 - **SFTP says “Not connected”**
   - SFTP session is created on Connect; check that the SSH host is reachable and auth works.
 - **Electron logs SSL handshake errors**
-  - These can be normal Chromium background networking logs; Shelldock disables background networking, but some platforms may still emit them.
+  - These can be normal Chromium background networking logs; MarinaShell disables background networking, but some platforms may still emit them.
 
 ## License
 

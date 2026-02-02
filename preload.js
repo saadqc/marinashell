@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('preloadReady', true);
 contextBridge.exposeInMainWorld('api', {
+  getPlugins: () => ipcRenderer.invoke('plugins:list'),
+  invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
+  installPlugin: (url) => ipcRenderer.invoke('plugins:install', { url }),
   getState: () => ipcRenderer.invoke('app:get-state'),
   updateState: (patch) => ipcRenderer.invoke('app:update-state', patch),
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -15,16 +18,23 @@ contextBridge.exposeInMainWorld('api', {
   list: (tabId, remotePath) => ipcRenderer.invoke('sftp:list', { tabId, path: remotePath }),
   listLocal: (tabId, localPath) => ipcRenderer.invoke('local:list', { tabId, path: localPath }),
   download: (tabId, payload) => ipcRenderer.invoke('sftp:download', { tabId, ...payload }),
+  downloadFolder: (tabId, payload) => ipcRenderer.invoke('sftp:download-folder', { tabId, ...payload }),
   upload: (tabId, payload) => ipcRenderer.invoke('sftp:upload', { tabId, ...payload }),
+  renamePath: (tabId, payload) => ipcRenderer.invoke('files:rename', { tabId, ...payload }),
   openExternal: (target) => ipcRenderer.invoke('shell:open-external', target),
   execLocal: (command) => ipcRenderer.invoke('shell:exec', { command }),
   copyToClipboard: (text) => ipcRenderer.invoke('clipboard:write', text),
   readClipboard: () => ipcRenderer.invoke('clipboard:read'),
   openSettings: () => ipcRenderer.invoke('settings:open'),
+  createTunnel: (payload) => ipcRenderer.invoke('ssh:create-tunnel', payload),
+  closeTunnel: (tabId, tunnelId) => ipcRenderer.invoke('ssh:close-tunnel', { tabId, tunnelId }),
+  onTunnelStatus: (handler) => ipcRenderer.on('tunnel:status', (event, payload) => handler(payload)),
   onSshData: (handler) => ipcRenderer.on('ssh:data', (event, payload) => handler(payload)),
   onSshCwd: (handler) => ipcRenderer.on('ssh:cwd', (event, payload) => handler(payload)),
   onSshExit: (handler) => ipcRenderer.on('ssh:exit', (event, payload) => handler(payload)),
   onSshPrompt: (handler) => ipcRenderer.on('ssh:prompt', (event, payload) => handler(payload)),
+  onSshMetrics: (handler) => ipcRenderer.on('ssh:metrics', (event, payload) => handler(payload)),
   onSshPasswordRequest: (handler) => ipcRenderer.on('ssh:password-request', (event, payload) => handler(payload)),
-  onSftpProgress: (handler) => ipcRenderer.on('sftp:progress', (event, payload) => handler(payload))
+  onSftpProgress: (handler) => ipcRenderer.on('sftp:progress', (event, payload) => handler(payload)),
+  onPluginsChanged: (handler) => ipcRenderer.on('plugins:changed', (event, payload) => handler(payload))
 });

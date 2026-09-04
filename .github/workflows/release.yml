@@ -43,8 +43,8 @@ jobs:
             release/**/*.AppImage
             release/**/*.deb
             release/**/*.dmg
-            release/**/*.exe
-            release/**/*.zip
+            release/**/MarinaShell.Setup.*.exe
+            release/**/*-win.zip
           fail_on_unmatched_files: false
           overwrite_files: true
         env:

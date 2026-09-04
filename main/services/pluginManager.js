@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { pathToFileURL } = require('url');
 const { exec } = require('child_process');
 const { ipcMain } = require('electron');
 
@@ -79,6 +80,9 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
                 id,
                 version: pkg.version || '0.0.0',
                 description: pkg.description || '',
+                editorMode: pkg.marinashell && pkg.marinashell.editorMode
+                    ? String(pkg.marinashell.editorMode)
+                    : null,
                 mainEntry: pkg.main ? path.join(dirPath, pkg.main) : null,
                 rendererEntry: pkg.renderer ? path.join(dirPath, pkg.renderer) : null,
                 dirPath,
@@ -178,7 +182,8 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
             id: p.id,
             version: p.version,
             description: p.description,
-            rendererEntry: p.rendererEntry ? `file://${p.rendererEntry}` : null, // Pass as URL for dynamic import
+            editorMode: p.editorMode,
+            rendererEntry: p.rendererEntry ? pathToFileURL(p.rendererEntry).href : null,
             source: p.source,
             loaded: p.loaded,
             enabled,

@@ -1,0 +1,10 @@
+{
+  "name": "editor",
+  "version": "1.1.0",
+  "description": "Inline CodeMirror editor with completion, format awareness, and safe local or SSH saves.",
+  "main": "main.js",
+  "renderer": "renderer.mjs",
+  "marinashell": {
+    "editorMode": "inline-editor"
+  }
+}

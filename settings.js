@@ -7,7 +7,8 @@
   const editorUri = document.getElementById('editor-uri');
   const editorAssociations = document.getElementById('editor-associations');
   const treePageSize = document.getElementById('tree-page-size');
-  const sessionTabTitleMode = document.getElementById('session-tab-title-mode');
+  const sessionTabTitleTemplate = document.getElementById('session-tab-title-template');
+  const defaultTabColor = document.getElementById('default-tab-color');
   const restoreTabs = document.getElementById('restore-tabs');
   const autoConnect = document.getElementById('auto-connect');
   const autoStartTunnels = document.getElementById('auto-start-tunnels');
@@ -21,6 +22,18 @@
 
   let settings = null;
   let saveTimer = null;
+
+  function syncEditorPluginAvailability(list) {
+    const option = editorMode.querySelector('[data-plugin-editor="true"]');
+    if (!option) return;
+    const plugin = Array.isArray(list) ? list.find((item) => item && item.editorMode === 'inline-editor') : null;
+    const disabledList = readList(['plugins', 'disabled', 'list'], []);
+    const enabled = Boolean(plugin) && !disabledList.includes(plugin.id);
+    option.disabled = !enabled;
+    option.textContent = enabled
+      ? 'Inline editor (CodeMirror)'
+      : 'Inline editor (enable CodeMirror Editor plugin)';
+  }
 
   function setStatus(text, isError) {
     statusEl.textContent = text;
@@ -99,9 +112,15 @@
       writeValue(['ui', 'tree', 'pageSize'], 'number', Number.isNaN(parsed) ? 500 : parsed);
       scheduleSave();
     });
-    if (sessionTabTitleMode) {
-      sessionTabTitleMode.addEventListener('change', () => {
-        writeValue(['ui', 'session', 'tabTitleMode'], 'string', sessionTabTitleMode.value);
+    if (sessionTabTitleTemplate) {
+      sessionTabTitleTemplate.addEventListener('input', () => {
+        writeValue(['ui', 'session', 'tabTitleTemplate'], 'string', sessionTabTitleTemplate.value);
+        scheduleSave();
+      });
+    }
+    if (defaultTabColor) {
+      defaultTabColor.addEventListener('change', () => {
+        writeValue(['ui', 'session', 'defaultTabColor'], 'string', defaultTabColor.value);
         scheduleSave();
       });
     }
@@ -203,6 +222,25 @@
       enabledToggle.style.margin = '0';
       enabledToggle.style.cursor = 'pointer';
 
+      let defaultButton = null;
+      if (p.editorMode) {
+        defaultButton = document.createElement('button');
+        defaultButton.type = 'button';
+        defaultButton.style.width = 'auto';
+        defaultButton.style.padding = '4px 8px';
+        defaultButton.style.fontSize = '10px';
+        defaultButton.disabled = !isEnabled || editorMode.value === p.editorMode;
+        defaultButton.textContent = editorMode.value === p.editorMode ? 'Default editor' : 'Use as default';
+        defaultButton.addEventListener('click', () => {
+          if (!enabledToggle.checked) return;
+          editorMode.value = p.editorMode;
+          writeValue(['editor', 'open', 'mode'], 'string', p.editorMode);
+          defaultButton.disabled = true;
+          defaultButton.textContent = 'Default editor';
+          scheduleSave();
+        });
+      }
+
       enabledToggle.addEventListener('change', () => {
         const current = readList(['plugins', 'disabled', 'list'], []);
         const set = new Set(current);
@@ -212,6 +250,10 @@
           set.add(p.id);
         }
         writeValue(['plugins', 'disabled', 'list'], 'array', Array.from(set));
+        if (defaultButton) {
+          defaultButton.disabled = !enabledToggle.checked || editorMode.value === p.editorMode;
+        }
+        syncEditorPluginAvailability(list);
         scheduleSave();
       });
 
@@ -230,6 +272,7 @@
       badge.style.background = p.source === 'bundled' ? '#2a2f3a' : '#1e3a5f';
       badge.textContent = p.source;
 
+      if (defaultButton) right.appendChild(defaultButton);
       right.appendChild(enabledWrap);
       right.appendChild(badge);
 
@@ -272,6 +315,7 @@
     if (!api.getPlugins) return;
     try {
       const plugins = await api.getPlugins();
+      syncEditorPluginAvailability(plugins);
       renderPlugins(plugins);
     } catch (err) {
       console.error('Failed to load plugins', err);
@@ -323,8 +367,14 @@
         2
       );
       treePageSize.value = readValue(['ui', 'tree', 'pageSize'], 500);
-      if (sessionTabTitleMode) {
-        sessionTabTitleMode.value = readValue(['ui', 'session', 'tabTitleMode'], 'connection');
+      if (sessionTabTitleTemplate) {
+        sessionTabTitleTemplate.value = readValue(
+          ['ui', 'session', 'tabTitleTemplate'],
+          '<ssh_machine>:<current_folder_name[:15]>'
+        );
+      }
+      if (defaultTabColor) {
+        defaultTabColor.value = readValue(['ui', 'session', 'defaultTabColor'], 'default');
       }
       restoreTabs.checked = Boolean(readValue(['ui', 'session', 'restoreTabs'], false));
       autoConnect.checked = Boolean(readValue(['ui', 'connection', 'autoConnectOnSelect'], false));

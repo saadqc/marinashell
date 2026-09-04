@@ -1,6 +1,6 @@
 # MarinaShell
 
-MarinaShell is a lightweight Electron desktop SSH client focused on fast, reliable remote terminal workflows. It combines a persistent SSH terminal (xterm.js + node-pty) with any editor like nano/vi or even VS Code–style explorer for browsing remote files over SFTP, running saved commands, and transferring files.
+MarinaShell is a lightweight Electron desktop SSH client focused on fast, reliable remote terminal workflows. It combines a persistent SSH terminal (xterm.js + node-pty), a remote file explorer, and an optional inline CodeMirror editor for local and SSH files.
 
 
 
@@ -9,23 +9,41 @@ MarinaShell is a lightweight Electron desktop SSH client focused on fast, reliab
 
 - **SSH host picker**: Loads and parses `~/.ssh/config` (supports `Include` and inline comments).
 - **Interactive terminal**: Full shell via `ssh` in a PTY (supports resize and interactive TTY behavior).
+  - HTTP(S), `www`, and email addresses become hover-underlined, clickable links
+  - Right-click menu for opening/copying links, copying selections, selecting all, and clipboard-aware paste
 - **Remote file explorer**:
   - Lazy-loaded directory tree over SFTP
   - Pagination for huge folders (`pageSize`)
   - Folder click sends `cd <path>` to the active terminal
-  - File click opens using configurable “open modes” (remote shell, local download, local command, or `sftp://` URI)
+  - File click opens using configurable “open modes” (inline CodeMirror, remote shell, local download, local command, or `sftp://` URI)
   - File-type icons in the tree
+- **Bundled CodeMirror editor plugin**:
+  - Enable or disable it in Settings → Plugins, then choose “Use as default”
+  - Opens local and SSH files directly in a dock view with syntax highlighting and multiple editor tabs
+  - Right-click editing menu with clipboard-aware Cut, Copy, Paste, Delete, and Select all
+  - Syntax-aware indentation and completion for JavaScript/TypeScript and Python, plus in-document key completion for JSON/YAML
+  - YAML highlighting, JSON syntax diagnostics, and a visible Ctrl+Space completion action
+  - Detects and preserves LF/CRLF line endings; status controls expose indentation width/style and line-ending conversion
+  - Saves over the active local/SFTP session; no remote helper or server-side editor is required
+  - Detects outside changes before saving and offers reload/overwrite resolution
+  - Preserves unsaved drafts while switching files or dock views and warns before closing the app
+  - Accepts UTF-8 text files up to 5 MB; binary files remain available through the other open modes
 - **Actions panel**:
   - Create / update / delete saved commands
   - Run commands in the active terminal session (optional `cwd`)
   - Upload / download via SFTP with progress
 - **Multi-tab sessions**:
   - Multiple SSH tabs (each tab has its own terminal + SFTP session)
+  - Interpolated tab titles with host, current folder/path, terminal title, and slice syntax such as `<current_folder_name[:15]>`
+  - Named tab groups with 1×1, 2×1, 1×2, and 2×2 live terminal grids
+  - Drag-and-drop tab ordering and right-click tab renaming
+  - Per-tab color labels plus a configurable default color for new tabs
   - Optional “restore tabs on launch”
 - **Saved + recent locations**:
   - Per-host (only shown when connected to that host)
   - Save from toolbar or right-click a folder in the tree
 - **Quality-of-life**:
+  - Collapsible file/action sidebar
   - Right-click tree context menu: copy remote path
   - Drag & drop local files into the tree to upload (SFTP)
   - Terminal copy/paste (Cmd/Ctrl+C copies selection, Cmd/Ctrl+V pastes)
@@ -35,6 +53,7 @@ MarinaShell is a lightweight Electron desktop SSH client focused on fast, reliab
 - Electron
 - Node.js (>= 18)
 - xterm.js
+- CodeMirror 6
 - node-pty
 - ssh2 + ssh2-sftp-client
 
@@ -48,6 +67,8 @@ MarinaShell is a lightweight Electron desktop SSH client focused on fast, reliab
   - `renderer/index.js` (boot)
   - `renderer/components/` (Files panel, Actions panel, Session tabs)
   - `renderer/services/` (settings, persistence, editor open behavior, icon mapping)
+- Bundled plugins:
+  - `plugins/editor/` (CodeMirror dock view plus local/SFTP read and save handlers)
 - UI:
   - `index.html` (main window)
   - `settings.html` + `settings.js` (settings window)
@@ -97,6 +118,8 @@ npm install
 npm run start:gui
 ```
 
+Run the inline editor browser-level smoke test with `npm run test:editor`.
+
 Notes:
 - `postinstall` runs `electron-builder install-app-deps` to rebuild native modules for Electron.
 - If you run into native module build issues, remove `node_modules` and reinstall:
@@ -108,7 +131,7 @@ Notes:
 npm run dist
 ```
 
-Outputs go to `dist/`.
+Outputs go to `release/`.
 
 This project is **not code-signed** by default. For distribution outside your machine, you’ll want to configure signing + notarization in `package.json`’s `build.mac` settings.
 
@@ -126,6 +149,7 @@ This project is **not code-signed** by default. For distribution outside your ma
   - Drag local files onto a folder in the tree to upload into that remote folder.
 - **Open files**:
   - Controlled by Settings → Editor (mode + file associations).
+  - To edit inside MarinaShell, enable the bundled `editor` plugin and click **Use as default** on its plugin card.
   - Large-file warning triggers above 2MB (configurable in code).
 
 ## Troubleshooting
@@ -141,4 +165,3 @@ This project is **not code-signed** by default. For distribution outside your ma
 ## License
 
 No license specified.
-

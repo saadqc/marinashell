@@ -113,6 +113,62 @@ export function getPathLabel(value, pathStyle) {
   return parts.length ? parts[parts.length - 1] : '/';
 }
 
+export function interpolateTabTitle(template, context = {}) {
+  const source = String(template || '');
+  return source.replace(/<([A-Za-z_][A-Za-z0-9_]*)(?:\[(-?\d*):(-?\d*)\])?>/g, (match, key, startRaw, endRaw) => {
+    if (!Object.prototype.hasOwnProperty.call(context, key)) {
+      return match;
+    }
+    const chars = Array.from(String(context[key] == null ? '' : context[key]));
+    if (startRaw === undefined && endRaw === undefined) {
+      return chars.join('');
+    }
+    const start = startRaw === '' ? undefined : Number(startRaw);
+    const end = endRaw === '' ? undefined : Number(endRaw);
+    return chars.slice(start, end).join('');
+  });
+}
+
+function trimTerminalLink(value) {
+  let text = String(value || '').replace(/[.,;:!?"'`]+$/g, '');
+  const pairs = [
+    { open: '(', close: ')' },
+    { open: '[', close: ']' },
+    { open: '{', close: '}' }
+  ];
+  for (const pair of pairs) {
+    const openCount = text.split(pair.open).length - 1;
+    let closeCount = text.split(pair.close).length - 1;
+    while (text.endsWith(pair.close) && closeCount > openCount) {
+      text = text.slice(0, -1);
+      closeCount -= 1;
+    }
+  }
+  return text;
+}
+
+export function findTerminalLinks(value) {
+  const source = String(value || '');
+  const pattern = /(?:https?:\/\/|www\.)[^\s<>"']+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+  const links = [];
+  let match = pattern.exec(source);
+  while (match) {
+    const text = trimTerminalLink(match[0]);
+    if (text) {
+      const isEmail = !/^(?:https?:\/\/|www\.)/i.test(text);
+      links.push({
+        text,
+        start: match.index,
+        end: match.index + text.length,
+        type: isEmail ? 'email' : 'url',
+        uri: isEmail ? `mailto:${text}` : (/^www\./i.test(text) ? `https://${text}` : text)
+      });
+    }
+    match = pattern.exec(source);
+  }
+  return links;
+}
+
 export function fillTemplate(template, context) {
   return String(template || '').replace(/\{(\w+)\}/g, (match, key) => {
     if (Object.prototype.hasOwnProperty.call(context, key)) {

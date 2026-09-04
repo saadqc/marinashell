@@ -31,6 +31,8 @@ const elements = {
   sectionHeaders: document.querySelectorAll('.section-header'),
   sessionTabs: document.getElementById('session-tabs'),
   newTabButton: document.getElementById('new-tab-btn'),
+  newGroupButton: document.getElementById('new-group-btn'),
+  sidebarCollapseButton: document.getElementById('sidebar-collapse-btn'),
   terminalStack: document.getElementById('terminal-stack'),
   dockRoot: document.getElementById('dock-root'),
   viewToolbar: document.getElementById('view-toolbar'),
@@ -63,6 +65,7 @@ const state = createState(api, elements);
 const settingsService = createSettingsService(state);
 const persistenceService = createPersistenceService(state, settingsService);
 const editorBridge = { openFile: async () => { } };
+const editorModes = new Map();
 const actionsBridge = {
   createTransferRow: () => null,
   markTransferComplete: () => { },
@@ -73,7 +76,7 @@ const pluginLoader = createPluginLoader(api);
 const filesPanel = createFilesPanel(state, persistenceService, editorBridge, actionsBridge);
 
 const actionsPanel = createActionsPanel(state, persistenceService, filesPanel);
-const editorService = createEditorService(state, settingsService, actionsPanel, persistenceService);
+const editorService = createEditorService(state, settingsService, actionsPanel, persistenceService, editorModes);
 editorBridge.openFile = editorService.openFile;
 actionsBridge.createTransferRow = actionsPanel.createTransferRow;
 actionsBridge.markTransferComplete = actionsPanel.markTransferComplete;
@@ -89,6 +92,30 @@ const dockLayout = createDockLayout({
   terminalStackEl: elements.terminalStack,
   state
 });
+
+function setSidebarCollapsed(collapsed, options = {}) {
+  const next = Boolean(collapsed);
+  const appEl = document.getElementById('app');
+  const button = elements.sidebarCollapseButton;
+  if (appEl) appEl.classList.toggle('sidebar-collapsed', next);
+  if (button) {
+    button.title = next ? 'Expand sidebar' : 'Collapse sidebar';
+    button.setAttribute('aria-label', button.title);
+    button.setAttribute('aria-expanded', String(!next));
+    button.innerHTML = `<i data-icon="${next ? 'panel-left-open' : 'panel-left-close'}"></i>`;
+    renderLucide(button);
+  }
+  if (state.appState) state.appState.sidebarCollapsed = next;
+  if (!options.skipPersist && api) api.updateState({ sidebarCollapsed: next });
+  requestAnimationFrame(() => sessionTabs.fitActiveTerminal());
+}
+
+if (elements.sidebarCollapseButton) {
+  elements.sidebarCollapseButton.addEventListener('click', () => {
+    const collapsed = document.getElementById('app').classList.contains('sidebar-collapsed');
+    setSidebarCollapsed(!collapsed);
+  });
+}
 
 function renderLucide(root = document) {
   const lucide = window.lucide;
@@ -136,6 +163,7 @@ window.addEventListener('focus', async () => {
       });
       state.shortcutBindings = settingsService.getShortcutBindings();
       sessionTabs.renderSessionTabs();
+      sessionTabs.updateTerminalGrid();
     }
   } catch (err) {
   }
@@ -240,8 +268,11 @@ window.addEventListener('marinashell:detach-terminal', () => {
       commands: [],
       tabs: [],
       activeTabId: '',
+      tabGroups: [],
+      sidebarCollapsed: false,
       ...(stateResult || {})
     };
+    setSidebarCollapsed(state.appState.sidebarCollapsed, { skipPersist: true });
     state.appSettings = settings || {};
 
     settingsService.applySettings({
@@ -300,6 +331,13 @@ window.addEventListener('marinashell:detach-terminal', () => {
       },
       registerView: (id, info) => {
         dockLayout.registerView(id, info);
+      },
+      openView: (id, options) => {
+        dockLayout.mountViewInActive(id, options);
+      },
+      registerEditorMode: (id, handler) => {
+        if (!id || typeof handler !== 'function') return;
+        editorModes.set(id, handler);
       },
       registerTerminalAction: (id, info) => {
         dockLayout.registerTerminalAction(id, info);

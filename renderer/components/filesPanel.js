@@ -336,6 +336,11 @@ export function createFilesPanel(state, persistenceService, editorService, actio
     }
     scheduleTreeRefresh(tab, Boolean(options.clearCache));
     persistenceService.persistTabs();
+    try {
+      window.dispatchEvent(new CustomEvent('marinashell:tab-path-changed', {
+        detail: { tabId: tab.id, path: normalized }
+      }));
+    } catch (err) { }
   }
 
   function setSelectedPath(tab, path) {

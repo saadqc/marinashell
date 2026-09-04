@@ -122,6 +122,7 @@
       <h2>Editor</h2>
       <label for="editor-mode">Open mode</label>
       <select id="editor-mode">
+        <option value="inline-editor" data-plugin-editor="true">Inline editor (CodeMirror)</option>
         <option value="remote-shell">Remote shell command</option>
         <option value="local-command">Local command</option>
         <option value="local-download">Download and open locally</option>
@@ -145,12 +146,20 @@
       <label for="tree-page-size">Tree page size</label>
       <input id="tree-page-size" type="number" min="100" max="2000" step="50" />
       <div class="hint">Maximum nodes per directory page in the tree view.</div>
-      <label for="session-tab-title-mode">Session tab title</label>
-      <select id="session-tab-title-mode">
-        <option value="connection">Connection (ssh:host)</option>
-        <option value="terminal-title">Terminal title (shell/process title)</option>
+      <label for="session-tab-title-template">Session tab title template</label>
+      <input id="session-tab-title-template" type="text" spellcheck="false" />
+      <div class="hint">Variables: &lt;ssh_machine&gt;, &lt;current_folder_name&gt;, &lt;current_path&gt;, &lt;terminal_title&gt;, &lt;session_type&gt;. Truncate with [:15], for example &lt;current_folder_name[:15]&gt;.</div>
+      <label for="default-tab-color">Default color for new tabs</label>
+      <select id="default-tab-color">
+        <option value="default">Default</option>
+        <option value="blue">Blue</option>
+        <option value="green">Green</option>
+        <option value="amber">Amber</option>
+        <option value="red">Red</option>
+        <option value="purple">Purple</option>
+        <option value="slate">Slate</option>
       </select>
-      <div class="hint">“Terminal title” uses OSC title updates from your shell when available.</div>
+      <div class="hint">You can override this per tab from its right-click menu.</div>
       <div class="checkbox-row">
         <input id="restore-tabs" type="checkbox" />
         <label for="restore-tabs">Restore tabs on launch</label>

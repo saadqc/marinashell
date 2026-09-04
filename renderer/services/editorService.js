@@ -11,7 +11,7 @@ import {
 } from '../utils.js';
 import { LARGE_FILE_BYTES } from '../constants.js';
 
-export function createEditorService(state, settingsService, actionsPanel, persistenceService) {
+export function createEditorService(state, settingsService, actionsPanel, persistenceService, editorModes = new Map()) {
   function getCurrentHostContext(fileInfo) {
     const tab = getActiveTab(state);
     const pathStyle = tab ? tab.remotePathStyle : 'posix';
@@ -72,6 +72,22 @@ export function createEditorService(state, settingsService, actionsPanel, persis
       if (!proceed) {
         return;
       }
+    }
+
+    const customEditor = editorModes.get(mode);
+    if (typeof customEditor === 'function') {
+      try {
+        await customEditor({ tab, fileInfo, context, mode });
+      } catch (err) {
+        const message = err && err.message ? err.message : 'Editor failed to open the file';
+        persistenceService.setStatus(message, true, tab);
+      }
+      return;
+    }
+
+    if (mode === 'inline-editor') {
+      persistenceService.setStatus('Enable the CodeMirror Editor plugin in Settings to use the inline editor', true, tab);
+      return;
     }
 
     if (mode === 'local-download') {

@@ -35,11 +35,15 @@ export function createPersistenceService(state, settingsService) {
       host: tab.host || '',
       currentPath: tab.currentPath || '/',
       treeRootPath: tab.treeRootPath || '/',
-      connected: Boolean(tab.connected)
+      connected: Boolean(tab.connected),
+      manualTitle: tab.manualTitle || '',
+      tabColor: tab.tabColor || 'default',
+      groupId: tab.groupId || ''
     }));
     const activeId = state.activeTabId || (serialized[0] && serialized[0].id) || '';
-    state.appState = { ...state.appState, tabs: serialized, activeTabId: activeId };
-    state.api.updateState({ tabs: serialized, activeTabId: activeId });
+    const tabGroups = Array.isArray(state.appState.tabGroups) ? state.appState.tabGroups : [];
+    state.appState = { ...state.appState, tabs: serialized, activeTabId: activeId, tabGroups };
+    state.api.updateState({ tabs: serialized, activeTabId: activeId, tabGroups });
   }
 
   function getDefaultHost(hostConfigs, hostSelect, lastHost) {
@@ -79,8 +83,6 @@ export function createPersistenceService(state, settingsService) {
   return {
     getHostState,
     updateHostState,
-    persistTabs,
-    getDefaultHost,
     persistTabs,
     getDefaultHost,
     setStatus,

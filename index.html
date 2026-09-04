@@ -19,7 +19,7 @@
 
     #app {
       display: flex;
-      height: 100vh;
+      height: 100dvh;
       width: 100vw;
     }
 
@@ -30,6 +30,12 @@
       border-right: 1px solid #1f2430;
       background: #0f1420;
       overflow: hidden;
+      transition: width 220ms ease, border-color 220ms ease;
+    }
+
+    #app.sidebar-collapsed #sidebar {
+      width: 0;
+      border-right-color: transparent;
     }
 
     #tabs {
@@ -395,30 +401,195 @@
       gap: 6px;
       flex: 1;
       overflow-x: auto;
+      align-items: stretch;
+      min-height: 34px;
     }
 
     .session-tab {
+      --tab-border: #2a2f3a;
+      --tab-bg: #141a26;
+      --tab-active-bg: #1a2232;
+      --tab-active-border: #3b4252;
+      --tab-fg: #9aa4b2;
+      --tab-dot: #596577;
       display: flex;
       align-items: center;
       gap: 6px;
       padding: 4px 8px;
       border-radius: 8px;
-      border: 1px solid #2a2f3a;
-      background: #141a26;
-      color: #9aa4b2;
+      border: 1px solid var(--tab-border);
+      background: var(--tab-bg);
+      color: var(--tab-fg);
       cursor: pointer;
       white-space: nowrap;
+      min-width: 0;
+      transition: color 160ms ease, background 160ms ease, border-color 160ms ease, opacity 160ms ease;
+    }
+
+    .session-tab:hover {
+      color: #dbe3ef;
+      border-color: var(--tab-active-border);
+    }
+
+    .session-tab:focus-visible,
+    .session-group-layout:focus-visible,
+    #sidebar-collapse-btn:focus-visible {
+      outline: 2px solid rgba(141, 208, 255, 0.8);
+      outline-offset: 2px;
     }
 
     .session-tab.active {
-      background: #1a2232;
+      background: var(--tab-active-bg);
       color: #e6e6e6;
-      border-color: #3b4252;
+      border-color: var(--tab-active-border);
+    }
+
+    .tab-color-blue {
+      --tab-border: rgba(95, 142, 170, 0.42);
+      --tab-bg: rgba(63, 105, 132, 0.18);
+      --tab-active-bg: rgba(69, 119, 150, 0.34);
+      --tab-active-border: #5f8eaa;
+      --tab-fg: #b3cad8;
+      --tab-dot: #6f9fb9;
+    }
+
+    .tab-color-green {
+      --tab-border: rgba(100, 144, 122, 0.42);
+      --tab-bg: rgba(66, 111, 87, 0.18);
+      --tab-active-bg: rgba(71, 126, 96, 0.34);
+      --tab-active-border: #64907a;
+      --tab-fg: #b9d2c5;
+      --tab-dot: #75a78d;
+    }
+
+    .tab-color-amber {
+      --tab-border: rgba(157, 130, 82, 0.42);
+      --tab-bg: rgba(124, 94, 45, 0.18);
+      --tab-active-bg: rgba(143, 108, 49, 0.34);
+      --tab-active-border: #9d8252;
+      --tab-fg: #d8c8aa;
+      --tab-dot: #b39762;
+    }
+
+    .tab-color-red {
+      --tab-border: rgba(155, 98, 109, 0.42);
+      --tab-bg: rgba(120, 66, 76, 0.18);
+      --tab-active-bg: rgba(139, 72, 84, 0.34);
+      --tab-active-border: #9b626d;
+      --tab-fg: #d9bac0;
+      --tab-dot: #b47681;
+    }
+
+    .tab-color-purple {
+      --tab-border: rgba(128, 111, 158, 0.42);
+      --tab-bg: rgba(93, 75, 126, 0.18);
+      --tab-active-bg: rgba(105, 83, 143, 0.34);
+      --tab-active-border: #806f9e;
+      --tab-fg: #c9c0d9;
+      --tab-dot: #9582b3;
+    }
+
+    .tab-color-slate {
+      --tab-border: rgba(111, 124, 141, 0.45);
+      --tab-bg: rgba(78, 91, 108, 0.2);
+      --tab-active-bg: rgba(87, 102, 121, 0.36);
+      --tab-active-border: #6f7c8d;
+      --tab-fg: #c0c8d2;
+      --tab-dot: #8492a5;
     }
 
     .session-tab .close-btn {
       font-size: 12px;
       color: #7c8796;
+    }
+
+    .session-tab-label {
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .session-tab.dragging {
+      opacity: 0.38;
+    }
+
+    .session-tab.drag-over {
+      border-color: rgba(141, 208, 255, 0.75);
+      box-shadow: inset 2px 0 rgba(141, 208, 255, 0.75);
+    }
+
+    .session-group {
+      display: flex;
+      align-items: stretch;
+      flex: 0 0 auto;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 9px;
+      background: rgba(20, 26, 38, 0.72);
+      overflow: hidden;
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    .session-group.active {
+      border-color: rgba(141, 208, 255, 0.35);
+      box-shadow: inset 0 0 0 1px rgba(141, 208, 255, 0.08);
+    }
+
+    .session-group.drag-over {
+      border-color: rgba(141, 208, 255, 0.75);
+    }
+
+    .session-group-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 3px 5px 3px 8px;
+      border-right: 1px solid rgba(255, 255, 255, 0.07);
+      color: #aeb8c7;
+      font-size: 11px;
+      user-select: none;
+      cursor: default;
+    }
+
+    .session-group-name {
+      max-width: 110px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+
+    .session-group-layout {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 5px;
+      border: 0;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #8894a5;
+      font-size: 10px;
+    }
+
+    .session-group-layout:hover {
+      background: rgba(255, 255, 255, 0.09);
+      color: #e6e6e6;
+    }
+
+    .session-group-tabs {
+      display: flex;
+      align-items: stretch;
+      gap: 4px;
+      padding: 3px;
+    }
+
+    .session-group-tabs .session-tab {
+      border-color: transparent;
+      border-radius: 6px;
+      padding-block: 3px;
+    }
+
+    .session-group-tabs .session-tab.active {
+      border-color: var(--tab-active-border);
     }
 
     #terminal-stack {
@@ -427,10 +598,63 @@
       position: relative;
     }
 
+    #terminal-stack.terminal-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--terminal-grid-columns, 1), minmax(0, 1fr));
+      grid-template-rows: repeat(var(--terminal-grid-rows, 1), minmax(0, 1fr));
+      gap: 8px;
+      padding: 8px;
+      background: #090c12;
+    }
+
     .terminal-pane {
       position: absolute;
       inset: 0;
       display: none;
+    }
+
+    #terminal-stack.terminal-grid .terminal-pane {
+      position: relative;
+      inset: auto;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      background: #0b0e14;
+    }
+
+    #terminal-stack.terminal-grid .terminal-pane.grid-visible {
+      display: block;
+    }
+
+    #terminal-stack.terminal-grid .terminal-pane.active {
+      border-color: rgba(141, 208, 255, 0.58);
+      box-shadow: 0 0 0 2px rgba(141, 208, 255, 0.09);
+    }
+
+    .terminal-grid-label {
+      display: none;
+    }
+
+    #terminal-stack.terminal-grid .terminal-grid-label {
+      position: absolute;
+      z-index: 2;
+      top: 5px;
+      right: 6px;
+      display: block;
+      max-width: 45%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 3px 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 5px;
+      background: rgba(8, 11, 17, 0.78);
+      color: #8995a6;
+      font: 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      pointer-events: none;
+      backdrop-filter: blur(8px);
     }
 
     .terminal-pane.active {
@@ -999,6 +1223,8 @@
       display: none;
       z-index: 1000;
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+      max-height: min(80vh, 560px);
+      overflow-y: auto;
     }
 
     .context-menu.open {
@@ -1015,6 +1241,50 @@
 
     .context-menu button:hover {
       background: #1a2232;
+    }
+
+    .context-menu button:disabled {
+      opacity: 0.42;
+      cursor: default;
+    }
+
+    .context-menu button:disabled:hover {
+      background: transparent;
+    }
+
+    .context-menu-label {
+      padding: 8px 8px 4px;
+      color: #697587;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .context-menu button.checked::before {
+      content: "✓";
+      display: inline-block;
+      width: 16px;
+      color: #8dd0ff;
+    }
+
+    .context-menu button.danger {
+      color: #f1a0b2;
+    }
+
+    .context-menu .color-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tab-color-swatch {
+      width: 10px;
+      height: 10px;
+      flex: 0 0 10px;
+      border-radius: 3px;
+      background: var(--tab-dot, #596577);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
     }
 
     .modal {
@@ -1202,7 +1472,9 @@
     <div id="workspace">
       <div id="session-bar">
         <div id="session-tabs-row">
+          <button id="sidebar-collapse-btn" class="icon-btn" title="Collapse sidebar" aria-label="Collapse sidebar" aria-expanded="true"><i data-icon="panel-left-close"></i></button>
           <div id="session-tabs"></div>
+          <button id="new-group-btn" class="icon-btn" title="Create group from active tab" aria-label="Create group from active tab"><i data-icon="folder-plus"></i></button>
           <button id="new-tab-btn" class="icon-btn" title="New tab" aria-label="New tab"><i data-icon="plus"></i></button>
         </div>
         <div id="view-toolbar"></div>

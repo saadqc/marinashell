@@ -11,6 +11,8 @@ const DEFAULT_STATE = {
   diskMountSelection: {},
   tabs: [],
   activeTabId: '',
+  tabGroups: [],
+  sidebarCollapsed: false,
   commands: [
     {
       name: 'Restart App',
@@ -47,7 +49,8 @@ const DEFAULT_SETTINGS = {
     },
     session: {
       restoreTabs: { type: 'boolean', value: false },
-      tabTitleMode: { type: 'string', value: 'connection' }
+      tabTitleTemplate: { type: 'string', value: '<ssh_machine>:<current_folder_name[:15]>' },
+      defaultTabColor: { type: 'string', value: 'default' }
     },
     shortcuts: {
       newTab: { type: 'string', value: 'mod+t' },

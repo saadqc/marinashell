@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.2 — 2026-09-07
+
+- Fixed terminal paste being sent twice when using Cmd/Ctrl+V.
+
 ## v0.2.1 — 2026-09-06
 
 Save a project workspace for later, and launch Python, JavaScript, or shell workloads with reusable run configurations across local and SSH hosts.

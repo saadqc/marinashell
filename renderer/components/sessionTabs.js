@@ -979,6 +979,10 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
         return true;
       }
       if (hasModifier && key === 'v') {
+        // xterm calls this handler for both keydown and keyup. Returning false
+        // only stops xterm; cancel the browser's native paste as well.
+        event.preventDefault();
+        if (event.type !== 'keydown') return false;
         if (tabState.connected && !tabState.readOnly) {
           state.api.readClipboard().then((text) => {
             if (text) {

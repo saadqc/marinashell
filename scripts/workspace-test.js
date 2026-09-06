@@ -29,6 +29,7 @@ const settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); settings.ui.sessi
 const routes = {
   'app:get-state': () => state, 'app:update-state': patch => (state = { ...state, ...patch }),
   'settings:get': () => settings, 'ssh:password-response': () => ({ok:true}), 'ssh:hosts': () => [{ alias: 'test-remote' }],
+  'ssh:connect': () => ({ ok: true }), 'ssh:disconnect': () => ({ ok: true }),
   'groups:list': () => groups.read(), 'groups:save': group => groups.upsert(group), 'groups:delete': id => groups.remove(id),
   'plugins:list': () => [{ id: 'run-configurations', enabled: true, rendererEntry: pathToFileURL(path.resolve('plugins/run-configurations/renderer.js')).href }],
   'local:list': () => [], 'sftp:list': () => [], 'clipboard:write': () => ({ ok: true }), 'clipboard:read': () => 'do not execute',
@@ -92,8 +93,26 @@ app.whenReady().then(async () => {
   await evaluate(`testWait(()=>[...document.querySelectorAll('dialog h2')].some(e=>e.textContent==='Stop running configurations?')); testClick('Stop and close');`);
   await evaluate(`testWait(()=>!document.querySelector('.run-output-bar'))`);
   assert.equal(manager.list().length, 0);
+  // Exercise xterm's real keydown/keyup listeners: one shortcut must write once
+  // and cancel Chromium's default paste action.
+  await evaluate(`testClick('Connect'); testWait(()=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Disconnect'));`);
+  const writesBeforePaste = writes;
+  const pasteEvents = await evaluate(`
+    const textarea = [...document.querySelectorAll('.xterm-helper-textarea')].find(el=>el.closest('.xterm').getBoundingClientRect().width);
+    textarea.focus();
+    const modifier = navigator.platform.toLowerCase().includes('mac') ? {metaKey:true} : {ctrlKey:true};
+    return ['keydown','keyup'].map(type => {
+      const event = new KeyboardEvent(type, {key:'v',code:'KeyV',keyCode:86,bubbles:true,cancelable:true,...modifier});
+      textarea.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+  `);
+  await new Promise(r=>setTimeout(r,150));
+  assert.deepEqual(pasteEvents, [true, true], 'Paste shortcut did not cancel native paste');
+  assert.equal(writes - writesBeforePaste, 1, 'Paste shortcut must forward clipboard exactly once');
+  await evaluate(`testClick('Disconnect'); testWait(()=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Connect'));`);
   assert.deepEqual(errors.filter(e=>!e.includes('Electron Security Warning')), []);
-  console.log('PASS: actual workspace group save/close/restore, configuration editor/env modal, readonly output, close confirmation/cancel/stop');
+  console.log('PASS: actual workspace group save/close/restore, configuration editor/env modal, readonly output, close confirmation/cancel/stop, single terminal paste');
 }).catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await manager.shutdown(); window?.destroy(); fs.rmSync(root, { recursive: true, force: true }); app.exit(process.exitCode || 0);
 });

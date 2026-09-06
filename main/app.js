@@ -21,6 +21,7 @@ let settingsWindow = null;
 let state = null;
 let settings = null;
 let passwordStore = null;
+let pluginManager = null;
 const pendingPasswordRequests = new Map();
 let passwordRequestCounter = 0;
 
@@ -196,6 +197,14 @@ app.whenReady().then(() => {
   pluginManager.init();
   buildMenu();
 
+  const groupsLibrary = require('./services/libraryStore').createLibraryStore('saved-groups');
+  ipcMain.handle('groups:list', () => groupsLibrary.read());
+  ipcMain.handle('groups:save', (_event, group) => {
+    if (!group || !String(group.name || '').trim() || !Array.isArray(group.tabs)) throw new Error('Invalid saved group');
+    return groupsLibrary.upsert(group);
+  });
+  ipcMain.handle('groups:delete', (_event, id) => groupsLibrary.remove(id));
+
   ipcMain.handle('app:get-state', () => state);
   ipcMain.handle('app:update-state', (event, patch) => {
     if (!patch || typeof patch !== 'object') {
@@ -215,10 +224,12 @@ app.whenReady().then(() => {
       const arr = node && typeof node === 'object' && Array.isArray(node.value) ? node.value : [];
       return arr.map((v) => String(v));
     };
+    const readEnabled = value => JSON.stringify(value?.plugins?.enabled?.list?.value || []);
+    const beforeEnabled = readEnabled(settings);
     const beforeDisabled = readDisabled(settings);
     settings = saveSettings(patch);
     const afterDisabled = readDisabled(settings);
-    if (beforeDisabled.join('|') !== afterDisabled.join('|')) {
+    if (beforeDisabled.join('|') !== afterDisabled.join('|') || beforeEnabled !== readEnabled(settings)) {
       try {
         if (pluginManager && typeof pluginManager.syncEnabled === 'function') {
           pluginManager.syncEnabled();
@@ -549,6 +560,15 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', async () => {
-  await sessionManager.disconnectAll();
+let shutdownComplete = false;
+let shuttingDown = false;
+app.on('before-quit', event => {
+  if (shutdownComplete) return;
+  event.preventDefault();
+  if (shuttingDown) return;
+  shuttingDown = true;
+  (async () => {
+    try { if (pluginManager) await pluginManager.shutdown(); }
+    finally { await sessionManager.disconnectAll(); shutdownComplete = true; app.quit(); }
+  })().catch(error => { console.error('Shutdown failed', error); shutdownComplete = true; app.quit(); });
 });

@@ -37,8 +37,8 @@ jobs:
       - name: Upload artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: MarinaShell ${{ github.ref_name }} — Project workspaces and inline editor
-          body_path: CHANGELOG.md
+          name: MarinaShell ${{ github.ref_name }} — Saved groups and run configurations
+          body_path: RELEASE_NOTES.md
           files: |
             release/**/*.AppImage
             release/**/*.deb

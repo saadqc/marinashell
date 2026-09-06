@@ -1,0 +1,10 @@
+{
+  "name": "run-configurations",
+  "version": "1.0.0",
+  "description": "Python, JavaScript and Shell run configurations with local/SSH output and process control",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "marinashell": {
+    "defaultEnabled": false
+  }
+}

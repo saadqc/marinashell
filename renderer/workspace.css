@@ -1,0 +1,19 @@
+.workspace-dialog { color: #dce3ed; background: #111722; border: 1px solid #364353; border-radius: 12px; padding: 0; width: min(520px, 90vw); max-height: 88vh; box-shadow: 0 24px 80px #0009; }
+.workspace-dialog::backdrop { background: #03060b99; }
+.workspace-dialog.wide { width: min(1040px, 94vw); }
+.workspace-dialog h2 { font-size: 17px; font-weight: 600; margin: 0; padding: 20px 24px; border-bottom: 1px solid #293240; }
+.workspace-dialog-body { padding: 20px 24px; overflow: auto; max-height: 65vh; line-height: 1.5; }
+.workspace-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid #293240; }
+.workspace-dialog button { cursor: pointer; }
+.workspace-dialog button:disabled { cursor: default; opacity: .45; }
+.workspace-dialog input, .workspace-dialog select, .workspace-dialog textarea { box-sizing: border-box; width: 100%; color: #dce3ed; background: #0c111a; border: 1px solid #364353; border-radius: 6px; padding: 9px 10px; font: inherit; }
+.workspace-dialog input[type=checkbox] { width: auto; accent-color: #70afd2; }
+.workspace-dialog :focus-visible { outline: 2px solid #70afd2; outline-offset: 2px; }
+.workspace-dialog .danger { color: #f5a3a3; }
+.workspace-library-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #293240; }
+.workspace-library-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.workspace-library-row small { display: block; color: #93a0b2; }
+
+dialog#password-modal { max-width: none; max-height: none; width: 100%; height: 100%; margin: 0; border: 0; box-sizing: border-box; color: inherit; }
+
+[hidden] { display: none !important; }

@@ -38,7 +38,10 @@ export function createPersistenceService(state, settingsService) {
       connected: Boolean(tab.connected),
       manualTitle: tab.manualTitle || '',
       tabColor: tab.tabColor || 'default',
-      groupId: tab.groupId || ''
+      groupId: tab.groupId || '',
+      readOnly: Boolean(tab.readOnly),
+      configurationId: tab.configurationId || '',
+      runId: tab.runId || ''
     }));
     const activeId = state.activeTabId || (serialized[0] && serialized[0].id) || '';
     const tabGroups = Array.isArray(state.appState.tabGroups) ? state.appState.tabGroups : [];

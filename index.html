@@ -1360,6 +1360,7 @@
       height: 14px;
     }
   </style>
+  <link rel="stylesheet" href="renderer/workspace.css" />
 </head>
 
 <body>
@@ -1440,32 +1441,7 @@
               </div>
             </div>
           </div>
-          <div class="section">
-            <div class="section-title">Commands</div>
-            <div id="commands">No commands saved</div>
-            <div class="command-editor">
-              <input id="command-name" type="text" placeholder="Command name" />
-              <input id="command-cwd" type="text" placeholder="/remote/path (optional)" />
-              <input id="command-command" type="text" placeholder="Command" />
-              <div class="row">
-                <button id="command-save-btn">Add command</button>
-                <button id="command-cancel-btn" class="ghost-btn">Cancel</button>
-              </div>
-            </div>
-          </div>
-          <div class="section">
-            <div class="section-title">Transfers</div>
-            <div class="transfer-block">
-              <input type="file" id="upload-file" />
-              <input type="text" id="upload-remote" placeholder="/remote/path/file" />
-              <button id="upload-btn">Upload</button>
-            </div>
-            <div class="transfer-block">
-              <input type="text" id="download-remote" placeholder="/remote/path/file" />
-              <button id="download-btn">Download</button>
-            </div>
-            <div id="transfer-status"></div>
-          </div>
+
         </div>
       </div>
     </div>
@@ -1474,6 +1450,7 @@
         <div id="session-tabs-row">
           <button id="sidebar-collapse-btn" class="icon-btn" title="Collapse sidebar" aria-label="Collapse sidebar" aria-expanded="true"><i data-icon="panel-left-close"></i></button>
           <div id="session-tabs"></div>
+          <button id="saved-groups-btn" class="icon-btn" title="Saved groups" aria-label="Saved groups"><i data-icon="folders"></i></button>
           <button id="new-group-btn" class="icon-btn" title="Create group from active tab" aria-label="Create group from active tab"><i data-icon="folder-plus"></i></button>
           <button id="new-tab-btn" class="icon-btn" title="New tab" aria-label="New tab"><i data-icon="plus"></i></button>
         </div>
@@ -1485,7 +1462,7 @@
       <div id="statusbar"></div>
     </div>
   </div>
-  <div id="password-modal" class="modal" aria-hidden="true">
+  <dialog id="password-modal" class="modal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="password-title">
       <div id="password-title" class="modal-title">SSH Password Required</div>
       <div id="password-host" class="modal-subtitle"></div>
@@ -1504,7 +1481,7 @@
         <button id="password-submit" type="button">Connect</button>
       </div>
     </div>
-  </div>
+  </dialog>
   <script src="./node_modules/xterm/lib/xterm.js"></script>
   <script src="./node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
   <script src="./node_modules/lucide/dist/umd/lucide.min.js"></script>

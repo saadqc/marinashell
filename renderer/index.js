@@ -24,7 +24,6 @@ const elements = {
   statusTransferMeta: document.getElementById('status-transfer-meta'),
   statusTransferFill: document.getElementById('status-transfer-fill'),
   fileTree: document.getElementById('file-tree'),
-  commandsList: document.getElementById('commands'),
   transferStatus: document.getElementById('transfer-status'),
   tabButtons: document.querySelectorAll('.tab-btn'),
   tabPanels: document.querySelectorAll('.tab-panel'),
@@ -37,16 +36,6 @@ const elements = {
   dockRoot: document.getElementById('dock-root'),
   viewToolbar: document.getElementById('view-toolbar'),
   statusbar: document.getElementById('statusbar'),
-  uploadInput: document.getElementById('upload-file'),
-  uploadRemoteInput: document.getElementById('upload-remote'),
-  uploadButton: document.getElementById('upload-btn'),
-  downloadRemoteInput: document.getElementById('download-remote'),
-  downloadButton: document.getElementById('download-btn'),
-  commandNameInput: document.getElementById('command-name'),
-  commandCwdInput: document.getElementById('command-cwd'),
-  commandCommandInput: document.getElementById('command-command'),
-  commandSaveButton: document.getElementById('command-save-btn'),
-  commandCancelButton: document.getElementById('command-cancel-btn'),
   backButton: document.getElementById('back-btn'),
   forwardButton: document.getElementById('forward-btn'),
   pathInput: document.getElementById('path-input'),
@@ -179,7 +168,7 @@ if (!window.Terminal || !window.FitAddon) {
 }
 
 window.addEventListener('keydown', (event) => {
-  if (event.defaultPrevented) return;
+  if (event.defaultPrevented || document.querySelector('dialog[open], .modal.open')) return;
   const bindings = state.shortcutBindings || {};
   if (matchesShortcutEvent(event, bindings.newTab)) {
     event.preventDefault();
@@ -265,7 +254,6 @@ window.addEventListener('marinashell:detach-terminal', () => {
       lastHost: '',
       recentLocations: {},
       savedLocations: {},
-      commands: [],
       tabs: [],
       activeTabId: '',
       tabGroups: [],
@@ -282,7 +270,6 @@ window.addEventListener('marinashell:detach-terminal', () => {
     state.shortcutBindings = settingsService.getShortcutBindings();
 
     await sessionTabs.refreshHosts();
-    actionsPanel.renderCommands(state.appState ? state.appState.commands : []);
     Object.keys(state.sectionState).forEach((key) => filesPanel.updateSectionUI(key));
     sessionTabs.setupTerminalHandlers();
     statusBar.bind();
@@ -294,7 +281,7 @@ window.addEventListener('marinashell:detach-terminal', () => {
     if (savedTabs.length) {
       for (const saved of savedTabs) {
         const tab = sessionTabs.createTabState(saved);
-        if (saved.connected && saved.host) {
+        if (!saved.readOnly && saved.connected && saved.host) {
           reconnectQueue.push({ tab, host: saved.host, path: saved.currentPath || '/' });
         }
       }
@@ -324,6 +311,7 @@ window.addEventListener('marinashell:detach-terminal', () => {
     const pluginContext = {
       api,
       state,
+      sessionTabs,
       registerCommand: async (name, callback) => {
         // Simple command registration (could be enhanced)
         console.log(`[Plugin] Registered command: ${name}`);

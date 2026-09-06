@@ -28,10 +28,8 @@ MarinaShell is a lightweight Electron desktop SSH client focused on fast, reliab
   - Detects outside changes before saving and offers reload/overwrite resolution
   - Preserves unsaved drafts while switching files or dock views and warns before closing the app
   - Accepts UTF-8 text files up to 5 MB; binary files remain available through the other open modes
-- **Actions panel**:
-  - Create / update / delete saved commands
-  - Run commands in the active terminal session (optional `cwd`)
-  - Upload / download via SFTP with progress
+- **Actions panel**: port forwarding; file transfers remain available from the file tree and status area.
+- **Saved groups**: right-click a group to save or update an independent snapshot. Use the Saved groups button beside New group to restore or delete snapshots. Names, order, colors, hosts, directories, layout, and configuration links are retained.
 - **Multi-tab sessions**:
   - Multiple SSH tabs (each tab has its own terminal + SFTP session)
   - Interpolated tab titles with host, current folder/path, terminal title, and slice syntax such as `<current_folder_name[:15]>`
@@ -78,7 +76,7 @@ MarinaShell is a lightweight Electron desktop SSH client focused on fast, reliab
 ## Settings & persistence
 
 - **Settings file**: `~/.marinashell/settings.json`
-- **State file** (commands, known hosts, recents/saved, tab restore data): Electron user data folder
+- **State file** (known hosts, recents/saved, tab restore data): Electron user data folder
   - macOS: `~/Library/Application Support/MarinaShell/state.json`
   - Windows: `%APPDATA%\\MarinaShell\\state.json`
   - Linux: `~/.config/MarinaShell/state.json`
@@ -165,3 +163,22 @@ This project is **not code-signed** by default. For distribution outside your ma
 ## License
 
 No license specified.
+
+
+## Run configurations
+
+Enable **run-configurations** in **Settings → Plugins**. It ships disabled and stores its library in `~/.marinashell/run-configurations.json`. The toolbar provides configuration selection, Run, Restart, Stop, Edit configurations, and a run list for reopening output.
+
+- Templates: Python script/module, Celery, Uvicorn, Flask, Node script/module, npm script, and shell script/commands.
+- Choose local or an SSH alias, working directory, arguments, and interpreter. **Detect** finds common Python/Node/shell installations, conda/mamba/micromamba environments, pyenv versions, and nvm installations; custom manager and interpreter paths are also accepted.
+- Node module mode imports the module with the selected Node interpreter. For a package CLI, use its entry script or an npm script.
+- `.env` paths resolve on the execution host, relative to the working directory. Files load in order, then modal variables override them. Values are literal (no shell expansion). Create `.env` never overwrites an existing file. Shell startup files are sourced by the selected shell.
+- **Allow multiple instances** is off by default. Single-instance Run focuses the existing run; multiple-instance Run creates another output tab. Restart replaces the selected instance in its tab.
+- Output is read-only, with selection/copy and Find. Stop requests termination of the managed job; Stop again force-kills it. Closing a tab or group asks for confirmation and keeps the view open until termination is confirmed.
+- SSH **Run in tmux** is off by default and requires the installed/enabled tmux plugin plus tmux on the remote host. A named session is reused with a dedicated managed window per run. Reconnecting resumes the output log and verifies status, without automatically launching a duplicate.
+- Run records are stored separately in `~/.marinashell/run-records.json`; per-run status and output live under `~/.marinashell/runs/` on the execution host. Logs retain approximately 4–8 MB per run. Older output may rotate. Launch scripts containing inline environment variables use owner-only permissions and are removed after exit.
+- Process control uses a Bash supervisor that owns the job, not name-based `pkill` or blind signaling of saved PIDs. Unknown/disconnected runs must be rechecked before controlling them. Programs should run in the foreground; deliberately daemonized children are outside the managed job.
+- The runner currently targets **macOS/Linux hosts with Bash**, including POSIX SSH hosts when the client runs on Windows. Native Windows execution hosts are not supported. tmux persistence covers SSH loss, not remote reboots. Ordinary runs are stopped on app quit; tmux runs remain remote until stopped or their tab is explicitly closed.
+- Saved group snapshots are independent in `~/.marinashell/saved-groups.json`. Restoring configuration tabs does not execute them.
+
+Validation: `npm run test:runs`, `npm run test:runs:ssh` (requires local tmux; uses an isolated loopback SSH server/socket), and `npm run test:workspace` (Electron UI plus real local processes).

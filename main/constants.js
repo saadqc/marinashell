@@ -12,14 +12,7 @@ const DEFAULT_STATE = {
   tabs: [],
   activeTabId: '',
   tabGroups: [],
-  sidebarCollapsed: false,
-  commands: [
-    {
-      name: 'Restart App',
-      command: 'pm2 restart app',
-      cwd: '/var/www/app'
-    }
-  ]
+  sidebarCollapsed: false
 };
 
 const DEFAULT_SETTINGS = {
@@ -70,6 +63,9 @@ const DEFAULT_SETTINGS = {
     }
   },
   plugins: {
+    enabled: {
+      list: { type: 'array', value: [] }
+    },
     disabled: {
       list: { type: 'array', value: [] }
     },

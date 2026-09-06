@@ -28,6 +28,7 @@ function getBundledPluginsDir(app) {
 }
 
 function createPluginManager({ app, sessionManager, getMainWindow, getSettings }) {
+    const defaultEnabled = new Map();
     const plugins = new Map(); // id -> pluginObject
 
     function readSettingValue(pathParts, fallback) {
@@ -50,7 +51,9 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
 
     function isEnabled(id) {
         const disabled = getDisabledIds();
-        return !disabled.includes(String(id));
+        if (disabled.includes(String(id))) return false;
+        const enabled = readSettingValue(['plugins', 'enabled', 'list'], []);
+        return defaultEnabled.get(id) !== false || (Array.isArray(enabled) && enabled.includes(id));
     }
 
     function ensureUserDir() {
@@ -74,6 +77,7 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
             // Check if already loaded (e.g. user override bundled)
             if (plugins.has(id)) return;
 
+            defaultEnabled.set(id, !(pkg.marinashell && pkg.marinashell.defaultEnabled === false));
             const enabledNow = isEnabled(id);
 
             const pluginInfo = {
@@ -118,6 +122,8 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
                     getMainWindow,
                     getSettings,
                     pluginPath: dirPath,
+                    getPlugins: getPluginsList,
+                    registerShutdown: handler => { pluginInfo.shutdown = handler; },
                     registerIpc: (channel, handler) => {
                         const fullChannel = `plugin:${id}:${channel}`;
                         console.log(`[PluginManager] Registering IPC: ${fullChannel}`);
@@ -254,6 +260,8 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
                     getMainWindow,
                     getSettings,
                     pluginPath: dirPath,
+                    getPlugins: getPluginsList,
+                    registerShutdown: handler => { pluginInfo.shutdown = handler; },
                     registerIpc: (channel, handler) => {
                         const fullChannel = `plugin:${id}:${channel}`;
                         console.log(`[PluginManager] Registering IPC: ${fullChannel}`);
@@ -275,7 +283,12 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
         }
     }
 
+    async function shutdown() {
+        await Promise.all(Array.from(plugins.values()).filter(p => p.shutdown).map(p => p.shutdown()));
+    }
+
     return {
+        shutdown,
         init,
         getPluginsList,
         installPlugin,

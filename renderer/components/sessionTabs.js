@@ -1,3 +1,5 @@
+import { createSavedGroups } from './savedGroups.js';
+import { showError } from './dialog.js';
 import { getActiveTab, getTab } from '../state.js';
 import { buildRemoteCdCommand, findTerminalLinks, formatRemotePath, getPathLabel, interpolateTabTitle } from '../utils.js';
 import { LOCAL_HOST_VALUE, LOCAL_HOST_LABEL } from '../constants.js';
@@ -331,6 +333,14 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     positionContextMenu(tabContextMenu, x, y);
   }
 
+  async function closeGroup(groupId) {
+    const members = [...state.tabs.values()].filter(tab => tab.groupId === groupId);
+    const runs = members.filter(tab => tab.runId);
+    if (runs.length && !state.runController) { showError(new Error('Enable Run Configurations to stop and close these runs.')); return; }
+    if (runs.length && state.runController && !await state.runController.beforeClose(runs)) return;
+    for (const tab of members) await closeTab(tab.id, { approved: true });
+  }
+
   function showGroupContextMenu(x, y, groupId) {
     const group = getTabGroup(groupId);
     if (!group) return;
@@ -343,6 +353,9 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       }, { checked: (group.layout || '1x1') === layout.id });
     }
     addMenuLabel(tabContextMenu, 'Group');
+    addMenuButton(tabContextMenu, 'Save group…', () => { hideTabContextMenu(); savedGroups.save(groupId); });
+    if (group.savedGroupId) addMenuButton(tabContextMenu, 'Update saved group', () => { hideTabContextMenu(); savedGroups.save(groupId, true); });
+    addMenuButton(tabContextMenu, 'Close group…', () => { hideTabContextMenu(); closeGroup(groupId).catch(showError); }, { danger: true });
     addMenuButton(tabContextMenu, 'Rename group…', () => {
       hideTabContextMenu();
       renameGroup(groupId);
@@ -382,12 +395,12 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
 
     let clipboardText = '';
     const pasteButton = addMenuButton(terminalContextMenu, 'Paste', () => {
-      if (clipboardText && tab.connected) tab.term.paste(clipboardText);
+      if (clipboardText && tab.connected && !tab.readOnly) tab.term.paste(clipboardText);
       hideTerminalContextMenu();
     });
     pasteButton.disabled = true;
     pasteButton.title = tab.connected ? 'Reading clipboard…' : 'Connect this terminal to paste';
-    if (tab.connected) {
+    if (tab.connected && !tab.readOnly) {
       state.api.readClipboard().then((text) => {
         clipboardText = String(text || '');
         if (!terminalContextMenu.classList.contains('open')) return;
@@ -410,7 +423,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       }
       hideTerminalContextMenu();
     }, { danger: true });
-    killButton.disabled = !tab.connected;
+    killButton.disabled = !tab.connected || tab.readOnly;
     positionContextMenu(terminalContextMenu, x, y);
   }
 
@@ -767,7 +780,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   function updateConnectUi(tab) {
     const connected = tab ? tab.connected : false;
     connectButton.textContent = connected ? 'Disconnect' : 'Connect';
-    hostSelect.disabled = connected;
+    connectButton.disabled = Boolean(tab?.readOnly);
+    hostSelect.disabled = connected || Boolean(tab?.readOnly);
     if (state.elements.pathInput) state.elements.pathInput.disabled = !connected;
     if (state.elements.pathGoButton) state.elements.pathGoButton.disabled = !connected;
     if (state.elements.pathSaveButton) state.elements.pathSaveButton.disabled = !connected;
@@ -807,10 +821,13 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     filesPanel.ensureTreeLoaded(tab);
   }
 
-  function closeTab(tabId) {
+  async function closeTab(tabId, options = {}) {
     const tab = state.tabs.get(tabId);
     if (!tab) return;
-    if (tab.isBusy) {
+    if (tab.runId && !options.approved) {
+      if (!state.runController || !await state.runController.beforeClose([tab])) return;
+    }
+    if (!tab.readOnly && tab.isBusy && !options.approved) {
       const proceed = window.confirm('A command is still running in this tab. Close anyway?');
       if (!proceed) {
         return;
@@ -822,8 +839,10 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     if (tab.linkProvider && typeof tab.linkProvider.dispose === 'function') {
       try { tab.linkProvider.dispose(); } catch (err) { }
     }
-    tab.term.dispose();
+    if (tab.runId && state.runController) await state.runController.closed(tab);
     tab.container.remove();
+    // Let xterm finish its already queued viewport refresh before disposal.
+    requestAnimationFrame(() => tab.term.dispose());
     state.tabs.delete(tabId);
     if (tab.groupId && !Array.from(state.tabs.values()).some((item) => item.groupId === tab.groupId)) {
       state.appState.tabGroups = getTabGroups().filter((group) => group.id !== tab.groupId);
@@ -861,7 +880,9 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const term = new TerminalCtor({
       fontFamily: 'Menlo, monospace',
       fontSize: 13,
-      cursorBlink: true,
+      cursorBlink: !initial.readOnly,
+      disableStdin: Boolean(initial.readOnly),
+      convertEol: Boolean(initial.readOnly),
       theme: {
         background: '#0b0e14',
         foreground: '#e6e6e6'
@@ -889,6 +910,9 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       host: initial.host || '',
       sessionType: initial.sessionType || (initial.host === LOCAL_HOST_VALUE ? 'local' : 'ssh'),
       connected: false,
+      readOnly: Boolean(initial.readOnly),
+      runId: initial.runId || '',
+      configurationId: initial.configurationId || '',
       terminalTitle: '',
       manualTitle: initial.manualTitle || '',
       tabColor: TAB_COLORS.some((color) => color.id === initial.tabColor) ? initial.tabColor : getDefaultTabColor(),
@@ -934,7 +958,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     });
 
     term.onData((data) => {
-      if (tabState.connected) {
+      if (tabState.connected && !tabState.readOnly) {
         if (data.includes('\r') || data.includes('\n')) {
           tabState.isBusy = true;
         }
@@ -955,7 +979,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
         return true;
       }
       if (hasModifier && key === 'v') {
-        if (tabState.connected) {
+        if (tabState.connected && !tabState.readOnly) {
           state.api.readClipboard().then((text) => {
             if (text) {
               term.paste(text);
@@ -994,7 +1018,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
 
   function duplicateTab(tabId) {
     const source = state.tabs.get(tabId);
-    if (!source) return;
+    if (!source || source.readOnly) return;
     const host = source.host || persistenceService.getDefaultHost(state.hostConfigs, hostSelect, state.appState.lastHost);
     const path = source.currentPath || '/';
     createNewTab({ host, path, connect: source.connected, groupId: source.groupId || '', tabColor: source.tabColor || 'default' });
@@ -1222,6 +1246,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   }
 
   async function connectTab(tab, host, options = {}) {
+    if (tab.readOnly) return false;
     if (!state.api) {
       persistenceService.setStatus('IPC unavailable', true, tab);
       return false;
@@ -1378,6 +1403,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     });
   }
 
+  const savedGroups = createSavedGroups(state, { createTabState, connectTab, setActiveSessionTab, renderSessionTabs, updateTerminalGrid }, askForText, getSessionTabLabel);
   bindEvents();
 
   window.addEventListener('marinashell:tab-path-changed', () => {
@@ -1397,6 +1423,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     syncUiToActiveTab,
     createNewTab,
     closeActiveTab,
+    closeTab,
+    savedGroups,
     duplicateTab,
     updateTerminalGrid,
     createGroup,

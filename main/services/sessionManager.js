@@ -862,7 +862,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
   async function exec(tabId, command, options = {}) {
     const session = getSession(tabId);
     if (!session) throw new Error('Invalid tab');
-    const timeoutMs = options.timeoutMs ? Number(options.timeoutMs) : 20000;
+    const timeoutMs = options.timeoutMs === undefined ? 20000 : Number(options.timeoutMs);
     if (session.sessionType === 'local') {
       return execLocalCommand(command, timeoutMs);
     }
@@ -1560,6 +1560,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
 
     if (session.lastPassword) {
       connectConfig.password = session.lastPassword;
+      connectConfig.passphrase = session.lastPassword;
     }
 
     return new Promise((resolve, reject) => {
@@ -1573,6 +1574,8 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
         reject(err);
       });
 
+      client.on('close', () => { if (session.tunnelClient === client) session.tunnelClient = null; });
+
       client.on('tcpip', (accept, reject, info) => {
         tunnelService.handleRemoteConnection(client, info, accept, reject);
       });
@@ -1581,7 +1584,28 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     });
   }
 
+  // Run configurations need authenticated command channels, without creating an
+  // interactive terminal or coupling the process to an ordinary tab.
+  async function connectControl(tabId, hostConfig) {
+    const session = getSession(tabId);
+    if (!hostConfig) { session.sessionType = 'local'; return; }
+    session.sessionType = 'ssh';
+    session.hostConfig = hostConfig;
+    session.hostKey = buildHostKey(hostConfig);
+    if (!session.lastPassword && passwordStore) session.lastPassword = passwordStore.getPassword(session.hostKey);
+    try { await ensureTunnelConnection(tabId, hostConfig); }
+    catch (error) {
+      if (!/authentication|authenticate|passphrase|private key/i.test(error.message)) throw error;
+      session.passwordAttempts = 0;
+      const response = await requestPasswordForSession(tabId, hostConfig, { reason: 'run configuration', error: error.message });
+      if (!response || response.action !== 'submit') throw new Error('SSH authentication canceled');
+      await ensureTunnelConnection(tabId, hostConfig);
+      if (session.rememberPassword && passwordStore) passwordStore.setPassword(session.hostKey, session.lastPassword);
+    }
+  }
+
   const manager = {
+    connectControl,
     createSession: (tabId, hostConfig) => connect(tabId, hostConfig),
     createTunnel: async (tabId, type, config) => {
       const session = getSession(tabId);

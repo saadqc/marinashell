@@ -15,6 +15,7 @@ export function createPasswordPrompt(state) {
     };
   }
 
+  modal.addEventListener('cancel', event => { event.preventDefault(); cancelButton.click(); });
   const queue = [];
   let activeRequest = null;
 
@@ -59,11 +60,13 @@ export function createPasswordPrompt(state) {
       remember.checked = false;
     }
     modal.classList.add('open');
+    if (typeof modal.showModal === 'function' && !modal.open) modal.showModal();
     input.focus();
   }
 
   function hidePrompt() {
     modal.classList.remove('open');
+    if (typeof modal.close === 'function' && modal.open) modal.close();
     activeRequest = null;
   }
 

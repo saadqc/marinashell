@@ -179,7 +179,7 @@
 
     list.forEach(p => {
       const disabledList = readList(['plugins', 'disabled', 'list'], []);
-      const isEnabled = !disabledList.includes(p.id);
+      const isEnabled = p.enabled !== false;
 
       const el = document.createElement('div');
       el.style.background = '#141a26';
@@ -250,6 +250,9 @@
           set.add(p.id);
         }
         writeValue(['plugins', 'disabled', 'list'], 'array', Array.from(set));
+        const enabledIds = new Set(readList(['plugins', 'enabled', 'list'], []));
+        if (enabledToggle.checked) enabledIds.add(p.id); else enabledIds.delete(p.id);
+        writeValue(['plugins', 'enabled', 'list'], 'array', Array.from(enabledIds));
         if (defaultButton) {
           defaultButton.disabled = !enabledToggle.checked || editorMode.value === p.editorMode;
         }

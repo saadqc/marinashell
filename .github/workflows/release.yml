@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v*"
+    # A release/<tag> branch can repair assets without moving a published tag.
+    branches:
+      - "release/*"
 
 permissions:
   contents: write
@@ -19,7 +22,14 @@ jobs:
         os: [ubuntu-latest, windows-2022, macos-latest]
 
     steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: echo "tag=${GITHUB_REF_NAME#release/}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.release.outputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
@@ -37,13 +47,14 @@ jobs:
       - name: Upload artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: MarinaShell ${{ github.ref_name }} — Saved groups and run configurations
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: MarinaShell ${{ steps.release.outputs.tag }} — Saved groups and run configurations
           body_path: RELEASE_NOTES.md
           files: |
             release/**/*.AppImage
             release/**/*.deb
             release/**/*.dmg
-            release/**/MarinaShell.Setup.*.exe
+            release/**/MarinaShell Setup *.exe
             release/**/*-win.zip
           fail_on_unmatched_files: false
           overwrite_files: true

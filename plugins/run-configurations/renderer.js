@@ -109,6 +109,12 @@ export default function activate({ api, state, sessionTabs }) {
     tab.readOnly = true; tab.runId = run.id; tab.configurationId = run.configurationId;
     tab.term.options.disableStdin = true; tab.term.options.cursorBlink = false; tab.term.options.convertEol = true;
     tab.container.classList.add('run-output');
+    // FitAddon measures the terminal's parent. Keep that parent below the
+    // toolbar so its height includes only the space available for output.
+    if (!tab.container.querySelector('.run-output-terminal')) {
+      const output = document.createElement('div'); output.className = 'run-output-terminal';
+      tab.container.append(output); output.append(tab.term.element);
+    }
     const bar = document.createElement('div'); bar.className = 'run-output-bar';
     const label = document.createElement('span'); label.className = 'run-state';
     const stopButton = button('Stop', () => stopRun(run.id));

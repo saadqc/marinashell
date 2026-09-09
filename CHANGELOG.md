@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.3 — 2026-09-09
+
+- Fixed Run Configuration output being clipped underneath the status bar, including after resizing the window.
+
 ## v0.2.2 — 2026-09-07
 
 - Fixed terminal paste being sent twice when using Cmd/Ctrl+V.

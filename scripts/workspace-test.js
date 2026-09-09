@@ -82,6 +82,19 @@ app.whenReady().then(async () => {
   await evaluate(`testWait(()=>!document.querySelector('.run-editor')); document.querySelector('#run-toolbar [aria-label="Run"]').click();`);
   await evaluate(`testWait(()=>document.querySelector('.run-output-bar')?.textContent.includes('Running'))`);
   assert.equal(manager.list().length, 1);
+  // The rendered terminal must fit between the run toolbar and pane bottom,
+  // including after the window shrinks (FitAddon must exclude toolbar space).
+  for (const [width, height] of [[1300, 900], [1000, 650]]) {
+    window.setSize(width, height);
+    await evaluate(`testWait(() => {
+      const pane = document.querySelector('.run-output');
+      const screen = pane.querySelector('.xterm-screen').getBoundingClientRect();
+      const bar = pane.querySelector('.run-output-bar').getBoundingClientRect();
+      const bounds = pane.getBoundingClientRect();
+      return screen.height > 0 && screen.top >= bar.bottom && screen.bottom <= bounds.bottom && screen.right <= bounds.right;
+    })`);
+  }
+  window.setSize(1300, 900);
   await evaluate(`const textarea=document.querySelector('.run-output .xterm-helper-textarea'); textarea.focus(); textarea.dispatchEvent(new InputEvent('input',{bubbles:true,data:'touch unsafe'}));`);
   assert.equal(writes, 0, 'Readonly run forwarded terminal input');
   await new Promise(r=>setTimeout(r,350));

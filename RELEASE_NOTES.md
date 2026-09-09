@@ -1,3 +1,4 @@
-## Terminal paste correction
+## Run Configuration output correction
 
-- Fixed terminal paste being sent twice when using Cmd/Ctrl+V.
+- Fixed the bottom lines of Run Configuration output being clipped underneath the status bar.
+- Output now fits the available space below its toolbar, including after resizing the window.

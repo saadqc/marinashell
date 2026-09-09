@@ -5,7 +5,7 @@
 .run-output-bar { position: absolute; inset: 0 0 auto; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: #101722; border-bottom: 1px solid #293240; z-index: 4; font-size: 12px; }
 .run-output-bar .run-state { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #a8b6c8; }
 .run-output-bar button { padding: 3px 8px; font-size: 12px; }
-.terminal-pane.run-output { padding-top: 40px; box-sizing: border-box; }
+.run-output-terminal { position: absolute; inset: 40px 0 0; }
 .run-output .terminal-grid-label { top: 42px; }
 .run-editor .workspace-dialog-body { padding: 0; max-height: 68vh; overflow: hidden; }
 .run-editor-layout { display: grid; grid-template-columns: 245px minmax(0, 1fr); height: min(620px, 62vh); }

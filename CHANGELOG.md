@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.5 — 2026-09-11
+
+- Restored the original dark blue palette across the workspace, terminal, run configurations, dialogs, settings, and editor.
+- Kept the compact layout, JetBrains fonts, configuration icons, detailed launch logging, and saved-group fixes introduced in v0.2.4.
+
 ## v0.2.4 — 2026-09-11
 
 - Applied neutral charcoal surfaces throughout the workspace, sidebar, buttons, dialogs, settings, and editor, with PyCharm-style selection accents, compact configuration fields, and bundled JetBrains fonts and configuration icons.

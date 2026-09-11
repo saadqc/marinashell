@@ -884,8 +884,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       disableStdin: Boolean(initial.readOnly),
       convertEol: Boolean(initial.readOnly),
       theme: {
-        background: '#191a1c',
-        foreground: '#bcbec4'
+        background: '#0b0e14',
+        foreground: '#e6e6e6'
       }
     });
     const fitAddon = new FitAddonCtor();

@@ -1,6 +1,6 @@
 {
   "name": "marinashell",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "macOS-first SSH client with xterm.js",
   "author": "Saad Abdullah <saadqc@users.noreply.github.com>",
   "main": "main.js",

@@ -13,8 +13,8 @@
     body {
       margin: 0;
       font-family: "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-      background: #0b0e14;
-      color: #e6e6e6;
+      background: #191a1c;
+      color: #bcbec4;
     }
 
     #app {
@@ -27,8 +27,8 @@
       width: 300px;
       display: flex;
       flex-direction: column;
-      border-right: 1px solid #1f2430;
-      background: #0f1420;
+      border-right: 1px solid #2b2d30;
+      background: #191a1c;
       overflow: hidden;
       transition: width 220ms ease, border-color 220ms ease;
     }
@@ -42,7 +42,7 @@
       display: flex;
       gap: 6px;
       padding: 10px 12px;
-      border-bottom: 1px solid #1f2430;
+      border-bottom: 1px solid #2b2d30;
     }
 
     .tab-btn {
@@ -50,16 +50,16 @@
       font-size: 12px;
       padding: 6px 8px;
       border-radius: 8px;
-      border: 1px solid #2a2f3a;
-      background: #141a26;
-      color: #9aa4b2;
+      border: 1px solid #43454a;
+      background: #2b2d30;
+      color: #9da0a8;
       cursor: pointer;
     }
 
     .tab-btn.active {
-      background: #1a2232;
-      color: #e6e6e6;
-      border-color: #3b4252;
+      background: #393b40;
+      color: #bcbec4;
+      border-color: #4e5157;
     }
 
     #tab-panels {
@@ -85,7 +85,7 @@
       display: flex;
       flex-direction: column;
       min-width: 0;
-      background: #0b0e14;
+      background: #191a1c;
     }
 
     #session-bar {
@@ -94,8 +94,8 @@
       align-items: stretch;
       gap: 6px;
       padding: 8px 10px;
-      border-bottom: 1px solid #1f2430;
-      background: #0f1420;
+      border-bottom: 1px solid #2b2d30;
+      background: #191a1c;
     }
 
     #view-toolbar {
@@ -120,17 +120,17 @@
       height: 30px;
       padding: 0 10px;
       border-radius: 8px;
-      border: 1px solid #2a2f3a;
-      background: #141a26;
-      color: #9aa4b2;
+      border: 1px solid #43454a;
+      background: #2b2d30;
+      color: #9da0a8;
       cursor: pointer;
       user-select: none;
       white-space: nowrap;
     }
 
     .tool-btn:hover {
-      border-color: #3b4252;
-      color: #e6e6e6;
+      border-color: #4e5157;
+      color: #bcbec4;
     }
 
     .tool-btn:disabled {
@@ -139,14 +139,14 @@
     }
 
     .tool-btn:disabled:hover {
-      border-color: #2a2f3a;
-      color: #9aa4b2;
+      border-color: #43454a;
+      color: #9da0a8;
     }
 
     .tool-btn.active {
-      background: #1a2232;
-      color: #e6e6e6;
-      border-color: #3b4252;
+      background: #393b40;
+      color: #bcbec4;
+      border-color: #4e5157;
     }
 
     .dock-icon {
@@ -154,7 +154,7 @@
       height: 16px;
       flex: 0 0 16px;
       display: inline-block;
-      background-color: #9aa4b2;
+      background-color: #9da0a8;
       -webkit-mask-position: center;
       -webkit-mask-repeat: no-repeat;
       -webkit-mask-size: contain;
@@ -178,7 +178,7 @@
       padding: 10px;
       gap: 10px;
       overflow: hidden;
-      background: #0b0e14;
+      background: #191a1c;
     }
 
     #statusbar {
@@ -187,9 +187,9 @@
       align-items: center;
       gap: 6px;
       padding: 0 10px;
-      border-top: 1px solid #1f2430;
-      background: #0f1420;
-      color: #9aa4b2;
+      border-top: 1px solid #2b2d30;
+      background: #191a1c;
+      color: #9da0a8;
       font-size: 12px;
       overflow: hidden;
       user-select: none;
@@ -202,9 +202,9 @@
       padding: 0 10px;
       height: 22px;
       border-radius: 8px;
-      border: 1px solid #2a2f3a;
-      background: #141a26;
-      color: #9aa4b2;
+      border: 1px solid #43454a;
+      background: #2b2d30;
+      color: #9da0a8;
       white-space: nowrap;
       min-width: 0;
     }
@@ -214,8 +214,8 @@
       max-width: 220px;
       border-radius: 7px;
       border: 1px solid rgba(255, 255, 255, 0.10);
-      background: rgba(15, 19, 32, 0.65);
-      color: #e6e6e6;
+      background: rgba(25, 26, 28, 0.65);
+      color: #bcbec4;
       font-size: 12px;
       padding: 0 6px;
       outline: none;
@@ -227,7 +227,7 @@
     }
 
     .status-seg strong {
-      color: #e6e6e6;
+      color: #bcbec4;
       font-weight: 600;
     }
 
@@ -277,7 +277,7 @@
       flex-direction: column;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 12px;
-      background: rgba(15, 19, 32, 0.92);
+      background: rgba(25, 26, 28, 0.92);
       overflow: hidden;
       box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
     }
@@ -294,7 +294,7 @@
       gap: 10px;
       padding: 8px 10px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      background: rgba(20, 26, 38, 0.55);
+      background: rgba(43, 45, 48, 0.55);
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
       user-select: none;
@@ -306,7 +306,7 @@
       align-items: center;
       gap: 8px;
       font-size: 12px;
-      color: #e6e6e6;
+      color: #bcbec4;
       min-width: 0;
     }
 
@@ -330,8 +330,8 @@
       height: 26px;
       border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(15, 19, 32, 0.65);
-      color: #9aa4b2;
+      background: rgba(25, 26, 28, 0.65);
+      color: #9da0a8;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
@@ -341,7 +341,7 @@
 
     .dock-mini-btn:hover {
       border-color: rgba(255, 255, 255, 0.14);
-      color: #e6e6e6;
+      color: #bcbec4;
     }
 
     .dock-mini-btn:disabled {
@@ -351,7 +351,7 @@
 
     .dock-mini-btn:disabled:hover {
       border-color: rgba(255, 255, 255, 0.08);
-      color: #9aa4b2;
+      color: #9da0a8;
     }
 
     .dock-leaf-body {
@@ -359,7 +359,7 @@
       min-height: 0;
       overflow: auto;
       position: relative;
-      background: rgba(11, 14, 20, 0.2);
+      background: rgba(25, 26, 28, 0.2);
     }
 
     .dock-resizer {
@@ -406,11 +406,11 @@
     }
 
     .session-tab {
-      --tab-border: #2a2f3a;
-      --tab-bg: #141a26;
-      --tab-active-bg: #1a2232;
-      --tab-active-border: #3b4252;
-      --tab-fg: #9aa4b2;
+      --tab-border: #43454a;
+      --tab-bg: #2b2d30;
+      --tab-active-bg: #393b40;
+      --tab-active-border: #4e5157;
+      --tab-fg: #9da0a8;
       --tab-dot: #596577;
       display: flex;
       align-items: center;
@@ -440,7 +440,7 @@
 
     .session-tab.active {
       background: var(--tab-active-bg);
-      color: #e6e6e6;
+      color: #bcbec4;
       border-color: var(--tab-active-border);
     }
 
@@ -500,7 +500,7 @@
 
     .session-tab .close-btn {
       font-size: 12px;
-      color: #7c8796;
+      color: #6f737a;
     }
 
     .session-tab-label {
@@ -524,7 +524,7 @@
       flex: 0 0 auto;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 9px;
-      background: rgba(20, 26, 38, 0.72);
+      background: rgba(43, 45, 48, 0.72);
       overflow: hidden;
       transition: border-color 160ms ease, box-shadow 160ms ease;
     }
@@ -572,7 +572,7 @@
 
     .session-group-layout:hover {
       background: rgba(255, 255, 255, 0.09);
-      color: #e6e6e6;
+      color: #bcbec4;
     }
 
     .session-group-tabs {
@@ -604,7 +604,7 @@
       grid-template-rows: repeat(var(--terminal-grid-rows, 1), minmax(0, 1fr));
       gap: 8px;
       padding: 8px;
-      background: #090c12;
+      background: #191a1c;
     }
 
     .terminal-pane {
@@ -621,7 +621,7 @@
       overflow: hidden;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 8px;
-      background: #0b0e14;
+      background: #191a1c;
     }
 
     #terminal-stack.terminal-grid .terminal-pane.grid-visible {
@@ -650,7 +650,7 @@
       padding: 3px 6px;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 5px;
-      background: rgba(8, 11, 17, 0.78);
+      background: rgba(25, 26, 28, 0.78);
       color: #8995a6;
       font: 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
       pointer-events: none;
@@ -663,14 +663,14 @@
 
     .section {
       padding: 12px;
-      border-bottom: 1px solid #1f2430;
+      border-bottom: 1px solid #2b2d30;
     }
 
     .section-title {
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #9aa4b2;
+      color: #9da0a8;
       margin-bottom: 8px;
     }
 
@@ -682,7 +682,7 @@
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #9aa4b2;
+      color: #9da0a8;
       background: transparent;
       border: none;
       padding: 0;
@@ -691,7 +691,7 @@
     }
 
     .section-header span:last-child {
-      color: #7c8796;
+      color: #6f737a;
     }
 
     .section-body.collapsed {
@@ -778,7 +778,7 @@
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #7c8796;
+      color: #6f737a;
       margin-bottom: 6px;
     }
 
@@ -798,9 +798,9 @@
       font-size: 12px;
       padding: 6px 8px;
       border-radius: 6px;
-      border: 1px solid #2a2f3a;
-      background: #141a26;
-      color: #e6e6e6;
+      border: 1px solid #43454a;
+      background: #2b2d30;
+      color: #bcbec4;
     }
 
     button {
@@ -808,7 +808,7 @@
     }
 
     button:hover {
-      border-color: #3b4252;
+      border-color: #4e5157;
     }
 
 	    #status {
@@ -892,7 +892,7 @@
 
     .tree-row.selected {
       background: rgba(66, 120, 255, 0.25);
-      color: #e6e6e6;
+      color: #bcbec4;
     }
 
     .tree-row.drop-target {
@@ -902,7 +902,7 @@
     .tree-indicator {
       width: 12px;
       display: inline-block;
-      color: #9aa4b2;
+      color: #9da0a8;
     }
 
     .tree-icon {
@@ -910,7 +910,7 @@
       height: 16px;
       flex: 0 0 16px;
       display: inline-block;
-      background-color: #9aa4b2;
+      background-color: #9da0a8;
       -webkit-mask-position: center;
       -webkit-mask-repeat: no-repeat;
       -webkit-mask-size: contain;
@@ -932,7 +932,7 @@
     }
 
     .icon-file {
-      background-color: #9aa4b2;
+      background-color: #9da0a8;
       -webkit-mask-image: url('./assets/icons/file-icons/file-outline.svg');
       mask-image: url('./assets/icons/file-icons/file-outline.svg');
     }
@@ -1103,12 +1103,12 @@
 
     .command-title {
       font-size: 12px;
-      color: #e6e6e6;
+      color: #bcbec4;
     }
 
     .command-sub {
       font-size: 11px;
-      color: #7c8796;
+      color: #6f737a;
     }
 
     .command-actions {
@@ -1133,8 +1133,8 @@
 
     .ghost-btn {
       background: transparent;
-      border-color: #2a2f3a;
-      color: #9aa4b2;
+      border-color: #43454a;
+      color: #9da0a8;
     }
 
     .path-btn {
@@ -1143,7 +1143,7 @@
     }
 
     .tree-more {
-      color: #7c8796;
+      color: #6f737a;
     }
 
     #commands {
@@ -1161,7 +1161,7 @@
       max-height: 120px;
       overflow: auto;
       font-size: 11px;
-      color: #9aa4b2;
+      color: #9da0a8;
     }
 
     .transfer-row {
@@ -1216,8 +1216,8 @@
     .context-menu {
       position: fixed;
       min-width: 140px;
-      background: #141a26;
-      border: 1px solid #2a2f3a;
+      background: #2b2d30;
+      border: 1px solid #43454a;
       border-radius: 8px;
       padding: 6px;
       display: none;
@@ -1240,7 +1240,7 @@
     }
 
     .context-menu button:hover {
-      background: #1a2232;
+      background: #393b40;
     }
 
     .context-menu button:disabled {
@@ -1293,7 +1293,7 @@
       display: none;
       align-items: center;
       justify-content: center;
-      background: rgba(8, 12, 18, 0.7);
+      background: rgba(25, 26, 28, 0.7);
       z-index: 2000;
     }
 
@@ -1304,8 +1304,8 @@
     .modal-card {
       width: 360px;
       max-width: 90vw;
-      background: #141a26;
-      border: 1px solid #2a2f3a;
+      background: #2b2d30;
+      border: 1px solid #43454a;
       border-radius: 12px;
       padding: 16px;
       box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
@@ -1316,17 +1316,17 @@
     .modal-title {
       font-size: 14px;
       font-weight: 600;
-      color: #e6e6e6;
+      color: #bcbec4;
     }
 
     .modal-subtitle {
       font-size: 12px;
-      color: #9aa4b2;
+      color: #9da0a8;
     }
 
     .modal-message {
       font-size: 12px;
-      color: #b7c1d4;
+      color: #bcbec4;
     }
 
     .modal-field {
@@ -1343,8 +1343,8 @@
 
     .modal-actions .ghost-btn {
       background: transparent;
-      border-color: #2a2f3a;
-      color: #9aa4b2;
+      border-color: #43454a;
+      color: #9da0a8;
     }
 
     .modal-checkbox {
@@ -1352,7 +1352,7 @@
       align-items: center;
       gap: 8px;
       font-size: 12px;
-      color: #9aa4b2;
+      color: #9da0a8;
     }
 
     .modal-checkbox input {

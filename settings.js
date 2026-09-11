@@ -182,10 +182,10 @@
       const isEnabled = p.enabled !== false;
 
       const el = document.createElement('div');
-      el.style.background = '#141a26';
+      el.style.background = '#2b2d30';
       el.style.padding = '8px';
       el.style.borderRadius = '6px';
-      el.style.border = '1px solid #2a2f3a';
+      el.style.border = '1px solid #43454a';
 
       const header = document.createElement('div');
       header.style.display = 'flex';
@@ -272,7 +272,7 @@
       badge.style.fontSize = '10px';
       badge.style.padding = '2px 6px';
       badge.style.borderRadius = '4px';
-      badge.style.background = p.source === 'bundled' ? '#2a2f3a' : '#1e3a5f';
+      badge.style.background = p.source === 'bundled' ? '#43454a' : '#393b40';
       badge.textContent = p.source;
 
       if (defaultButton) right.appendChild(defaultButton);
@@ -286,7 +286,7 @@
       if (p.description) {
         const desc = document.createElement('div');
         desc.style.fontSize = '11px';
-        desc.style.color = '#7c8796';
+        desc.style.color = '#6f737a';
         desc.style.marginTop = '4px';
         desc.textContent = p.description;
         el.appendChild(desc);
@@ -304,7 +304,7 @@
       if (!isEnabled) {
         const hint = document.createElement('div');
         hint.style.fontSize = '11px';
-        hint.style.color = '#7c8796';
+        hint.style.color = '#6f737a';
         hint.style.marginTop = '6px';
         hint.textContent = 'Disabled (takes effect immediately).';
         el.appendChild(hint);

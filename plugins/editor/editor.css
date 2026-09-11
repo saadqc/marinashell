@@ -1,10 +1,10 @@
 .mse-workspace {
-  --mse-bg: #0b0e14;
-  --mse-panel: #10151f;
-  --mse-panel-raised: #151c28;
+  --mse-bg: #191a1c;
+  --mse-panel: #191a1c;
+  --mse-panel-raised: #2b2d30;
   --mse-border: rgba(255, 255, 255, 0.075);
-  --mse-muted: #7f8a9a;
-  --mse-text: #dce5ef;
+  --mse-muted: #9da0a8;
+  --mse-text: #bcbec4;
   --mse-accent: #7bc7f6;
   --mse-danger: #f38ba8;
   height: 100%;
@@ -33,7 +33,7 @@
   overflow-x: auto;
   overflow-y: hidden;
   border-bottom: 1px solid var(--mse-border);
-  background: #0d1119;
+  background: #191a1c;
   scrollbar-width: thin;
 }
 
@@ -129,10 +129,10 @@
 
 .mse-stage { grid-area: editor; min-width: 0; min-height: 0; position: relative; overflow: hidden; }
 .mse-editor-host { position: absolute; inset: 0; min-width: 0; min-height: 0; overflow: hidden; }
-.mse-editor-host .cm-editor { background: #0b0e14; }
-.mse-editor-host .cm-gutters { background: #0b0e14; color: #4f5967; border-right-color: rgba(255, 255, 255, 0.055); }
+.mse-editor-host .cm-editor { background: #191a1c; }
+.mse-editor-host .cm-gutters { background: #191a1c; color: #4f5967; border-right-color: rgba(255, 255, 255, 0.055); }
 .mse-editor-host .cm-activeLine,
-.mse-editor-host .cm-activeLineGutter { background: rgba(123, 199, 246, 0.045); }
+.mse-editor-host .cm-activeLineGutter { background: #2b2d30; }
 .mse-editor-host .cm-selectionBackground { background: rgba(123, 199, 246, 0.2) !important; }
 .mse-editor-host .cm-focused { outline: none; }
 .mse-editor-host .cm-content { padding: 10px 0 24px; caret-color: #b8ddf5; }
@@ -142,7 +142,7 @@
   border: 1px solid rgba(123, 199, 246, 0.2);
   border-radius: 7px;
   color: #cdd8e3;
-  background: #151c28;
+  background: #2b2d30;
   box-shadow: 0 14px 34px rgba(2, 7, 14, 0.48);
 }
 .mse-editor-host .cm-tooltip-autocomplete > ul { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -160,7 +160,7 @@
   padding: 28px;
   text-align: center;
   color: var(--mse-muted);
-  background: radial-gradient(circle at 50% 45%, rgba(123, 199, 246, 0.055), transparent 34%), var(--mse-bg);
+  background: var(--mse-bg);
 }
 .mse-empty.visible { display: grid; }
 .mse-empty-mark { color: #607489; font: 600 21px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -184,7 +184,7 @@
   gap: 12px;
   color: #667181;
   border-top: 1px solid var(--mse-border);
-  background: #0e121a;
+  background: #191a1c;
   font-size: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums;
@@ -213,7 +213,7 @@
   padding: 5px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  background: rgba(19, 25, 36, 0.98);
+  background: rgba(43, 45, 48, 0.98);
   box-shadow: 0 18px 46px rgba(2, 7, 14, 0.55);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);

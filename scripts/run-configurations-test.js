@@ -30,13 +30,29 @@ async function waitExit(id) {
   const shellInit = path.join(root, 'shell-init'); fs.writeFileSync(shellInit, 'export FROM_INIT=loaded\nexport WINNER=startup\n');
   const shellScript = path.join(root, 'not-executable.sh'); fs.writeFileSync(shellScript, 'printf "%s|%s|%s" "$FROM_INIT" "$WINNER" "$1"');
   const sourced = buildCommand({ name: 'Sourced', type: 'shell', mode: 'script', target: shellScript, sourceFile: shellInit, interpreter: fs.existsSync('/bin/zsh') ? '/bin/zsh' : '/bin/bash', cwd: root, args: '"two words"', env: { WINNER: 'modal' } });
-  assert.equal((await execute('__local__', sourced)).stdout, 'loaded|modal|two words');
+  assert((await execute('__local__', sourced)).stdout.endsWith('loaded|modal|two words'));
+  const privateLaunch = buildCommand({ name: 'Private header', type: 'shell', mode: 'commands', target: 'printf APPLICATION_OUTPUT', cwd: root, envFiles: ['private.env'], env: { SECRET: 'do-not-print-this' } }, { FILE_SECRET: 'nor-this-value' });
+  const privateOutput = (await execute('__local__', privateLaunch)).stdout;
+  assert(privateOutput.includes('Working directory (resolved): ' + fs.realpathSync(root)));
+  assert(privateOutput.includes('Environment files: private.env'));
+  assert(privateOutput.includes('Resolved interpreter: /bin/bash'));
+  assert(privateOutput.indexOf('Command:') < privateOutput.lastIndexOf('APPLICATION_OUTPUT'));
+  assert(!privateOutput.includes('do-not-print-this') && !privateOutput.includes('nor-this-value'));
+  // A fake manager verifies resolution occurs inside its modified PATH.
+  const managedBin = path.join(root, 'managed bin'); fs.mkdirSync(managedBin);
+  fs.writeFileSync(path.join(managedBin, 'python3'), '#!/bin/bash\nprintf MANAGED_APP', { mode: 0o755 });
+  const fakeManager = path.join(root, 'micromamba');
+  fs.writeFileSync(fakeManager, '#!/bin/bash\nshift 3\nexport PATH=' + JSON.stringify(managedBin) + ':"$PATH"\nexec "$@"', { mode: 0o755 });
+  const managed = buildCommand({ name: 'Managed', target: 'app.py', cwd: root, manager: 'micromamba', managerPath: fakeManager, environment: 'test', env: { SECRET: 'manager-secret' } });
+  const managedOutput = (await execute('__local__', managed)).stdout;
+  assert(managedOutput.includes('Resolved interpreter: ' + path.join(managedBin, 'python3')));
+  assert(managedOutput.endsWith('MANAGED_APP')); assert(!managedOutput.includes('manager-secret'));
   const python = path.join(root, 'module_case.py'); fs.writeFileSync(python, 'import sys, os\nprint("python:" + sys.argv[1] + ":" + os.getcwd())\n');
   const py = buildCommand({ name: 'Python', type: 'python', mode: 'module', target: 'module_case', cwd: root, args: '"two words"' });
-  assert.equal((await execute('__local__', py)).stdout.trim(), 'python:two words:' + fs.realpathSync(root));
+  assert((await execute('__local__', py)).stdout.trim().endsWith('python:two words:' + fs.realpathSync(root)));
   const js = path.join(root, 'module_case.mjs'); fs.writeFileSync(js, 'console.log("node:" + process.argv[2])');
   const node = buildCommand({ name: 'Node', type: 'javascript', mode: 'module', target: js, interpreter: process.execPath, cwd: root, args: '"two words"' });
-  assert.equal((await execute('__local__', node)).stdout.trim(), 'node:two words');
+  assert((await execute('__local__', node)).stdout.trim().endsWith('node:two words'));
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { verify: 'node module_case.mjs' } }));
   const npm = buildCommand({ name: 'npm', type: 'javascript', mode: 'npm', target: 'verify', interpreter: process.execPath, cwd: root, args: '"two words"' });
   assert.match((await execute('__local__', npm)).stdout, /node:two words/);
@@ -83,6 +99,6 @@ async function waitExit(id) {
   const large = await manager.start(verbose.id); await waitExit(large.id);
   let offset = 0, generation = 0, output = '';
   for (let i = 0; i < 4; i++) { const page = await manager.poll(large.id, offset, generation); output += page.output; offset = page.offset; generation = page.generation; if (!page.hasMore) break; }
-  assert.equal(output.length, 600000);
+  assert(output.endsWith('x'.repeat(600000)));
   console.log('PASS: argv/env quoting, env precedence, exit/output, single/multiple instances, repeated Stop, persistence and host identity');
 })().finally(async () => { await manager.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }).catch(error => { console.error(error); process.exitCode = 1; });

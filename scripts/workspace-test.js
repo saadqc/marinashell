@@ -66,9 +66,26 @@ app.whenReady().then(async () => {
   await evaluate(`testWait(()=>document.querySelector('.workspace-library-row')); testClick('Restore');`);
   await evaluate(`testWait(()=>document.querySelector('.session-group'))`);
   assert.equal(groups.read().length, 1); assert(state.tabGroups.some(g => g.name === 'Workspace' && g.layout === '2x1'));
+  // Saving the same name updates its snapshot, including case-only changes.
+  await evaluate(`document.querySelector('.session-group-header').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:250,clientY:50})); testClick('Save group…');`);
+  await evaluate(`testWait(()=>document.querySelector('.session-text-dialog.open')); document.querySelector('.session-text-dialog form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
+  await new Promise(r=>setTimeout(r,200)); assert.equal(groups.read().length, 1);
+  // Legacy snapshots remain selectable under one row; Restore focuses an open group.
+  const latest = groups.read()[0];
+  groups.write([{ ...latest, id: 'legacy-copy', name: 'workspace', updatedAt: '2020-01-01T00:00:00Z' }, latest]);
+  await evaluate(`document.querySelector('#saved-groups-btn').click(); testWait(()=>document.querySelector('.saved-group-versions'));`);
+  assert.equal(await evaluate(`return document.querySelectorAll('.workspace-library-row').length`), 1);
+  assert.equal(await evaluate(`return document.querySelector('.saved-group-versions').options.length`), 2);
+  assert.equal(await evaluate(`return document.querySelector('.saved-group-versions').value`), latest.id);
+  const openGroupCount = await evaluate(`return document.querySelectorAll('.session-group').length`);
+  await evaluate(`testClick('Restore'); testWait(()=>!document.querySelector('.saved-groups-dialog'))`);
+  assert.equal(await evaluate(`return document.querySelectorAll('.session-group').length`), openGroupCount);
+  groups.remove('legacy-copy');
+  state.tabGroups.push({ id: 'stale-empty', name: 'Old empty group', configurationIds: [] });
   // Editor and variables modal, apply, remote tmux gating and screenshot.
   await evaluate(`testClick('Edit configurations…')`);
   await evaluate(`testWait(()=>document.querySelector('.run-config-form input'))`);
+  assert.equal(await evaluate(`return document.querySelector('.run-config-form').textContent.includes('Old empty group')`), false);
   window.webContents.send('ssh:password-request', { requestId: 'fixture', hostLabel: 'Test SSH', maxAttempts: 1 });
   await evaluate(`testWait(()=>document.querySelector('#password-modal').open); document.querySelector('#password-cancel').click(); testWait(()=>!document.querySelector('#password-modal').open);`);
   await evaluate(`testClick('Edit variables… (1)');`);
@@ -77,6 +94,9 @@ app.whenReady().then(async () => {
   await evaluate(`testWait(()=>!document.querySelector('.run-error')?.textContent)`);
   await new Promise(r=>setTimeout(r,350));
   fs.mkdirSync(path.resolve('design/validation'), { recursive: true });
+  window.show();
+  await evaluate(`document.fonts.ready; testWait(()=>document.querySelector('.run-editor[open]'))`);
+  await new Promise(r=>setTimeout(r,500));
   fs.writeFileSync(path.resolve('design/validation/run-configurations.png'), (await window.webContents.capturePage()).toPNG());
   await evaluate(`testClick('Save')`);
   await evaluate(`testWait(()=>!document.querySelector('.run-editor')); document.querySelector('#run-toolbar [aria-label="Run"]').click();`);

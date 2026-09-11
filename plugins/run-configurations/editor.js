@@ -38,7 +38,7 @@ function check(parent, label, value, update) {
 
 export async function editConfigurations({ api, state, call, selectedId, onSaved, tmuxAvailable }) {
   let configurations = (await call('list')).configurations;
-  const view = modal('Run Configurations', { wide: true });
+  const view = modal('Run/Debug Configurations', { wide: true });
   view.dialog.classList.add('run-editor');
   const layout = document.createElement('div'); layout.className = 'run-editor-layout';
   const sidebar = document.createElement('aside'); sidebar.className = 'run-editor-sidebar';
@@ -62,14 +62,32 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     renderList(); renderForm();
   }
   tools.append(template, button('Add', () => switchTo(newDraft(templates[Number(template.value)]), true)));
+  const collapsed = new Set();
+  const kind = c => c.type === 'python' && c.mode === 'module' && c.target === 'flask' ? 'flask' : c.type;
+  function icon(type) {
+    const image = document.createElement('img'); image.className = 'run-type-icon'; image.alt = '';
+    image.src = new URL(`../../assets/${type === 'javascript' ? 'icons/file-icons/language-javascript.svg' : `jetbrains/${type}.svg`}`, import.meta.url).href;
+    return image;
+  }
   function renderList() {
-    list.replaceChildren();
-    for (const type of ['python', 'javascript', 'shell']) {
-      const items = configurations.filter(c => c.type === type);
-      if (draft?.type === type && !items.some(c => c.id === draft.id)) items.push(draft);
+    list.replaceChildren(); list.setAttribute('role', 'tree');
+    const all = configurations.map(c => c.id === draft?.id ? draft : c);
+    if (draft && !all.some(c => c.id === draft.id)) all.push(draft);
+    for (const type of ['flask', 'python', 'javascript', 'shell']) {
+      const items = all.filter(c => kind(c) === type);
       if (!items.length) continue;
-      const heading = document.createElement('div'); heading.className = 'run-list-heading'; heading.textContent = { python: 'Python', javascript: 'JavaScript', shell: 'Shell' }[type]; list.append(heading);
-      for (const config of items) list.append(button(config.id === draft?.id ? draft.name : config.name, () => switchTo(config), config.id === draft?.id ? 'selected' : ''));
+      const heading = button('', () => { collapsed.has(type) ? collapsed.delete(type) : collapsed.add(type); renderList(); }, 'run-list-heading');
+      heading.setAttribute('role', 'treeitem'); heading.setAttribute('aria-expanded', String(!collapsed.has(type)));
+      const arrow = document.createElement('span'); arrow.className = 'run-tree-arrow'; arrow.textContent = collapsed.has(type) ? '›' : '⌄';
+      heading.append(arrow, icon(type), document.createTextNode({ flask: 'Flask server', python: 'Python', javascript: 'JavaScript', shell: 'Shell Script' }[type])); list.append(heading);
+      if (collapsed.has(type)) continue;
+      const group = document.createElement('div'); group.setAttribute('role', 'group');
+      for (const config of items) {
+        const row = button('', () => switchTo(config), config.id === draft?.id ? 'run-tree-item selected' : 'run-tree-item');
+        row.setAttribute('role', 'treeitem'); row.setAttribute('aria-selected', String(config.id === draft?.id));
+        row.append(icon(type), document.createTextNode(config.name)); group.append(row);
+      }
+      list.append(group);
     }
   }
   async function browse(current, kind = 'file') {
@@ -103,6 +121,9 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     const row = document.createElement('div'); row.className = 'run-path-field';
     const el = input(draft[key]); el.addEventListener('input', () => draft[key] = el.value);
     row.append(el, button('Browse…', async () => { try { const value = await browse(draft.cwd, kind); if (value) { draft[key] = value; el.value = value; } } catch (error) { showError(error); } }));
+    const browseButton = row.lastElementChild; browseButton.classList.add('run-browse');
+    browseButton.setAttribute('aria-label', `Browse ${label.toLowerCase()}`); browseButton.title = `Browse ${label.toLowerCase()}`;
+    browseButton.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M1.5 4V2.5h5l2 2h6v9h-13z"/></svg>';
     field(form, label, row, hint); return el;
   }
   function textField(label, key, placeholder, hint) {
@@ -153,6 +174,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     discoveryVersion++; form.replaceChildren(); errorLine.textContent = '';
     if (!draft) { form.textContent = 'Choose a template to create a run configuration.'; return; }
     textField('Name', 'name');
+    const runHeading = document.createElement('h3'); runHeading.className = 'run-section-title'; runHeading.textContent = 'Run'; form.append(runHeading);
     const hosts = [{ value: '__local__', label: 'Local machine' }, ...[...state.hostConfigs.entries()].filter(([id]) => id !== '__local__').map(([id]) => ({ value: id, label: `SSH · ${id}` }))];
     if (!hosts.some(item => item.value === draft.host)) hosts.push({ value: draft.host, label: `SSH · ${draft.host} (unavailable)` });
     const host = select(hosts, draft.host); host.addEventListener('change', () => { draft.host = host.value; draft.tmux = false; draft.manager = 'system'; draft.environment = ''; draft.managerPath = ''; draft.interpreter = draft.type === 'python' ? 'python3' : draft.type === 'javascript' ? 'node' : '/bin/bash'; renderForm(); });
@@ -189,7 +211,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     if (draft.mode === 'script') pathField('Script path', 'target');
     else if (draft.mode === 'commands') { const code = document.createElement('textarea'); code.rows = 5; code.value = draft.target; code.addEventListener('input', () => draft.target = code.value); field(form, 'Shell commands', code); }
     else textField(draft.mode === 'npm' ? 'npm script' : 'Module name', 'target', draft.mode === 'npm' ? 'dev' : draft.type === 'python' ? 'celery, uvicorn, flask…' : 'package-name');
-    textField('Arguments', 'args', '', 'Use quotes for arguments containing spaces.');
+    textField('Arguments', 'args', '', 'Use quotes for arguments containing spaces.').classList.add('run-code-field');
     pathField('Working directory', 'cwd', 'directory');
     if (draft.type === 'shell') pathField('Source before running (optional)', 'sourceFile', 'file', 'For example ~/.bashrc or ~/.zshrc, read by the selected shell.');
     const envButton = button(`Edit variables… (${Object.keys(draft.env || {}).length})`, editEnv); field(form, 'Environment variables', envButton);
@@ -207,10 +229,12 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
         const options = document.createElement('datalist'); options.id = `tmux-sessions-${draft.id}`; session.setAttribute('list', options.id); form.append(options);
       }
     }
-    const groups = state.appState.tabGroups || [];
+    const groups = (state.appState.tabGroups || []).filter(group =>
+      (group.configurationIds || []).length || [...state.tabs.values()].some(tab => tab.groupId === group.id));
     if (groups.length) {
-      const title = document.createElement('div'); title.className = 'run-list-heading'; title.textContent = 'Show in groups'; form.append(title);
-      for (const group of groups) check(form, group.name, groupIds.includes(group.id), checked => { groupIds = checked ? [...groupIds, group.id] : groupIds.filter(id => id !== group.id); });
+      const title = document.createElement('div'); title.className = 'run-group-heading'; title.textContent = 'Show in groups'; form.append(title);
+      const memberships = document.createElement('div'); memberships.className = 'run-group-memberships'; form.append(memberships);
+      for (const group of groups) check(memberships, group.name, groupIds.includes(group.id), checked => { groupIds = checked ? [...groupIds, group.id] : groupIds.filter(id => id !== group.id); });
     }
   }
   async function save(close = false) {

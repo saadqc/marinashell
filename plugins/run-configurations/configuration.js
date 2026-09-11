@@ -69,13 +69,23 @@ function normalize(input) {
 }
 function buildCommand(config, fileEnv = {}) {
   const c = normalize(config);
-  const lines = ['#!/usr/bin/env bash', 'set -e', `cd -- ${pathExpression(c.cwd)}`];
+  const log = text => `printf '%s\\n' ${quote(text)}`;
+  const lines = ['#!/usr/bin/env bash', 'set -e', log(`Working directory: ${c.cwd}`), `cd -- ${pathExpression(c.cwd)}`, 'printf \'Working directory (resolved): %s\\n\' "$(pwd -P)"'];
+  lines.push(log(`Environment files: ${c.envFiles.length ? c.envFiles.join(', ') : '(none)'}`));
+  for (const file of c.envFiles) {
+    lines.push(`case ${pathExpression(file)} in /*) printf 'Environment file: %s\\n' ${pathExpression(file)} ;; *) printf 'Environment file: %s/%s\\n' "$(pwd -P)" ${pathExpression(file)} ;; esac`);
+  }
+  lines.push(log(`Source file: ${c.sourceFile || (c.manager === 'nvm' ? c.managerPath || '~/.nvm/nvm.sh' : '(none)')}`));
+  lines.push(log(`Interpreter: ${c.interpreter}`), log(`Environment manager: ${c.manager}${c.manager === 'system' ? '' : ` (${c.managerPath || c.manager}), environment: ${c.environment}`}`));
   // A clean environment retains only essentials used to locate an interpreter.
   if (!c.inheritEnv) lines.push('for key in $(compgen -e); do case "$key" in HOME|PATH|USER|TMPDIR|SHELL) ;; *) unset "$key" 2>/dev/null || true;; esac; done');
   const exports = Object.entries({ ...fileEnv, ...c.env }).map(([key, value]) => `export ${key}=${quote(value)}`);
   if (c.type === 'shell' && c.sourceFile) {
     // Source in the selected shell, so zsh startup files are never read by bash.
     const shellCode = `set -e\n. ${pathExpression(c.sourceFile)}\n${exports.join('\n')}\n${c.mode === 'commands' ? c.target : `set -- ${parseArguments(c.args).map(quote).join(' ')}\n. ${pathExpression(c.target)}`}`;
+    const displayCode = `. ${pathExpression(c.sourceFile)}\n${c.mode === 'commands' ? c.target : `set -- ${parseArguments(c.args).map(quote).join(' ')}\n. ${pathExpression(c.target)}`}`;
+    lines.push(log(`Command: ${pathExpression(c.interpreter)} -c ${quote(displayCode)} -- ${parseArguments(c.args).map(quote).join(' ')}`));
+    lines.push(`printf 'Resolved interpreter: %s\\n' "$(command -v ${pathExpression(c.interpreter)})"`);
     lines.push(`exec ${pathExpression(c.interpreter)} -c ${quote(shellCode)} -- ${parseArguments(c.args).map(quote).join(' ')}`);
     return lines.join('\n');
   }
@@ -99,13 +109,19 @@ function buildCommand(config, fileEnv = {}) {
   if (c.type === 'shell') command = c.mode === 'commands'
     ? `${executable} -c ${quote(c.target)} -- ${args.join(' ')}`
     : `${executable} ${pathExpression(c.target)} ${args.join(' ')}`;
+  let displayCommand = command;
+  // Resolve inside the selected manager, immediately before the actual process.
+  const probe = `resolved=$(command -v ${pathExpression(c.interpreter)}) || exit 127; printf 'Resolved interpreter: %s\\n' "$resolved"; exec "$@"`;
+  command = `/bin/bash -c ${quote(probe)} -- ${command}`;
   if (['conda', 'mamba', 'micromamba'].includes(c.manager)) {
     const explicitEnv = Object.entries({ ...fileEnv, ...c.env }).map(([key, value]) => `${key}=${quote(value)}`);
     if (explicitEnv.length) command = `env ${explicitEnv.join(' ')} ${command}`;
     const selector = c.environment.includes('/') ? `-p ${pathExpression(c.environment)}` : `-n ${quote(c.environment)}`;
+    displayCommand = `${pathExpression(c.managerPath || c.manager)} run ${c.manager === 'micromamba' ? '' : '--no-capture-output '} ${selector} ${displayCommand}`;
     command = `${pathExpression(c.managerPath || c.manager)} run ${c.manager === 'micromamba' ? '' : '--no-capture-output '} ${selector} ${command}`;
   } else if (c.manager === 'pyenv') command = `${pathExpression(c.managerPath || '~/.pyenv/bin/pyenv')} exec ${command}`;
-  lines.push(`exec ${command}`);
+  if (c.manager === 'pyenv') displayCommand = `${pathExpression(c.managerPath || '~/.pyenv/bin/pyenv')} exec ${displayCommand}`;
+  lines.push(log(`Command: ${displayCommand}`), log(''), `exec ${command}`);
   return lines.join('\n');
 }
 module.exports = { quote, pathExpression, parseArguments, parseEnv, normalize, buildCommand };

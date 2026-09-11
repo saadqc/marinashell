@@ -878,14 +878,14 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     terminalStack.appendChild(container);
 
     const term = new TerminalCtor({
-      fontFamily: 'Menlo, monospace',
+      fontFamily: '"JetBrains Mono", monospace',
       fontSize: 13,
       cursorBlink: !initial.readOnly,
       disableStdin: Boolean(initial.readOnly),
       convertEol: Boolean(initial.readOnly),
       theme: {
-        background: '#0b0e14',
-        foreground: '#e6e6e6'
+        background: '#191a1c',
+        foreground: '#bcbec4'
       }
     });
     const fitAddon = new FitAddonCtor();

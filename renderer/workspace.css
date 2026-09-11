@@ -1,19 +1,38 @@
-.workspace-dialog { color: #dce3ed; background: #111722; border: 1px solid #364353; border-radius: 12px; padding: 0; width: min(520px, 90vw); max-height: 88vh; box-shadow: 0 24px 80px #0009; }
-.workspace-dialog::backdrop { background: #03060b99; }
+@font-face { font-family: 'JetBrains Mono'; src: url('../assets/jetbrains/JetBrainsMono-Regular.ttf'); font-display: swap; }
+@font-face { font-family: 'JetBrains UI'; src: url('../assets/jetbrains/Inter-Regular.otf'); font-display: swap; }
+@font-face { font-family: 'JetBrains UI'; src: url('../assets/jetbrains/Inter-SemiBold.otf'); font-weight: 600; font-display: swap; }
+.workspace-dialog { color: #bcbec4; background: #191a1c; border: 1px solid #43454a; border-radius: 12px; padding: 0; width: min(520px, 90vw); max-height: 88vh; box-shadow: 0 24px 80px #0009; }
+.workspace-dialog::backdrop { background: #00000099; }
 .workspace-dialog.wide { width: min(1040px, 94vw); }
-.workspace-dialog h2 { font-size: 17px; font-weight: 600; margin: 0; padding: 20px 24px; border-bottom: 1px solid #293240; }
+.workspace-dialog h2 { font-size: 17px; font-weight: 600; margin: 0; padding: 20px 24px; border-bottom: 1px solid #393b40; }
 .workspace-dialog-body { padding: 20px 24px; overflow: auto; max-height: 65vh; line-height: 1.5; }
-.workspace-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid #293240; }
+.workspace-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid #393b40; }
 .workspace-dialog button { cursor: pointer; }
 .workspace-dialog button:disabled { cursor: default; opacity: .45; }
-.workspace-dialog input, .workspace-dialog select, .workspace-dialog textarea { box-sizing: border-box; width: 100%; color: #dce3ed; background: #0c111a; border: 1px solid #364353; border-radius: 6px; padding: 9px 10px; font: inherit; }
+.workspace-dialog input, .workspace-dialog select, .workspace-dialog textarea { box-sizing: border-box; width: 100%; color: #bcbec4; background: #191a1c; border: 1px solid #43454a; border-radius: 6px; padding: 9px 10px; font: inherit; }
 .workspace-dialog input[type=checkbox] { width: auto; accent-color: #70afd2; }
 .workspace-dialog :focus-visible { outline: 2px solid #70afd2; outline-offset: 2px; }
 .workspace-dialog .danger { color: #f5a3a3; }
-.workspace-library-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #293240; }
+.workspace-library-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #393b40; }
 .workspace-library-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.workspace-library-row small { display: block; color: #93a0b2; }
+.workspace-library-row small { display: block; color: #9da0a8; }
 
 dialog#password-modal { max-width: none; max-height: none; width: 100%; height: 100%; margin: 0; border: 0; box-sizing: border-box; color: inherit; }
 
 [hidden] { display: none !important; }
+
+/* Terminal chrome follows the supplied PyCharm dark reference. */
+body, #session-tabs-row, #session-tabs, #terminal-stack, .terminal-pane { background-color: #191a1c; color: #bcbec4; }
+#session-tabs-row { border-color: #2b2d30; }
+.session-tab { --tab-bg: transparent; --tab-active-bg: #2e436e; --tab-active-border: #548af7; border-radius: 4px; padding: 4px 8px; min-height: 28px; font: 13px 'JetBrains UI', sans-serif; }
+.session-tab.active { background: #2e436e; border-color: #548af7; box-shadow: none; }
+#terminal-stack.terminal-grid .terminal-pane { background: #191a1c; border-color: #393b40; border-radius: 6px; }
+body { font-family: 'JetBrains UI', 'Helvetica Neue', sans-serif; }
+#sidebar, #workspace, #session-bar, .dock-leaf, .dock-leaf-header { background: #191a1c; border-color: #2b2d30; }
+.dock-leaf, .dock-leaf.active { border-radius: 6px; box-shadow: none; border-color: #393b40; }
+.dock-leaf-header { backdrop-filter: none; }
+#session-bar button, .dock-leaf-header button { background: #191a1c; color: #bcbec4; border-color: #43454a; border-radius: 4px; }
+.saved-groups-dialog .workspace-dialog-body { padding: 8px 20px; }
+.saved-groups-dialog .workspace-library-row { gap: 8px; padding: 7px 0; font-size: 14px; }
+.saved-groups-dialog .workspace-library-row small { font-size: 12px; line-height: 1.3; }
+.saved-groups-dialog .saved-group-versions { width: auto; max-width: 100%; margin-top: 4px; padding: 3px 6px; font-size: 11px; }

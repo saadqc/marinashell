@@ -9,6 +9,8 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'marinashell-demo-'));
 app.setPath('userData', profile);
 const settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
 settings.ui.session.restoreTabs.value = true;
+const overflow = process.argv.find(arg => arg.startsWith('--overflow='))?.split('=')[1];
+if (overflow) settings.ui.session.tabOverflow.value = overflow === 'wrap' ? 'wrap' : 'scroll';
 let state = {
   lastHost: 'demo-server', activeTabId: 'demo', sidebarCollapsed: false,
   tabs: [{ id: 'demo', host: 'demo-server', connected: true,
@@ -16,6 +18,14 @@ let state = {
   savedLocations: { 'demo-server': ['/srv/demo-app'] },
   recentLocations: { 'demo-server': ['/srv/demo-app'] }
 };
+if (overflow) {
+  for (let i = 1; i <= 15; i++) state.tabs.push({
+    id: `demo-${i}`, host: 'demo-server', connected: false,
+    currentPath: '/srv/demo-app', manualTitle: `Demo session ${i}`,
+    groupId: i > 8 ? 'demo-project' : ''
+  });
+  state.tabGroups = [{ id: 'demo-project', name: 'Demo project', layout: '2x1' }];
+}
 const entries = ['src', 'public', 'tests', 'README.md', 'package.json'].map((name, i) => ({
   name, path: `/srv/demo-app/${name}`, type: i < 3 ? 'd' : '-', size: 128
 }));
@@ -73,10 +83,10 @@ app.whenReady().then(async () => {
     '\x1b[36mdemo@demo-server\x1b[0m:/srv/demo-app$ '
   ].join('\r\n') });
   await new Promise(resolve => setTimeout(resolve, 500));
-  const output = path.resolve(__dirname, '../docs/images/demo.png');
+  const output = path.resolve(__dirname, overflow ? `../design/validation/demo-${settings.ui.session.tabOverflow.value}.png` : '../docs/images/demo.png');
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, (await window.webContents.capturePage()).toPNG());
-  console.log('Captured docs/images/demo.png using synthetic data');
+  console.log('Captured demo screenshot using synthetic data');
   window.destroy();
 }).catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {
   app.quit();

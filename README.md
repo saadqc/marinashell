@@ -35,6 +35,8 @@ Regenerate it with `env -u ELECTRON_RUN_AS_NODE npx electron scripts/capture-dem
 - **Actions panel**: port forwarding; file transfers remain available from the file tree and status area.
 - **Saved groups**: right-click a group to save or update an independent snapshot. Use the Saved groups button beside New group to restore or delete snapshots. Names, order, colors, hosts, directories, layout, and configuration links are retained.
 - **Multi-tab sessions**:
+  - Full-width session tab bar above the sidebar and workspace
+  - Choose horizontal scrolling (default) or multiple rows in Settings → UI → Tab overflow
   - Multiple SSH tabs (each tab has its own terminal + SFTP session)
   - Interpolated tab titles with host, current folder/path, terminal title, and slice syntax such as `<current_folder_name[:15]>`
   - Named tab groups with 1×1, 2×1, 1×2, and 2×2 live terminal grids

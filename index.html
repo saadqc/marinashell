@@ -18,13 +18,20 @@
     }
 
     #app {
-      display: flex;
+      display: grid;
+      grid-template-columns: 301px minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
       height: 100dvh;
-      width: 100vw;
+      width: 100%;
+      overflow: hidden;
+      transition: grid-template-columns 220ms ease;
     }
 
     #sidebar {
-      width: 300px;
+      grid-column: 1;
+      grid-row: 2;
+      min-width: 0;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       border-right: 1px solid #1f2430;
@@ -33,8 +40,12 @@
       transition: width 220ms ease, border-color 220ms ease;
     }
 
+    #app.sidebar-collapsed {
+      grid-template-columns: 0 minmax(0, 1fr);
+    }
+
     #app.sidebar-collapsed #sidebar {
-      width: 0;
+      border-right-width: 0;
       border-right-color: transparent;
     }
 
@@ -81,6 +92,10 @@
     }
 
     #workspace {
+      grid-column: 2;
+      grid-row: 2;
+      min-height: 0;
+      overflow: hidden;
       flex: 1;
       display: flex;
       flex-direction: column;
@@ -107,9 +122,14 @@
     }
 
     #session-tabs-row {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      padding: 5px 8px;
+      border-bottom: 1px solid #1f2430;
+      background: #0f1420;
       display: flex;
-      align-items: center;
-      gap: 8px;
+      align-items: flex-start;
+      gap: 6px;
       min-width: 0;
     }
 
@@ -398,11 +418,41 @@
 
     #session-tabs {
       display: flex;
-      gap: 6px;
+      gap: 4px;
       flex: 1;
       overflow-x: auto;
+      overflow-y: hidden;
+      min-width: 0;
       align-items: stretch;
-      min-height: 34px;
+      min-height: 28px;
+      scrollbar-width: thin;
+    }
+
+    #session-tabs-row > button {
+      margin-top: 1px;
+    }
+
+    #session-tabs-row > button, .session-tab {
+      flex-shrink: 0;
+    }
+
+    #session-tabs[data-overflow="wrap"] {
+      flex-wrap: wrap;
+      overflow-x: hidden;
+      overflow-y: auto;
+      max-height: 30vh;
+    }
+
+    #session-tabs[data-overflow="wrap"] .session-group {
+      box-sizing: border-box;
+      max-width: 100%;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+
+    #session-tabs[data-overflow="wrap"] .session-group-tabs {
+      min-width: 0;
+      flex-wrap: wrap;
     }
 
     .session-tab {
@@ -593,6 +643,7 @@
     }
 
     #terminal-stack {
+      box-sizing: border-box;
       height: 100%;
       width: 100%;
       position: relative;
@@ -1365,6 +1416,13 @@
 
 <body>
   <div id="app">
+    <div id="session-tabs-row">
+      <button id="sidebar-collapse-btn" class="icon-btn" title="Collapse sidebar" aria-label="Collapse sidebar" aria-expanded="true"><i data-icon="panel-left-close"></i></button>
+      <div id="session-tabs"></div>
+      <button id="saved-groups-btn" class="icon-btn" title="Saved groups" aria-label="Saved groups"><i data-icon="folders"></i></button>
+      <button id="new-group-btn" class="icon-btn" title="Create group from active tab" aria-label="Create group from active tab"><i data-icon="folder-plus"></i></button>
+      <button id="new-tab-btn" class="icon-btn" title="New tab" aria-label="New tab"><i data-icon="plus"></i></button>
+    </div>
     <div id="sidebar">
       <div class="section">
         <div class="section-title">Connection</div>
@@ -1447,13 +1505,6 @@
     </div>
     <div id="workspace">
       <div id="session-bar">
-        <div id="session-tabs-row">
-          <button id="sidebar-collapse-btn" class="icon-btn" title="Collapse sidebar" aria-label="Collapse sidebar" aria-expanded="true"><i data-icon="panel-left-close"></i></button>
-          <div id="session-tabs"></div>
-          <button id="saved-groups-btn" class="icon-btn" title="Saved groups" aria-label="Saved groups"><i data-icon="folders"></i></button>
-          <button id="new-group-btn" class="icon-btn" title="Create group from active tab" aria-label="Create group from active tab"><i data-icon="folder-plus"></i></button>
-          <button id="new-tab-btn" class="icon-btn" title="New tab" aria-label="New tab"><i data-icon="plus"></i></button>
-        </div>
         <div id="view-toolbar"></div>
       </div>
       <div id="dock-root">

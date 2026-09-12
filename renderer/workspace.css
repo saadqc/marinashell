@@ -22,12 +22,19 @@ dialog#password-modal { max-width: none; max-height: none; width: 100%; height: 
 [hidden] { display: none !important; }
 
 /* Retain compact controls and bundled typography with the original palette. */
-.session-tab { border-radius: 4px; padding: 4px 8px; min-height: 28px; font: 13px 'JetBrains UI', sans-serif; }
+.session-tab { border-radius: 4px; padding: 2px 7px; gap: 4px; min-height: 26px; font: 12px 'JetBrains UI', sans-serif; }
+#session-tabs-row .session-tab .lucide { width: 13px; height: 13px; }
+#session-tabs-row > .icon-btn { width: 26px; min-width: 26px; height: 26px; padding: 0; }
+#session-tabs-row > .icon-btn .lucide { width: 14px; height: 14px; }
+.session-group-tabs { gap: 3px; padding: 2px; }
+.session-group-tabs .session-tab { padding-block: 2px; }
+.session-group-header { gap: 5px; padding: 2px 4px 2px 6px; }
+.session-tab-label { max-width: 160px; }
 #terminal-stack.terminal-grid .terminal-pane { border-radius: 6px; }
 body { font-family: 'JetBrains UI', 'Helvetica Neue', sans-serif; }
 .dock-leaf, .dock-leaf.active { border-radius: 6px; }
 .dock-leaf-header { backdrop-filter: none; }
-#session-bar button, .dock-leaf-header button { border-radius: 4px; }
+#session-bar button, #session-tabs-row button, .dock-leaf-header button { border-radius: 4px; }
 .saved-groups-dialog .workspace-dialog-body { padding: 8px 20px; }
 .saved-groups-dialog .workspace-library-row { gap: 8px; padding: 7px 0; font-size: 14px; }
 .saved-groups-dialog .workspace-library-row small { font-size: 12px; line-height: 1.3; }

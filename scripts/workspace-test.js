@@ -28,7 +28,8 @@ let writes = 0;
 const settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); settings.ui.session.restoreTabs.value = true;
 const routes = {
   'app:get-state': () => state, 'app:update-state': patch => (state = { ...state, ...patch }),
-  'settings:get': () => settings, 'ssh:password-response': () => ({ok:true}), 'ssh:hosts': () => [{ alias: 'test-remote' }],
+  'settings:get': () => settings,
+  'settings:update': patch => { Object.assign(settings, patch); fs.writeFileSync(path.join(root, 'settings.json'), JSON.stringify(settings)); return settings; }, 'ssh:password-response': () => ({ok:true}), 'ssh:hosts': () => [{ alias: 'test-remote' }],
   'ssh:connect': () => ({ ok: true }), 'ssh:disconnect': () => ({ ok: true }),
   'groups:list': () => groups.read(), 'groups:save': group => groups.upsert(group), 'groups:delete': id => groups.remove(id),
   'plugins:list': () => [{ id: 'run-configurations', enabled: true, rendererEntry: pathToFileURL(path.resolve('plugins/run-configurations/renderer.js')).href }],
@@ -51,7 +52,7 @@ app.whenReady().then(async () => {
   window.webContents.on('console-message', (_e, level, message) => { if (level >= 3) { errors.push(message); console.error('[renderer]', message); } });
   await window.loadFile(path.resolve('index.html'));
   await window.webContents.executeJavaScript("window.addEventListener('error',e=>console.error(e.error?.stack||e.message))");
-  const evaluate = async source => { try { return await window.webContents.executeJavaScript('(async () => { return await (async () => {' + source.replace(/(?<!window\.)testWait\(/g, 'await testWait(') + '\n})() })()', true); } catch (error) { console.error('Failed UI step:', source); console.error(await window.webContents.executeJavaScript("JSON.stringify([...document.querySelectorAll('dialog')].map(d=>({open:d.open,text:d.textContent,rect:d.getBoundingClientRect().toJSON()})))")); throw error; } };
+  const evaluate = async source => { try { return await window.webContents.executeJavaScript('(async () => { return await (async () => {' + source.replace(/(?<!window\.)testWait\(/g, 'await testWait(') + '\n})() })()', true); } catch (error) { console.error('Failed UI step:', source); console.error(await window.webContents.executeJavaScript("JSON.stringify(['#session-tabs','.session-group','.session-group-tabs','.terminal-pane.active','.terminal-pane.active .xterm-screen','#app','#session-tabs-row','#workspace','#dock-root','#terminal-stack','.run-output','.run-output-terminal','.run-output .xterm-screen','.run-output-bar'].map(s=>({s,rect:document.querySelector(s)?.getBoundingClientRect().toJSON()})))")); console.error(await window.webContents.executeJavaScript("JSON.stringify([...document.querySelectorAll('dialog')].map(d=>({open:d.open,text:d.textContent,rect:d.getBoundingClientRect().toJSON()})))")); throw error; } };
   await evaluate(`window.testWait = async (predicate) => { for (let i=0;i<150;i++) { if(predicate()) return; await new Promise(r=>setTimeout(r,50)); } throw new Error('UI timed out: '+predicate); }; window.testClick = text => { const el=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===text && b.getBoundingClientRect().width); if(!el) throw new Error('Button not found: '+text); el.click(); }; testWait(()=>document.querySelector('#run-toolbar select')?.options.length > 0)`);
   assert.equal(await evaluate(`return Boolean(document.querySelector('#commands') || document.querySelector('#upload-file'))`), false);
   // Independent snapshot survives closing the live group; restoring keeps titles/order/layout.
@@ -144,6 +145,58 @@ app.whenReady().then(async () => {
   assert.deepEqual(pasteEvents, [true, true], 'Paste shortcut did not cancel native paste');
   assert.equal(writes - writesBeforePaste, 1, 'Paste shortcut must forward clipboard exactly once');
   await evaluate(`testClick('Disconnect'); testWait(()=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Connect'));`);
+  // The full-width tab bar stays above both panes, with readable overflowing tabs.
+  await evaluate(`for (let i = 0; i < 14; i++) document.querySelector('#new-tab-btn').click();`);
+  await evaluate(`testWait(() => {
+    const strip = document.querySelector('#session-tabs');
+    const active = strip.querySelector('.session-tab.active').getBoundingClientRect();
+    const bounds = strip.getBoundingClientRect();
+    return strip.scrollWidth > strip.clientWidth && active.left >= bounds.left && active.right <= bounds.right + 1;
+  });`);
+  assert.equal(await evaluate(`
+    const bar = document.querySelector('#session-tabs-row').getBoundingClientRect();
+    const sidebar = document.querySelector('#sidebar').getBoundingClientRect();
+    const workspace = document.querySelector('#workspace').getBoundingClientRect();
+    return bar.top === 0 && bar.left === 0 && bar.right === innerWidth && sidebar.top === bar.bottom && workspace.top === bar.bottom;
+  `), true);
+  assert.equal(await evaluate(`
+    const strip = document.querySelector('#session-tabs'); strip.scrollLeft = 0;
+    strip.dispatchEvent(new WheelEvent('wheel', {deltaY: 120, bubbles: true, cancelable: true}));
+    return strip.scrollLeft > 0;
+  `), true);
+  const preferences = new BrowserWindow({ show: false, webPreferences: { preload: path.resolve('preload.js'), contextIsolation: true, nodeIntegration: false } });
+  try {
+    await preferences.loadFile(path.resolve('settings.html'));
+    await preferences.webContents.executeJavaScript(`(async () => {
+      for (let i=0; i<100 && !document.querySelector('#session-tab-title-template').value; i++) await new Promise(r=>setTimeout(r,50));
+      const select = document.querySelector('#session-tab-overflow');
+      select.value = 'wrap'; select.dispatchEvent(new Event('change', {bubbles:true}));
+    })()`);
+    for (let i=0; i<100 && settings.ui.session.tabOverflow.value !== 'wrap'; i++) await new Promise(r=>setTimeout(r,50));
+    assert.equal(settings.ui.session.tabOverflow.value, 'wrap');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'settings.json'))).ui.session.tabOverflow.value, 'wrap');
+    await new Promise(resolve => { preferences.webContents.once('did-finish-load', resolve); preferences.reload(); });
+    assert.equal(await preferences.webContents.executeJavaScript(`new Promise(resolve => setTimeout(() => resolve(document.querySelector('#session-tab-overflow').value), 200))`), 'wrap');
+  } finally { preferences.destroy(); }
+  await evaluate(`window.dispatchEvent(new Event('focus')); testWait(()=>document.querySelector('#session-tabs').dataset.overflow === 'wrap');`);
+  for (const [width, height] of [[1300, 900], [760, 650]]) {
+    window.setSize(width, height);
+    await evaluate(`testWait(() => {
+      const strip = document.querySelector('#session-tabs');
+      const tabs = [...strip.querySelectorAll('.session-tab')].map(t=>t.getBoundingClientRect());
+      const pane = document.querySelector('.terminal-pane.active');
+      const screen = pane.querySelector('.xterm-screen').getBoundingClientRect();
+      const bounds = pane.getBoundingClientRect();
+      return new Set(tabs.map(t=>t.top)).size > 1 && strip.scrollWidth <= strip.clientWidth + 1 && screen.width > 0 && screen.right <= bounds.right && screen.bottom <= bounds.bottom;
+    });`);
+  }
+  await evaluate(`document.querySelector('#sidebar-collapse-btn').click(); testWait(()=>document.querySelector('#sidebar').getBoundingClientRect().width === 0);`);
+  assert.equal(await evaluate(`return document.querySelector('#workspace').getBoundingClientRect().left === 0`), true);
+  await evaluate(`document.querySelector('#sidebar-collapse-btn').click();`);
+  settings.ui.session.tabOverflow.value = 'scroll';
+  await evaluate(`window.dispatchEvent(new Event('focus')); testWait(()=>document.querySelector('#session-tabs').dataset.overflow === 'scroll');`);
+  assert.equal(await evaluate(`return [...document.querySelectorAll('#session-tabs, .session-group-tabs')].every(list => new Set([...list.children].map(t=>t.getBoundingClientRect().top)).size <= 1)`), true);
+  console.log('PASS: full-width tab bar, wheel scrolling, active-tab visibility, persisted settings, grouped tab wrapping, resizing and sidebar collapse');
   assert.deepEqual(errors.filter(e=>!e.includes('Electron Security Warning')), []);
   console.log('PASS: actual workspace group save/close/restore, configuration editor/env modal, readonly output, close confirmation/cancel/stop, single terminal paste');
 }).catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {

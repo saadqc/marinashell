@@ -9,6 +9,7 @@
   const treePageSize = document.getElementById('tree-page-size');
   const sessionTabTitleTemplate = document.getElementById('session-tab-title-template');
   const defaultTabColor = document.getElementById('default-tab-color');
+  const sessionTabOverflow = document.getElementById('session-tab-overflow');
   const restoreTabs = document.getElementById('restore-tabs');
   const autoConnect = document.getElementById('auto-connect');
   const autoStartTunnels = document.getElementById('auto-start-tunnels');
@@ -124,6 +125,10 @@
         scheduleSave();
       });
     }
+    sessionTabOverflow.addEventListener('change', () => {
+      writeValue(['ui', 'session', 'tabOverflow'], 'string', sessionTabOverflow.value);
+      scheduleSave();
+    });
     restoreTabs.addEventListener('change', () => {
       writeValue(['ui', 'session', 'restoreTabs'], 'boolean', restoreTabs.checked);
       scheduleSave();
@@ -379,6 +384,7 @@
       if (defaultTabColor) {
         defaultTabColor.value = readValue(['ui', 'session', 'defaultTabColor'], 'default');
       }
+      sessionTabOverflow.value = readValue(['ui', 'session', 'tabOverflow'], 'scroll') === 'wrap' ? 'wrap' : 'scroll';
       restoreTabs.checked = Boolean(readValue(['ui', 'session', 'restoreTabs'], false));
       autoConnect.checked = Boolean(readValue(['ui', 'connection', 'autoConnectOnSelect'], false));
       if (autoStartTunnels) {

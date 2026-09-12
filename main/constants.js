@@ -43,7 +43,8 @@ const DEFAULT_SETTINGS = {
     session: {
       restoreTabs: { type: 'boolean', value: false },
       tabTitleTemplate: { type: 'string', value: '<ssh_machine>:<current_folder_name[:15]>' },
-      defaultTabColor: { type: 'string', value: 'default' }
+      defaultTabColor: { type: 'string', value: 'default' },
+      tabOverflow: { type: 'string', value: 'scroll' }
     },
     shortcuts: {
       newTab: { type: 'string', value: 'mod+t' },

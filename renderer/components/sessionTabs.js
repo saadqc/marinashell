@@ -710,6 +710,10 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
 
   function renderSessionTabs() {
     if (!sessionTabs) return;
+    const scrollLeft = sessionTabs.scrollLeft;
+    const scrollTop = sessionTabs.scrollTop;
+    const previousOverflow = sessionTabs.dataset.overflow;
+    sessionTabs.dataset.overflow = settingsService.readSettingValue('ui', 'session', 'tabOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll';
     sessionTabs.innerHTML = '';
     const tabs = Array.from(state.tabs.values());
     const knownGroupIds = new Set(getTabGroups().map((group) => group.id));
@@ -720,7 +724,34 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       if (groupTabs.length) sessionTabs.appendChild(buildGroup(group, groupTabs));
     }
     renderLucide(sessionTabs);
+    sessionTabs.scrollLeft = scrollLeft;
+    sessionTabs.scrollTop = scrollTop;
+    if (previousOverflow !== sessionTabs.dataset.overflow) requestAnimationFrame(revealActiveTab);
   }
+
+  function revealActiveTab() {
+    const active = sessionTabs?.querySelector('.session-tab.active');
+    if (!active) return;
+    const tab = active.getBoundingClientRect();
+    const strip = sessionTabs.getBoundingClientRect();
+    if (tab.left < strip.left) sessionTabs.scrollLeft += tab.left - strip.left;
+    else if (tab.right > strip.right) sessionTabs.scrollLeft += tab.right - strip.right;
+    if (tab.top < strip.top) sessionTabs.scrollTop += tab.top - strip.top;
+    else if (tab.bottom > strip.bottom) sessionTabs.scrollTop += tab.bottom - strip.bottom;
+  }
+
+  sessionTabs?.addEventListener('wheel', event => {
+    if (sessionTabs.dataset.overflow === 'wrap' || event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+    if (sessionTabs.scrollWidth <= sessionTabs.clientWidth) return;
+    event.preventDefault();
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? sessionTabs.clientWidth : 1;
+    sessionTabs.scrollLeft += event.deltaY * unit;
+  }, { passive: false });
+
+  // Wrapping, new tabs, and sidebar transitions can resize the terminal without
+  // a window resize. Fit against the actual available pane dimensions.
+  const terminalResizeObserver = new ResizeObserver(() => fitActiveTerminal());
+  terminalResizeObserver.observe(terminalStack);
 
   function setActiveSessionTab(tabId, options = {}) {
     if (!state.tabs.has(tabId)) {
@@ -729,6 +760,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     state.activeTabId = tabId;
     updateTerminalGrid();
     renderSessionTabs();
+    requestAnimationFrame(revealActiveTab);
     syncUiToActiveTab();
     fitActiveTerminal();
     try {
@@ -840,6 +872,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       try { tab.linkProvider.dispose(); } catch (err) { }
     }
     if (tab.runId && state.runController) await state.runController.closed(tab);
+    terminalResizeObserver.unobserve(tab.container);
     tab.container.remove();
     // Let xterm finish its already queued viewport refresh before disposal.
     requestAnimationFrame(() => tab.term.dispose());
@@ -876,6 +909,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     container.className = 'terminal-pane';
     container.dataset.tabId = id;
     terminalStack.appendChild(container);
+    terminalResizeObserver.observe(container);
 
     const term = new TerminalCtor({
       fontFamily: '"JetBrains Mono", monospace',
@@ -891,6 +925,13 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const fitAddon = new FitAddonCtor();
     term.loadAddon(fitAddon);
     term.open(container);
+    // A newly shown xterm may not have measured its font during the initial fit.
+    const firstRender = term.onRender(() => {
+      if (container.clientWidth && container.clientHeight && fitAddon.proposeDimensions()) {
+        firstRender.dispose();
+        fitActiveTerminal();
+      }
+    });
 
     const gridLabel = document.createElement('div');
     gridLabel.className = 'terminal-grid-label';

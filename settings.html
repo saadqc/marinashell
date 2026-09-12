@@ -149,6 +149,12 @@
       <label for="session-tab-title-template">Session tab title template</label>
       <input id="session-tab-title-template" type="text" spellcheck="false" />
       <div class="hint">Variables: &lt;ssh_machine&gt;, &lt;current_folder_name&gt;, &lt;current_path&gt;, &lt;terminal_title&gt;, &lt;session_type&gt;. Truncate with [:15], for example &lt;current_folder_name[:15]&gt;.</div>
+      <label for="session-tab-overflow">Tab overflow</label>
+      <select id="session-tab-overflow">
+        <option value="scroll">Scroll horizontally</option>
+        <option value="wrap">Wrap onto multiple rows</option>
+      </select>
+      <div class="hint">Choose how session tabs fit when the top bar is full.</div>
       <label for="default-tab-color">Default color for new tabs</label>
       <select id="default-tab-color">
         <option value="default">Default</option>

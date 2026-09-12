@@ -5,3 +5,28 @@ dist/
 .DS_Store
 release/
 build/
+
+# Local configuration, credentials, and app data
+.env
+.env.*
+!.env.example
+!.env.sample
+.idea/
+.ssh/
+.aws/
+.marinashell/
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+passwords.json
+state.json
+run-configurations.json
+run-records.json
+saved-groups.json
+*.log
+
+# UI validation captures can contain local paths and terminal output.
+design/validation/

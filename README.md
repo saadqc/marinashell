@@ -2,8 +2,12 @@
 
 MarinaShell is a lightweight Electron desktop SSH client focused on fast, reliable remote terminal workflows. It combines a persistent SSH terminal (xterm.js + node-pty), a remote file explorer, and an optional inline CodeMirror editor for local and SSH files.
 
+## Screenshot
 
+![MarinaShell terminal and file browser with demo data](docs/images/demo.png)
 
+The screenshot uses a fictional host, sample files, and simulated terminal output.
+Regenerate it with `env -u ELECTRON_RUN_AS_NODE npx electron scripts/capture-demo.js`.
 
 ## Features
 

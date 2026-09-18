@@ -154,8 +154,12 @@ function buildCommand(config, fileEnv = {}, scriptEnv = {}, scriptMeta = []) {
     const selector = c.environment.includes('/') ? `-p ${pathExpression(c.environment)}` : `-n ${quote(c.environment)}`;
     // --no-capture-output is deliberately not used: mamba 2.x's capture-bypass
     // wrapper fails on compound commands that contain a `--` separator.
-    displayCommand = `${pathExpression(c.managerPath || c.manager)} run ${selector} ${displayCommand}`;
-    command = `${pathExpression(c.managerPath || c.manager)} run ${selector} ${command}`;
+    const manager = pathExpression(c.managerPath || c.manager);
+    // A stored managerPath is frozen at configure time and can go stale (a
+    // manager that was later uninstalled or moved); fall back to PATH lookup.
+    lines.push(`runmgr=${manager}; command -v "$runmgr" >/dev/null 2>&1 || runmgr=$(command -v ${quote(c.manager)}) || { printf '%s\\n' "Environment manager ${c.manager} not found (configured: ${manager})" >&2; exit 127; }`);
+    displayCommand = `${manager} run ${selector} ${displayCommand}`;
+    command = `"$runmgr" run ${selector} ${command}`;
   } else if (c.manager === 'pyenv') command = `${pathExpression(c.managerPath || '~/.pyenv/bin/pyenv')} exec ${command}`;
   if (c.manager === 'pyenv') displayCommand = `${pathExpression(c.managerPath || '~/.pyenv/bin/pyenv')} exec ${displayCommand}`;
   lines.push(log(`Command: ${displayCommand}`), log(''), `exec ${command}`);

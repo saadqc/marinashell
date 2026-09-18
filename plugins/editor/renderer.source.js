@@ -15,6 +15,7 @@ import { yaml, yamlLanguage } from '@codemirror/lang-yaml';
 import { oneDark } from '@codemirror/theme-one-dark';
 
 const documents = new Map();
+let pendingLine = null;
 let unloadWarningInstalled = false;
 
 function documentKey(file) {
@@ -527,7 +528,7 @@ function createWorkspace(container, options, api) {
     renderChrome();
     const requestedKey = doc.key;
     try {
-      const result = await api.invoke('plugin:editor:read', { tabId: doc.tabId, path: doc.path });
+      const result = await api.invoke('plugin:editor:read', { tabId: doc.tabId, path: doc.path, host: doc.host });
       if (!result || !result.ok) throw new Error(result && result.error ? result.error : 'Read failed');
       const indentation = detectIndentation(result.content);
       doc.eol = detectLineEnding(result.content);
@@ -547,7 +548,15 @@ function createWorkspace(container, options, api) {
     if (disposed || requestedKey !== activeKey) return;
     renderChrome();
     if (doc.error) showEmpty('error', doc.error);
-    else mountEditor(doc);
+    else {
+      mountEditor(doc);
+      if (pendingLine && view) {
+        const lineNumber = Math.min(Math.max(1, pendingLine), view.state.doc.lines);
+        const line = view.state.doc.line(lineNumber);
+        view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+        pendingLine = null;
+      }
+    }
   }
 
   async function saveActive(force) {
@@ -564,6 +573,7 @@ function createWorkspace(container, options, api) {
       const result = await api.invoke('plugin:editor:save', {
         tabId: doc.tabId,
         path: doc.path,
+        host: doc.host,
         content: serializeLineEndings(savingContent, savingEol),
         expectedStat: doc.stat,
         force: Boolean(force)
@@ -708,6 +718,27 @@ export default function activate(context) {
     iconClass: 'icon-code',
     supports: ['ssh', 'local'],
     mount: (container, options) => createWorkspace(container, options || {}, api)
+  });
+
+  // Lets any surface (terminal links, run output, plugins) open a file by path:
+  //   window.dispatchEvent(new CustomEvent('marinashell:editor:open', {
+  //     detail: { path: '/repo/app.py', line: 12, host: '__local__', tabId: '' }
+  //   }))
+  window.addEventListener('marinashell:editor:open', (event) => {
+    const detail = event.detail || {};
+    const filePath = String(detail.path || '');
+    if (!filePath) return;
+    const host = String(detail.host || '__local__');
+    pendingLine = Number(detail.line) || null;
+    openView('editor', {
+      file: {
+        tabId: String(detail.tabId || '') || host,
+        path: filePath,
+        name: String(filePath).split(/[\\/]/).pop(),
+        host,
+        sessionType: host === '__local__' ? 'local' : 'ssh'
+      }
+    });
   });
 
   registerEditorMode('inline-editor', async ({ tab, fileInfo, context: fileContext }) => {

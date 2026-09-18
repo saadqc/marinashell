@@ -49,6 +49,7 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
   });
   ipc('start', async ({ id, groupId, groupName }) => ({ run: await manager.start(id, groupId, groupName) }));
   ipc('poll', async ({ id, offset = 0, generation = 0 }) => manager.poll(id, offset, generation));
+  ipc('status', async ({ id }) => ({ run: await manager.status(id) }));
   ipc('stop', async ({ id, force }) => ({ run: await manager.stop(id, force) }));
   ipc('restart', async ({ id }) => ({ run: await manager.restart(id) }));
   ipc('close', async ({ id }) => { await manager.close(id); return {}; });

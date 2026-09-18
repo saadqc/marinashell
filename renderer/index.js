@@ -312,6 +312,7 @@ window.addEventListener('marinashell:detach-terminal', () => {
       api,
       state,
       sessionTabs,
+      dockLayout,
       registerCommand: async (name, callback) => {
         // Simple command registration (could be enhanced)
         console.log(`[Plugin] Registered command: ${name}`);

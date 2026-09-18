@@ -100,7 +100,10 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
     actionsEl.appendChild(splitHBtn);
     actionsEl.appendChild(closeBtn);
 
+    const runTabsEl = createEl('div', 'dock-leaf-run-tabs');
+
     headerEl.appendChild(titleEl);
+    headerEl.appendChild(runTabsEl);
     headerEl.appendChild(actionsEl);
 
     const bodyEl = createEl('div', 'dock-leaf-body');
@@ -108,7 +111,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
     leafEl.appendChild(headerEl);
     leafEl.appendChild(bodyEl);
 
-    const leaf = { id, el: leafEl, headerEl, bodyEl, viewId: null, cleanup: null, iconEl, nameEl, refreshBtn, refresh: null, extraActionsEl };
+    const leaf = { id, el: leafEl, headerEl, bodyEl, viewId: null, cleanup: null, iconEl, nameEl, refreshBtn, refresh: null, extraActionsEl, runTabsEl };
     leaves.set(id, leaf);
 
     leafEl.addEventListener('pointerdown', (e) => {
@@ -568,6 +571,16 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
     getActiveLeaf: () => {
       const id = ensureLeafSelected();
       return id ? leaves.get(id) : null;
+    },
+    // Header slot next to the pane title, for plugin-owned tab strips.
+    getTerminalRunTabsSlot: () => {
+      for (const leaf of leaves.values()) {
+        if (leaf.viewId === 'terminal' && leaf.runTabsEl && leaf.bodyEl.contains(terminalStackEl)) return leaf.runTabsEl;
+      }
+      for (const leaf of leaves.values()) {
+        if (leaf.viewId === 'terminal' && leaf.runTabsEl) return leaf.runTabsEl;
+      }
+      return null;
     }
   };
 

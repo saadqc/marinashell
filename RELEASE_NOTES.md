@@ -1,7 +1,9 @@
-## Setup scripts, group defaults, and project hints for run configurations
+## Runs that behave like an IDE
 
-- **Before run — setup scripts**: add your own shell scripts (bash or zsh per row) that run before launch. Only the variables a script exports are applied, so `source`-based activation files like `.autoenv.zsh` work unchanged. Later scripts override earlier ones, and variables edited under Environment variables still win. The launch header reports applied counts or the script's exit status — never values — and a failing script does not block the launch. Nothing is detected or enforced automatically.
-- **Group defaults**: save a configuration's working directory, interpreter/manager, `.env` files, setup scripts, and environment choice as defaults for a tab group. New configurations created from a tab of that group are prefilled, and the editor can re-apply saved defaults anytime. Defaults live in shelldock's own library (`~/.marinashell/run-group-defaults.json`), never inside the project directory.
-- **Detect** now also offers project hints as click-to-apply suggestions: entry-point directories for the working directory (e.g. `src/` with `app.py`), `.autoenv*`/`.envrc`/`.env` files, and a project-local `.venv` interpreter.
-- A stored conda-family manager name that disagrees with its executable (e.g. micromamba pointing at a mamba binary) now resolves to the binary so the correct wrapper flags are used.
-- `--no-capture-output` is no longer passed to mamba 2.x, whose capture-bypass wrapper fails on compound commands that contain a `--` separator.
+- Launching a run configuration no longer opens a terminal tab. Runs appear in a status chip next to the configuration dropdown, with a green dot while running.
+- Open a run's output from the chip dropdown or the new tabs in the terminal pane header. Output views are limited to one per configuration and never appear in the top session-tab strip.
+- Run output tabs live next to the "Terminal" pane title, so switching between runs never disturbs your session tabs.
+- Terminal links recognize absolute file paths, including `path:line`, and open them in the CodeMirror editor. Local files open without a terminal session.
+- The environment picker lists only environments of the selected environment manager: mamba shows mamba environments, pyenv shows pyenv versions, and direct interpreters stay under Direct interpreter.
+- A stale environment manager path falls back to a `PATH` lookup at launch instead of failing.
+- The configuration dropdown shows every tab group's configurations under their group name; only ungrouped configurations remain under All configurations.

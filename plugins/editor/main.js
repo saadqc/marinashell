@@ -33,10 +33,11 @@ function decodeText(buffer) {
 }
 
 function assertPayload(payload) {
+  const host = payload && String(payload.host || '');
   const tabId = payload && String(payload.tabId || '');
   const filePath = payload && String(payload.path || '');
-  if (!tabId || !filePath) throw new Error('Missing session or file path');
-  return { tabId, filePath };
+  if (!filePath || (!tabId && host !== '__local__')) throw new Error('Missing session or file path');
+  return { tabId, filePath, host };
 }
 
 function tempPathFor(filePath, pathApi) {
@@ -48,8 +49,10 @@ function tempPathFor(filePath, pathApi) {
 }
 
 module.exports = function activate({ sessionManager, registerIpc }) {
-  function getSession(tabId) {
-    const session = sessionManager.getSession(tabId);
+  function getSession(payload) {
+    // Local files go straight to disk; no terminal session is required.
+    if (payload.host === '__local__') return { sessionType: 'local' };
+    const session = payload.tabId ? sessionManager.getSession(payload.tabId) : null;
     if (!session || !session.ptyProcess) throw new Error('Session is not connected');
     if (session.sessionType !== 'local' && !session.sftpClient) throw new Error('SFTP is not connected');
     return session;
@@ -63,8 +66,8 @@ module.exports = function activate({ sessionManager, registerIpc }) {
   }
 
   async function readFile(payload) {
-    const { tabId, filePath } = assertPayload(payload);
-    const session = getSession(tabId);
+    const { tabId, filePath, host } = assertPayload(payload);
+    const session = getSession({ tabId, host });
     const stat = await statFile(session, filePath);
     if (stat.size > MAX_FILE_BYTES) {
       throw new Error(`Inline editor limit is ${MAX_FILE_BYTES / (1024 * 1024)} MB`);
@@ -134,8 +137,8 @@ module.exports = function activate({ sessionManager, registerIpc }) {
   }
 
   async function saveFile(payload) {
-    const { tabId, filePath } = assertPayload(payload);
-    const session = getSession(tabId);
+    const { tabId, filePath, host } = assertPayload(payload);
+    const session = getSession({ tabId, host });
     const content = String(payload.content == null ? '' : payload.content);
     const buffer = Buffer.from(content, 'utf8');
     if (buffer.length > MAX_FILE_BYTES) {

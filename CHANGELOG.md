@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.8 — 2026-09-18
+
+- Launching a run configuration no longer opens a terminal tab; runs show in a status chip and output views open on demand.
+- One output view per configuration, shown as compact run tabs in the terminal pane header and hidden from the session-tab strip.
+- Terminal links detect absolute file paths (`path:line` supported) and open them in the CodeMirror editor; local files need no terminal session.
+- Environment picker filtered by the selected environment manager.
+- Stale environment manager paths fall back to `PATH` lookup at launch.
+- The configuration dropdown groups configurations under every matching tab group.
+
+## v0.2.7 — 2026-09-18
+
+- Before-run setup scripts (`bash`/`zsh`) apply exported variables to a run; `.autoenv.zsh`-style files work directly.
+- Group defaults: save a configuration's paths, interpreter, and env sources per tab group and apply them to new configurations with one click.
+- Detect also scans the working directory for project hints and offers them as suggestions.
+
 ## v0.2.7 — 2026-09-18
 
 - Run configurations gained **Before run — setup scripts**: pick shell scripts (bash or zsh per row) that run before launch. Only the variables a script exports are applied — captured by snapshotting the environment before and after in the script's own shell, so `source`-based activation files like `.autoenv.zsh` work unchanged. Later scripts override earlier ones; variables edited under Environment variables still win. The launch header reports applied counts or the script's exit status and stderr tail, never values, and a failing script does not block the launch.

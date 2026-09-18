@@ -101,6 +101,9 @@ app.whenReady().then(async () => {
   fs.writeFileSync(path.resolve('design/validation/run-configurations.png'), (await window.webContents.capturePage()).toPNG());
   await evaluate(`testClick('Save')`);
   await evaluate(`testWait(()=>!document.querySelector('.run-editor')); document.querySelector('#run-toolbar [aria-label="Run"]').click();`);
+  // Launching stays in the run indicator; the output tab opens on demand.
+  await evaluate(`testWait(()=>document.querySelector('.run-chip') && !document.querySelector('.run-chip').hidden)`);
+  await evaluate(`document.querySelector('.run-chip summary').click(); testWait(()=>document.querySelectorAll('.run-chip-item').length === 1); document.querySelector('.run-chip-item').click();`);
   await evaluate(`testWait(()=>document.querySelector('.run-output-bar')?.textContent.includes('Running'))`);
   assert.equal(manager.list().length, 1);
   // The rendered terminal must fit between the run toolbar and pane bottom,

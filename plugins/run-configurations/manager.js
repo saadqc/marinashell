@@ -115,6 +115,24 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       return { run: { ...run }, output: '', offset, generation };
     }
   }
+  // Header-only refresh for runs whose output view is not open; avoids
+  // shipping the full log across the channel on every status tick.
+  async function status(id) {
+    const run = runs.get(id); if (!run) throw new Error('Run not found');
+    try {
+      await verifyHost(run);
+      const stdout = await command(run.host, `bash ${quote(runPath(run) + '/runner.sh')} status ${quote(runPath(run))} 0 0 | head -c 2048`);
+      const parts = stdout.split('\n');
+      const previous = run.status;
+      if (parts[0]) run.status = parts[0];
+      run.exitCode = parts[1]?.trim() ? Number(parts[1]) : null;
+      run.error = ''; run.checkedAt = new Date().toISOString();
+      if (run.status !== previous) saveRuns();
+    } catch (error) {
+      run.status = 'unknown'; run.error = error.message;
+    }
+    return { ...run };
+  }
   async function refresh(run) { await inspect(run, 0, 0, false); return run; }
   async function findExisting(config) {
     for (const run of runs.values()) {
@@ -247,6 +265,6 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       } catch (_) { /* Unknown records remain available on next launch. */ }
     }));
   }
-  return { configs, list: () => [...runs.values()].filter(run => !run.closed), start, poll, stop, restart, close, shutdown, command };
+  return { configs, list: () => [...runs.values()].filter(run => !run.closed), start, poll, status, stop, restart, close, shutdown, command };
 }
 module.exports = { createRunManager, ended };

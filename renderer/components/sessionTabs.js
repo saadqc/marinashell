@@ -185,6 +185,27 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
   }
 
+  function openFileInEditor(tab, match) {
+    window.dispatchEvent(new CustomEvent('marinashell:editor:open', {
+      detail: {
+        path: match.path,
+        line: match.line || null,
+        host: tab.host || '__local__',
+        // A connected tab can serve remote reads through its own session;
+        // local files need no session at all.
+        tabId: tab.connected ? tab.id : ''
+      }
+    }));
+  }
+
+  function openTerminalLink(tab, match) {
+    if (match.type === 'file') {
+      openFileInEditor(tab, match);
+      return;
+    }
+    openExternalTarget(tab, match.uri);
+  }
+
   function openExternalTarget(tab, uri) {
     Promise.resolve(state.api.openExternal(uri)).then((result) => {
       if (result && result.ok === false) {
@@ -376,7 +397,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     if (contextLink) {
       addMenuLabel(terminalContextMenu, contextLink.type === 'email' ? 'Email' : 'Link');
       addMenuButton(terminalContextMenu, contextLink.type === 'email' ? 'Compose email' : 'Open link', () => {
-        openExternalTarget(tab, contextLink.uri);
+        openTerminalLink(tab, contextLink);
         hideTerminalContextMenu();
       });
       addMenuButton(terminalContextMenu, contextLink.type === 'email' ? 'Copy email address' : 'Copy link', () => {
@@ -480,7 +501,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
               activate: (event) => {
                 if (event.button !== 0) return;
                 event.preventDefault();
-                openExternalTarget(tab, match.uri);
+                openTerminalLink(tab, match);
               },
               hover: () => {
                 tab.hoveredLink = match;
@@ -715,7 +736,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const previousOverflow = sessionTabs.dataset.overflow;
     sessionTabs.dataset.overflow = settingsService.readSettingValue('ui', 'session', 'tabOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll';
     sessionTabs.innerHTML = '';
-    const tabs = Array.from(state.tabs.values());
+    const tabs = Array.from(state.tabs.values()).filter((tab) => !tab.runOutput);
     const knownGroupIds = new Set(getTabGroups().map((group) => group.id));
     const ungrouped = tabs.filter((tab) => !tab.groupId || !knownGroupIds.has(tab.groupId));
     ungrouped.forEach((tab) => sessionTabs.appendChild(buildTabButton(tab)));
@@ -952,6 +973,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       sessionType: initial.sessionType || (initial.host === LOCAL_HOST_VALUE ? 'local' : 'ssh'),
       connected: false,
       readOnly: Boolean(initial.readOnly),
+      runOutput: Boolean(initial.runOutput),
       runId: initial.runId || '',
       configurationId: initial.configurationId || '',
       terminalTitle: '',

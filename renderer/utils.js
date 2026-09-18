@@ -151,10 +151,12 @@ export function findTerminalLinks(value) {
   const source = String(value || '');
   const pattern = /(?:https?:\/\/|www\.)[^\s<>"']+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
   const links = [];
+  const claimed = [];
   let match = pattern.exec(source);
   while (match) {
     const text = trimTerminalLink(match[0]);
     if (text) {
+      claimed.push([match.index, match.index + match[0].length]);
       const isEmail = !/^(?:https?:\/\/|www\.)/i.test(text);
       links.push({
         text,
@@ -166,7 +168,48 @@ export function findTerminalLinks(value) {
     }
     match = pattern.exec(source);
   }
-  return links;
+  // Absolute file paths (tracebacks, log lines); never inside a matched URL.
+  const pathPattern = /(?:~\/|\/)[^\s"'`<>]+/g;
+  let pathMatch = pathPattern.exec(source);
+  while (pathMatch) {
+    const raw = pathMatch[0];
+    const overlaps = claimed.some(([start, end]) => pathMatch.index < end && pathMatch.index + raw.length > start);
+    if (!overlaps) {
+      const parsed = parseFilePathToken(raw);
+      if (parsed) {
+        claimed.push([pathMatch.index, pathMatch.index + raw.length]);
+        links.push({
+          text: parsed.text,
+          start: pathMatch.index,
+          end: pathMatch.index + parsed.text.length,
+          type: 'file',
+          path: parsed.path,
+          line: parsed.line
+        });
+      }
+    }
+    pathMatch = pathPattern.exec(source);
+  }
+  return links.sort((a, b) => a.start - b.start);
+}
+
+function parseFilePathToken(raw) {
+  let token = String(raw || '');
+  token = token.replace(/[)\]}>'"]+$/, '');
+  let line = null;
+  const lineMatch = /:([0-9]{1,6})$/.exec(token);
+  if (lineMatch) {
+    line = Number(lineMatch[1]);
+    token = token.slice(0, -lineMatch[0].length);
+  }
+  token = token.replace(/[.,;:)\]}'"]+$/, '');
+  const segments = token.split('/');
+  const base = segments[segments.length - 1];
+  // Heuristic: an extension-like suffix on the last segment keeps log noise
+  // (flags, option values, bare directories) from turning into links.
+  if (!base || !base.includes('.') || /^[.]+$/.test(base)) return null;
+  if (/\.(png|jpe?g|gif|svg|ico|pdf|zip|gz|tgz|tar|xz|7z|woff2?|ttf|otf|eot|mp4|mp3|wav|webm|wasm|pyc|class|so|dylib|dll|bin)$/i.test(base)) return null;
+  return { text: token, path: token, line };
 }
 
 export function fillTemplate(template, context) {

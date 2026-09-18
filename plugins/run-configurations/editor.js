@@ -49,7 +49,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   const errorLine = document.createElement('div'); errorLine.className = 'run-error'; errorLine.setAttribute('role', 'alert');
   sidebar.append(tools, list); layout.append(sidebar, form); view.body.append(layout, errorLine);
   let draft = null; let clean = ''; let groupIds = []; let cleanGroups = '';
-  let discoveryVersion = 0;
+  let discoveryVersion = 0; let lastDiscovery = null;
   const groupDefaultsCache = new Map(); let prefillGroup = null; let suggestionBox = null;
   const dirty = () => JSON.stringify(draft) !== clean || JSON.stringify(groupIds) !== cleanGroups;
   const newDraft = template => ({ id: crypto.randomUUID(), name: template.label, host: state.tabs.get(state.activeTabId)?.host || '__local__',
@@ -228,15 +228,34 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     const environmentRow = document.createElement('div'); environmentRow.className = 'run-path-field';
     const discovered = select([{ value: '', label: 'Detect environments or enter paths below' }], '');
     const discoveryHint = document.createElement('small'); discoveryHint.className = 'run-hint';
+    // The picker only lists environments of the selected manager, so mamba
+    // never offers pyenv versions and vice versa.
+    const runtimesForManager = runtimes => {
+      const manager = draft.manager || 'system';
+      if (manager === 'system') return runtimes.filter(runtime => (runtime.manager || 'system') === 'system');
+      return runtimes.filter(runtime => runtime.manager === manager);
+    };
+    const fillDiscovered = () => {
+      const stale = !lastDiscovery || lastDiscovery.host !== draft.host || lastDiscovery.type !== draft.type;
+      const runtimes = stale ? [] : runtimesForManager(lastDiscovery.runtimes);
+      const scoped = draft.manager && draft.manager !== 'system';
+      discovered.replaceChildren(new Option(scoped ? `Select a ${draft.manager} environment` : 'Select a direct interpreter', ''));
+      discovered.onchange = () => { const runtime = runtimes[Number(discovered.value)]; if (runtime && discovered.value !== '') { Object.assign(draft, runtime); delete draft.label; renderForm(); } };
+      runtimes.forEach((runtime, index) => discovered.add(new Option(runtime.label, String(index))));
+      if (stale) { discoveryHint.textContent = ''; return; }
+      discoveryHint.textContent = lastDiscovery.warnings.length ? lastDiscovery.warnings.join(' · ')
+        : runtimes.length ? `${runtimes.length} ${scoped ? draft.manager + ' environments' : 'direct interpreters'} found`
+        : scoped ? `No ${draft.manager} environments found on this host`
+        : 'No direct interpreters found on this host';
+    };
+    fillDiscovered();
     const detect = button('Detect', async () => {
       detect.disabled = true; discoveryHint.textContent = 'Detecting on the selected host…'; const version = discoveryVersion;
       try {
         const result = await call('discover', { host: draft.host, type: draft.type });
         if (version !== discoveryVersion) return;
-        discovered.replaceChildren(new Option('Select an interpreter / environment', ''));
-        result.runtimes.forEach((runtime, i) => discovered.add(new Option(runtime.label, String(i))));
-        discovered.onchange = () => { const runtime = result.runtimes[Number(discovered.value)]; if (runtime && discovered.value !== '') { Object.assign(draft, runtime); delete draft.label; renderForm(); } };
-        discoveryHint.textContent = result.warnings.length ? result.warnings.join(' · ') : `${result.runtimes.length} environments found`;
+        lastDiscovery = { host: draft.host, type: draft.type, runtimes: result.runtimes, warnings: result.warnings };
+        fillDiscovered();
         const sessionList = form.querySelector('datalist'); if (sessionList) { sessionList.replaceChildren(); for (const name of result.tmuxSessions) sessionList.append(new Option(name, name)); }
         try {
           const scan = await call('project-scan', { host: draft.host, cwd: draft.cwd });

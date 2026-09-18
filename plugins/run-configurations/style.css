@@ -90,3 +90,33 @@
 .run-suggestion { border: 1px solid #364353; border-radius: 12px; padding: 3px 10px; font-size: 12px; background: #182332; color: #dce3ed; }
 .run-suggestion:hover { background: #244460; }
 @media (max-width: 1000px) { .run-setup-row { margin-left: 157px; } }
+
+/* Run indicator: PyCharm-style status chip with the list of known runs. */
+.run-chip { position: relative; }
+.run-chip summary { list-style: none; display: flex; align-items: center; gap: 7px; cursor: pointer; background: #182332; color: #dce3ed; border: 1px solid #364353; border-radius: 7px; padding: 7px 11px; font-size: 13px; max-width: 260px; }
+.run-chip summary::-webkit-details-marker { display: none; }
+.run-chip summary:hover { border-color: #4a5a70; }
+.run-chip[open] summary { border-color: #4a5a70; }
+.run-chip-dot { width: 9px; height: 9px; border-radius: 50%; background: #5b6b7d; flex-shrink: 0; }
+.run-chip-dot.running { background: #81c49b; box-shadow: 0 0 6px rgba(129, 196, 155, 0.55); }
+.run-chip-dot.busy { background: #e0b45c; }
+.run-chip-dot.exited { background: #5b6b7d; }
+.run-chip-dot.failed { background: #e07a7a; }
+.run-chip-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.run-chip-caret { color: #8595a9; font-size: 10px; }
+.run-chip-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; min-width: 300px; background: #182332; border: 1px solid #364353; border-radius: 8px; padding: 5px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5); }
+.run-chip-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: transparent; border: 0; color: #dce3ed; padding: 8px 9px; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer; }
+.run-chip-item:hover { background: #1c2b3c; }
+.run-chip-item-label { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.run-chip-item-state { color: #8595a9; font-size: 11px; }
+.run-chip-dismiss { color: #8595a9; padding: 0 4px 0 8px; }
+.run-chip-dismiss:hover { color: #f2a3a3; }
+
+/* Run output tabs in the terminal pane header. */
+.dock-leaf-run-tabs { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; min-width: 0; overflow: hidden; }
+.run-tabs-bar { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.run-tabs-bar[hidden] { display: none; }
+.run-tab-item { display: inline-flex; align-items: center; gap: 7px; background: #182332; color: #dce3ed; border: 1px solid #364353; border-radius: 7px; padding: 5px 11px; font: inherit; font-size: 12.5px; cursor: pointer; max-width: 220px; }
+.run-tab-item:hover { border-color: #4a5a70; background: #1c2b3c; }
+.run-tab-item.active { border-color: #4a6d8a; background: #244460; color: #eef6ff; }
+.run-tab-item-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

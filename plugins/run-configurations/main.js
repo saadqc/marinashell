@@ -2,8 +2,9 @@ const os = require('os');
 const path = require('path');
 const { dialog } = require('electron');
 const { resolveHost } = require('../../main/services/sshConfig');
+const { createLibraryStore } = require('../../main/services/libraryStore');
 const { createRunManager } = require('./manager');
-const { normalize, quote, pathExpression } = require('./configuration');
+const { normalize, normalizeDefaults, quote, pathExpression } = require('./configuration');
 
 module.exports = function activate({ sessionManager, registerIpc, getPlugins, getMainWindow, registerShutdown }) {
   const connections = new Map();
@@ -29,6 +30,10 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
     execute, tmuxAvailable,
     hostIdentity: async host => host === '__local__' ? `local:${os.hostname()}:${os.userInfo().username}` : JSON.stringify(resolved(host))
   });
+  // Per-group defaults let the configurations of a project (a tab group) share
+  // interpreter, working directory, and environment sources. They live in
+  // shelldock's own library — never inside the project directory.
+  const groupDefaults = createLibraryStore('run-group-defaults');
   registerShutdown(manager.shutdown);
   function ipc(name, handler) {
     registerIpc(name, async (_event, payload = {}) => {
@@ -70,6 +75,24 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
     // noclobber makes Create safe even if the file appeared after browsing.
     await manager.command(host, `umask 077; cd -- ${pathExpression(cwd)} && (set -C; printf '%s' ${quote(content)} > ${pathExpression(file)})`);
     return {};
+  });
+  ipc('group-defaults-get', async ({ groupId }) => ({ defaults: groupDefaults.read().find(item => item.id === groupId) || null }));
+  ipc('group-defaults-set', async ({ groupId, name = '', defaults = {} }) => {
+    if (!String(groupId || '').trim()) throw new Error('Group id is required');
+    return { defaults: groupDefaults.upsert({ id: groupId, name: String(name || ''), ...normalizeDefaults(defaults) }) };
+  });
+  ipc('project-scan', async ({ host = '__local__', cwd = '~' }) => {
+    const cmd = `cd -- ${pathExpression(cwd)} || exit 0
+for p in app.py wsgi.py main.py manage.py package.json requirements.txt pyproject.toml Pipfile .env .autoenv.zsh .autoenv.sh .autoenv .envrc .venv/bin/python venv/bin/python; do [ -e "$p" ] && printf 'file\\t%s\\n' "$p"; done
+for d in src server app backend api; do for f in app.py wsgi.py main.py manage.py; do [ -f "$d/$f" ] && printf 'entrydir\\t%s\\n' "$d"; done; done
+true`;
+    const files = []; const entryDirs = [];
+    for (const line of (await manager.command(host, cmd)).split('\n')) {
+      const [kind, value] = line.split('\t');
+      if (kind === 'file' && value) files.push(value);
+      if (kind === 'entrydir' && value && !entryDirs.includes(value)) entryDirs.push(value);
+    }
+    return { files, entryDirs };
   });
   ipc('discover', async ({ host = '__local__', type = 'python' }) => {
     const runtimes = []; const warnings = [];

@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.7 — 2026-09-18
+
+- Run configurations gained **Before run — setup scripts**: pick shell scripts (bash or zsh per row) that run before launch. Only the variables a script exports are applied — captured by snapshotting the environment before and after in the script's own shell, so `source`-based activation files like `.autoenv.zsh` work unchanged. Later scripts override earlier ones; variables edited under Environment variables still win. The launch header reports applied counts or the script's exit status and stderr tail, never values, and a failing script does not block the launch.
+- **Group defaults** for run configurations: save a configuration's working directory, interpreter/manager, `.env` files, setup scripts, and environment choice as defaults for a tab group (stored in `~/.marinashell/run-group-defaults.json`, never in the project). New configurations created from a tab of that group are prefilled, and the editor can re-apply saved defaults.
+- **Detect** now also offers project suggestions — entry-point directories for the working directory, `.autoenv*`/`.envrc`/`.env` files, and a project-local `.venv` interpreter — as click-to-apply chips.
+- A stored conda-family manager name that disagrees with its executable (e.g. micromamba pointing at a mamba binary) now resolves to the binary so the correct wrapper flags are used.
+
 ## v0.2.6 — 2026-09-12
 
 - The session tab bar now spans the full window width, above the sidebar and workspace.

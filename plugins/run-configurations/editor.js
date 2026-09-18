@@ -50,13 +50,36 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   sidebar.append(tools, list); layout.append(sidebar, form); view.body.append(layout, errorLine);
   let draft = null; let clean = ''; let groupIds = []; let cleanGroups = '';
   let discoveryVersion = 0;
+  const groupDefaultsCache = new Map(); let prefillGroup = null; let suggestionBox = null;
   const dirty = () => JSON.stringify(draft) !== clean || JSON.stringify(groupIds) !== cleanGroups;
   const newDraft = template => ({ id: crypto.randomUUID(), name: template.label, host: state.tabs.get(state.activeTabId)?.host || '__local__',
     cwd: state.tabs.get(state.activeTabId)?.currentPath || '~', target: '', args: '', manager: 'system', environment: '', managerPath: '',
-    envFiles: [], env: {}, inheritEnv: true, multiInstance: false, tmux: false, tmuxSession: '', sourceFile: '', ...template });
+    envFiles: [], setupScripts: [], env: {}, inheritEnv: true, multiInstance: false, tmux: false, tmuxSession: '', sourceFile: '', ...template });
+  const defaultKeys = ['cwd', 'interpreter', 'manager', 'managerPath', 'environment', 'envFiles', 'setupScripts', 'inheritEnv'];
+  function mergeDefaults(target, defaults) {
+    for (const key of defaultKeys) {
+      const value = defaults ? defaults[key] : undefined;
+      const empty = value == null || value === '' || (Array.isArray(value) && !value.length);
+      if (!empty) target[key] = clone(value);
+    }
+  }
+  async function applyGroupPrefill() {
+    const groupId = state.tabs.get(state.activeTabId)?.groupId;
+    if (!groupId) return;
+    try {
+      const result = await call('group-defaults-get', { groupId });
+      if (!result.defaults) return;
+      groupDefaultsCache.set(groupId, result.defaults);
+      mergeDefaults(draft, result.defaults);
+      prefillGroup = { id: groupId, name: result.defaults.name || (state.appState.tabGroups || []).find(group => group.id === groupId)?.name || '' };
+    } catch (_) { /* Defaults are optional; a failed read must not block creation. */ }
+  }
   async function switchTo(config, isNew = false) {
     if (draft && dirty() && !await confirmAction('Discard unsaved changes?', 'Switch configurations without saving these changes?', 'Discard')) return;
     draft = clone(config); delete draft.label;
+    prefillGroup = null;
+    if (isNew && !draft.setupScripts) draft.setupScripts = [];
+    if (isNew) await applyGroupPrefill();
     groupIds = (state.appState.tabGroups || []).filter(g => (g.configurationIds || []).includes(draft.id)).map(g => g.id);
     clean = isNew ? '' : JSON.stringify(draft); cleanGroups = JSON.stringify(groupIds);
     renderList(); renderForm();
@@ -170,6 +193,27 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
       catch (error) { feedback.textContent = error.message; }
     }));
   }
+  function renderSuggestions(scan) {
+    if (!suggestionBox) return;
+    suggestionBox.replaceChildren();
+    const joinPath = (base, part) => `${String(base || '~').replace(/\/+$/, '')}/${part}`;
+    const chips = document.createElement('div'); chips.className = 'run-inline-actions';
+    const add = (label, apply) => chips.append(button(label, () => { apply(); renderForm(); }, 'run-suggestion'));
+    for (const dir of scan.entryDirs || []) {
+      const target = joinPath(draft.cwd, dir);
+      if (target !== draft.cwd) add(`Working directory: ${target}/`, () => draft.cwd = target);
+    }
+    for (const file of scan.files || []) {
+      const full = joinPath(draft.cwd, file);
+      if (/\.autoenv/.test(file) || file === '.envrc') add(`Run ${file} as setup script`, () => { draft.setupScripts ||= []; draft.setupScripts.push({ path: full, shell: /\.zsh$/i.test(file) ? 'zsh' : 'bash' }); });
+      else if (file === '.env') add('Add .env to environment files', () => { draft.envFiles ||= []; if (!draft.envFiles.includes(full)) draft.envFiles.push(full); });
+    }
+    if ((scan.files || []).includes('.venv/bin/python')) add('Use .venv Python interpreter', () => { draft.interpreter = joinPath(draft.cwd, '.venv/bin/python'); draft.manager = 'system'; draft.environment = ''; draft.managerPath = ''; });
+    if (chips.children.length) {
+      const title = document.createElement('small'); title.className = 'run-hint'; title.textContent = 'Project suggestions — nothing is applied until you click:';
+      suggestionBox.append(title, chips);
+    }
+  }
   function renderForm() {
     discoveryVersion++; form.replaceChildren(); errorLine.textContent = '';
     if (!draft) { form.textContent = 'Choose a template to create a run configuration.'; return; }
@@ -194,10 +238,16 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
         discovered.onchange = () => { const runtime = result.runtimes[Number(discovered.value)]; if (runtime && discovered.value !== '') { Object.assign(draft, runtime); delete draft.label; renderForm(); } };
         discoveryHint.textContent = result.warnings.length ? result.warnings.join(' · ') : `${result.runtimes.length} environments found`;
         const sessionList = form.querySelector('datalist'); if (sessionList) { sessionList.replaceChildren(); for (const name of result.tmuxSessions) sessionList.append(new Option(name, name)); }
+        try {
+          const scan = await call('project-scan', { host: draft.host, cwd: draft.cwd });
+          if (version !== discoveryVersion) return;
+          renderSuggestions(scan);
+        } catch (_) { /* Suggestions are optional. */ }
       } catch (error) { discoveryHint.textContent = error.message; }
       finally { detect.disabled = false; }
     });
     environmentRow.append(discovered, detect); field(form, 'Environment', environmentRow); form.append(discoveryHint);
+    suggestionBox = document.createElement('div'); form.append(suggestionBox);
     const managers = draft.type === 'python' ? ['system', 'conda', 'mamba', 'micromamba', 'pyenv'] : draft.type === 'javascript' ? ['system', 'nvm'] : ['system'];
     const manager = select(managers.map(value => ({ value, label: value === 'system' ? 'Direct interpreter' : value })), draft.manager || 'system');
     manager.addEventListener('change', () => { draft.manager = manager.value; renderForm(); }); field(form, 'Environment manager', manager);
@@ -220,6 +270,28 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     field(form, draft.host === '__local__' ? '.env files' : 'Remote .env files', envFiles, 'Loaded in order; later files override earlier files.');
     const envTools = document.createElement('div'); envTools.className = 'run-inline-actions';
     envTools.append(button('Add file…', async () => { try { const file = await browse(draft.cwd); if (file) { draft.envFiles ||= []; draft.envFiles.push(file); renderForm(); } } catch (error) { showError(error); } }), button('Create .env file…', createEnvFile)); form.append(envTools);
+    const setupTitle = document.createElement('h3'); setupTitle.className = 'run-section-title'; setupTitle.textContent = 'Before run'; form.append(setupTitle);
+    if (!Array.isArray(draft.setupScripts)) draft.setupScripts = [];
+    const setupRows = document.createElement('div'); setupRows.className = 'run-setup-list'; form.append(setupRows);
+    draft.setupScripts.forEach((script, index) => {
+      const row = document.createElement('div'); row.className = 'run-setup-row';
+      const path = input(script.path, '/path/to/.autoenv.zsh'); path.setAttribute('aria-label', `Setup script ${index + 1} path`);
+      path.addEventListener('input', () => script.path = path.value);
+      const shell = select([{ value: 'bash', label: 'bash' }, { value: 'zsh', label: 'zsh' }], script.shell === 'zsh' ? 'zsh' : 'bash');
+      shell.setAttribute('aria-label', `Setup script ${index + 1} shell`);
+      shell.addEventListener('change', () => script.shell = shell.value);
+      row.append(path, shell, button('−', () => { draft.setupScripts.splice(index, 1); renderForm(); }));
+      setupRows.append(row);
+    });
+    const setupTools = document.createElement('div'); setupTools.className = 'run-inline-actions';
+    setupTools.append(button('Add setup script…', async () => {
+      try { const file = await browse(draft.cwd); draft.setupScripts.push({ path: file || '', shell: /\.zsh$/i.test(file || '') ? 'zsh' : 'bash' }); renderForm(); }
+      catch (error) { showError(error); }
+    }));
+    form.append(setupTools);
+    const setupHint = document.createElement('small'); setupHint.className = 'run-hint';
+    setupHint.textContent = 'Optional scripts that run before launch, in the shell you pick. Variables a script exports are applied to the run; later rows override earlier ones, and variables edited above win. Add only scripts you trust.';
+    form.append(setupHint);
     check(form, 'Allow multiple instances', Boolean(draft.multiInstance), value => draft.multiInstance = value);
     if (draft.host !== '__local__') {
       const tmux = check(form, 'Run in tmux', Boolean(draft.tmux), value => { draft.tmux = value; renderForm(); }); tmux.disabled = !tmuxAvailable;
@@ -235,6 +307,39 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
       const title = document.createElement('div'); title.className = 'run-group-heading'; title.textContent = 'Show in groups'; form.append(title);
       const memberships = document.createElement('div'); memberships.className = 'run-group-memberships'; form.append(memberships);
       for (const group of groups) check(memberships, group.name, groupIds.includes(group.id), checked => { groupIds = checked ? [...groupIds, group.id] : groupIds.filter(id => id !== group.id); });
+      const bound = groups.filter(group => groupIds.includes(group.id));
+      const defaultsGroup = prefillGroup && groups.some(group => group.id === prefillGroup.id)
+        ? groups.find(group => group.id === prefillGroup.id)
+        : bound[0] || groups[0];
+      if (!groupDefaultsCache.has(defaultsGroup.id)) {
+        groupDefaultsCache.set(defaultsGroup.id, null); // Fetch-in-flight marker.
+        call('group-defaults-get', { groupId: defaultsGroup.id }).then(result => {
+          if (result.defaults) { groupDefaultsCache.set(defaultsGroup.id, result.defaults); renderForm(); }
+        }).catch(() => {});
+      }
+      const defaultsActions = document.createElement('div'); defaultsActions.className = 'run-inline-actions';
+      defaultsActions.append(button(`Save current values as “${defaultsGroup.name}” defaults`, async () => {
+        try {
+          const result = await call('group-defaults-set', {
+            groupId: defaultsGroup.id, name: defaultsGroup.name,
+            defaults: { cwd: draft.cwd, interpreter: draft.interpreter, manager: draft.manager, managerPath: draft.managerPath,
+                        environment: draft.environment, envFiles: draft.envFiles, setupScripts: draft.setupScripts, inheritEnv: draft.inheritEnv }
+          });
+          groupDefaultsCache.set(defaultsGroup.id, result.defaults);
+          prefillGroup = null;
+          renderForm();
+        } catch (error) { errorLine.textContent = error.message; }
+      }, 'ghost-btn'));
+      const existing = groupDefaultsCache.get(defaultsGroup.id);
+      if (existing) {
+        defaultsActions.append(button(`Apply “${defaultsGroup.name}” defaults`, () => mergeDefaults(draft, existing)));
+        if (prefillGroup && prefillGroup.id === defaultsGroup.id) {
+          const note = document.createElement('small'); note.className = 'run-hint';
+          note.textContent = `Prefilled from “${defaultsGroup.name}” group defaults.`;
+          defaultsActions.append(note);
+        }
+      }
+      form.append(defaultsActions);
     }
   }
   async function save(close = false) {

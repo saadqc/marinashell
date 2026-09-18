@@ -6,7 +6,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const exec = promisify(execFile);
 const { createRunManager } = require('../plugins/run-configurations/manager');
-const { parseArguments, parseEnv, buildCommand, normalize: normalizeConfig } = require('../plugins/run-configurations/configuration');
+const { parseArguments, parseEnv, buildCommand, normalizeSetupScripts, normalizeDefaults, normalize: normalizeConfig } = require('../plugins/run-configurations/configuration');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'marina-runs-test-'));
 const execute = async (_host, command, options = {}) => {
   if (command === 'printf "%s" "$HOME"') return { stdout: root, stderr: '', exitCode: 0 };
@@ -100,5 +100,45 @@ async function waitExit(id) {
   let offset = 0, generation = 0, output = '';
   for (let i = 0; i < 4; i++) { const page = await manager.poll(large.id, offset, generation); output += page.output; offset = page.offset; generation = page.generation; if (!page.hasMore) break; }
   assert(output.endsWith('x'.repeat(600000)));
-  console.log('PASS: argv/env quoting, env precedence, exit/output, single/multiple instances, repeated Stop, persistence and host identity');
+  // Setup scripts: shell files sourced before launch contribute their exported variables.
+  assert.deepEqual(normalizeSetupScripts([{ path: '/a/env.zsh ' }, 'b.sh', { path: ' ', shell: 'zsh' }, { path: 'c.sh', shell: 'fish' }]),
+    [{ path: '/a/env.zsh', shell: 'zsh' }, { path: 'b.sh', shell: 'bash' }, { path: 'c.sh', shell: 'bash' }]);
+  assert.deepEqual(normalizeDefaults({ cwd: '/x', manager: 'micromamba', envFiles: [''], setupScripts: ['s.zsh'], extra: 'dropped' }),
+    { cwd: '/x', interpreter: '', manager: 'micromamba', managerPath: '', environment: '', envFiles: [], setupScripts: [{ path: 's.zsh', shell: 'zsh' }], inheritEnv: true });
+  // A stored manager name that disagrees with its binary resolves to the binary.
+  assert.equal(normalizeConfig({ name: 'M', target: 'x', manager: 'micromamba', managerPath: '/opt/homebrew/bin/mamba', environment: 'e' }).manager, 'mamba');
+  assert(buildCommand({ name: 'Legacy', type: 'shell', mode: 'commands', target: 'true', cwd: root }).includes('Setup scripts: (none)'));
+  const setupScript = path.join(root, 'autoenv.sh');
+  fs.writeFileSync(setupScript, 'export SCRIPT_ONLY=from-script\nexport WINNER=script\n');
+  const layered = manager.configs.upsert(normalizeConfig({
+    name: 'Layered env', type: 'shell', host: '__local__', mode: 'commands', cwd: root,
+    target: 'printf "%s|%s|%s\\n" "$WINNER" "$SCRIPT_ONLY" "$FILE_ONLY"',
+    envFiles: [envFile], setupScripts: [{ path: setupScript, shell: 'bash' }], env: { WINNER: 'modal' }
+  }));
+  const layeredRun = await manager.start(layered.id);
+  const layeredResult = await waitExit(layeredRun.id);
+  assert.match(layeredResult.output, /modal\|from-script\|yes/);
+  assert(layeredResult.output.includes(`Setup scripts: ${setupScript} (bash)`));
+  assert(layeredResult.output.includes(`Setup script: ${setupScript} (bash) — applied 2 variables`));
+  await manager.close(layeredRun.id);
+  // A setup script that fails still applies what it exported before failing, and says so.
+  const failing = path.join(root, 'failing.sh');
+  fs.writeFileSync(failing, 'export BEFORE_FAIL=yes\necho boom >&2\nexit 3\n');
+  const failingConfig = manager.configs.upsert(normalizeConfig({ name: 'Failing setup', type: 'shell', host: '__local__', mode: 'commands', cwd: root, target: 'printf "%s\\n" "$BEFORE_FAIL"', setupScripts: [{ path: failing, shell: 'bash' }] }));
+  const failingRun = await manager.start(failingConfig.id);
+  const failingResult = await waitExit(failingRun.id);
+  assert.match(failingResult.output, /^yes$/m);
+  assert(failingResult.output.includes(`Setup script: ${failing} (bash) — exited 3; boom`));
+  await manager.close(failingRun.id);
+  if (fs.existsSync('/bin/zsh')) {
+    const zshSetup = path.join(root, 'autoenv.zsh');
+    fs.writeFileSync(zshSetup, 'export ZSH_ONLY=from-zsh\n');
+    const zshConfig = manager.configs.upsert(normalizeConfig({ name: 'Zsh setup', type: 'shell', host: '__local__', mode: 'commands', cwd: root, target: 'printf "%s\\n" "$ZSH_ONLY"', setupScripts: [{ path: zshSetup, shell: 'zsh' }] }));
+    const zshRun = await manager.start(zshConfig.id);
+    const zshResult = await waitExit(zshRun.id);
+    assert.match(zshResult.output, /from-zsh/);
+    assert(zshResult.output.includes(`Setup script: ${zshSetup} (zsh) — applied 1 variable`));
+    await manager.close(zshRun.id);
+  }
+  console.log('PASS: argv/env quoting, env precedence, setup scripts, exit/output, single/multiple instances, repeated Stop, persistence and host identity');
 })().finally(async () => { await manager.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }).catch(error => { console.error(error); process.exitCode = 1; });

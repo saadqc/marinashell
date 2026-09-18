@@ -7,6 +7,16 @@ const { normalize, quote, pathExpression, buildCommand, parseEnv } = require('./
 const runner = fs.readFileSync(path.join(__dirname, 'runner.sh'), 'utf8');
 const ended = run => ['exited', 'blocked', 'failed'].includes(run.status);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+function parseEnvSnapshot(base64) {
+  const values = {};
+  for (const record of Buffer.from(String(base64 || ''), 'base64').toString('utf8').split('\0')) {
+    if (!record) continue;
+    const index = record.indexOf('=');
+    if (index <= 0) continue;
+    values[record.slice(0, index)] = record.slice(index + 1);
+  }
+  return values;
+}
 
 function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, root }) {
   const configs = createLibraryStore('run-configurations', root);
@@ -23,6 +33,54 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
   }
   async function verifyHost(run) {
     if (run.hostIdentity !== await hostIdentity(run.host)) throw new Error('SSH host settings changed since this run started; select the original host before controlling it.');
+  }
+  // Runs a user-selected setup script on the execution host in its chosen shell
+  // and captures the variables it adds or changes. The script's own output never
+  // reaches the run output; only the exit status and variable count are reported.
+  async function runSetupScript(config, script) {
+    const shell = script.shell === 'zsh' ? 'zsh' : 'bash';
+    const meta = { path: script.path, shell };
+    // The sourced script may call `exit`, so the inner script snapshots its
+    // environment from an EXIT trap; that trap also records the exit status.
+    const remote = [
+      `cd -- ${pathExpression(config.cwd)} || exit 9`,
+      `command -v ${quote(shell)} >/dev/null 2>&1 || { printf 'setup shell not found: ${shell}' >&2; exit 8; }`,
+      `snapshot=$(mktemp -d) || exit 9`,
+      `inner="$snapshot/inner.sh"`,
+      `cat > "$inner" <<'MARINA_SETUP_INNER'`,
+      `snapshot=$1; script=$2; setup_rc=0`,
+      `trap 'code=$?; env -0 > "$snapshot/after" 2>/dev/null; printf "%s" "$code" > "$snapshot/status"; exit $code' EXIT`,
+      `env -0 > "$snapshot/before"`,
+      `. "$script" >"$snapshot/out" 2>"$snapshot/err" || setup_rc=$?`,
+      `env -0 > "$snapshot/after"`,
+      `exit $setup_rc`,
+      `MARINA_SETUP_INNER`,
+      `${quote(shell)} "$inner" "$snapshot" ${pathExpression(script.path)} >/dev/null 2>&1`,
+      `printf 'status=%s\\n' "$(cat "$snapshot/status" 2>/dev/null || printf 1)"`,
+      `for name in before after err; do printf '%s\\n' "---$name"; base64 < "$snapshot/$name" 2>/dev/null | tr -d '\\n'; printf '\\n'; done`,
+      `rm -rf "$snapshot"`,
+      `exit 0`
+    ].join('\n');
+    const output = await command(config.host, remote, { timeoutMs: 30000 });
+    const sections = {}; let current = 'header'; let status = 1;
+    for (const line of output.split('\n')) {
+      const match = /^---(before|after|err)$/.exec(line);
+      if (match) { current = match[1]; sections[current] = ''; continue; }
+      if (current === 'header' && /^status=\d+$/.test(line)) { status = Number(line.slice(7)); continue; }
+      if (current !== 'header') sections[current] = (sections[current] || '') + line;
+    }
+    const before = parseEnvSnapshot(sections.before);
+    const after = parseEnvSnapshot(sections.after);
+    const values = {};
+    for (const [key, value] of Object.entries(after)) if (!(key in before) || before[key] !== value) values[key] = value;
+    meta.vars = Object.keys(values).length;
+    meta.status = 'ok';
+    if (status !== 0) {
+      meta.status = `exited ${status}`;
+      const errorText = Buffer.from(sections.err || '', 'base64').toString('utf8').trim().replace(/\s+/g, ' ');
+      if (errorText) meta.detail = errorText.slice(-200);
+    }
+    return { values, meta };
   }
   async function inspect(run, offset = 0, generation = 0, decode = true) {
     await verifyHost(run);
@@ -99,6 +157,13 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       const content = await command(c.host, `cd -- ${pathExpression(c.cwd)} && cat -- ${pathExpression(file)}`);
       fileEnv = { ...fileEnv, ...parseEnv(content) };
     }
+    let scriptEnv = {};
+    const scriptMeta = [];
+    for (const script of c.setupScripts) {
+      const applied = await runSetupScript(c, script);
+      scriptEnv = { ...scriptEnv, ...applied.values };
+      scriptMeta.push(applied.meta);
+    }
     const run = {
       id: randomUUID(), configurationId: c.id, name: c.name, host: c.host, cwd: c.cwd,
       hostIdentity: await hostIdentity(c.host), home, groupId, groupName,
@@ -120,7 +185,7 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
         else throw new Error('This configuration already has a remote run. Reconnect to its existing output tab before starting another instance.');
       }
     }
-    await command(c.host, `umask 077; mkdir -p ${quote(dir)} ${quote(locks)} && printf '%s' ${quote(runner)} > ${quote(dir + '/runner.sh')} && printf '%s' ${quote(buildCommand(c, fileEnv))} > ${quote(dir + '/command.sh')}`);
+    await command(c.host, `umask 077; mkdir -p ${quote(dir)} ${quote(locks)} && printf '%s' ${quote(runner)} > ${quote(dir + '/runner.sh')} && printf '%s' ${quote(buildCommand(c, fileEnv, scriptEnv, scriptMeta))} > ${quote(dir + '/command.sh')}`);
     runs.set(run.id, run); saveRuns();
     const launchCommand = `bash ${quote(dir + '/runner.sh')} run ${quote(dir)} ${quote(lock)}`;
     try {

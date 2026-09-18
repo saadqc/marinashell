@@ -84,3 +84,9 @@
 .run-group-heading { margin: 14px 0 4px; color: #dce3ed; font-size: 13px; font-weight: 600; }
 .run-group-memberships .run-check { min-height: 24px; margin: 2px 0; gap: 8px; }
 .run-editor .run-check input[type=checkbox] { min-height: 0; width: 14px; height: 14px; padding: 0; margin: 0; }
+.run-setup-row { display: flex; gap: 8px; margin: 0 0 8px 180px; }
+.run-setup-row input { flex: 1; min-width: 0; }
+.run-setup-row select { width: 92px; flex: none; }
+.run-suggestion { border: 1px solid #364353; border-radius: 12px; padding: 3px 10px; font-size: 12px; background: #182332; color: #dce3ed; }
+.run-suggestion:hover { background: #244460; }
+@media (max-width: 1000px) { .run-setup-row { margin-left: 157px; } }

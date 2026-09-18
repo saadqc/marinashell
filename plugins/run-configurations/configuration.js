@@ -39,6 +39,27 @@ function parseEnv(text) {
   }
   return values;
 }
+function normalizeSetupScripts(input) {
+  if (!Array.isArray(input)) return [];
+  return input.map(item => {
+    const path = typeof item === 'string' ? item.trim() : String(item && item.path || '').trim();
+    const explicit = item && typeof item === 'object' ? item.shell : undefined;
+    const shell = explicit === 'zsh' || explicit === 'bash' ? explicit : /\.zsh$/i.test(path) ? 'zsh' : 'bash';
+    return { path, shell };
+  }).filter(item => item.path);
+}
+// Subset of a configuration that a group can provide as defaults.
+function normalizeDefaults(input = {}) {
+  const source = input && typeof input === 'object' ? input : {};
+  return {
+    cwd: String(source.cwd || ''), interpreter: String(source.interpreter || ''),
+    manager: ['system', 'conda', 'mamba', 'micromamba', 'pyenv', 'nvm'].includes(source.manager) ? source.manager : 'system',
+    managerPath: String(source.managerPath || ''), environment: String(source.environment || ''),
+    envFiles: Array.isArray(source.envFiles) ? source.envFiles.map(String).filter(Boolean) : [],
+    setupScripts: normalizeSetupScripts(source.setupScripts),
+    inheritEnv: source.inheritEnv !== false
+  };
+}
 function normalize(input) {
   const type = ['python', 'javascript', 'shell'].includes(input.type) ? input.type : 'python';
   const modes = type === 'python' ? ['script', 'module'] : type === 'javascript' ? ['script', 'module', 'npm'] : ['script', 'commands'];
@@ -49,6 +70,7 @@ function normalize(input) {
     interpreter: String(input.interpreter || (type === 'python' ? 'python3' : type === 'javascript' ? 'node' : '/bin/bash')),
     manager: String(input.manager || 'system'), managerPath: String(input.managerPath || ''), environment: String(input.environment || ''),
     envFiles: Array.isArray(input.envFiles) ? input.envFiles.map(String).filter(Boolean) : [],
+    setupScripts: normalizeSetupScripts(input.setupScripts),
     env: input.env && typeof input.env === 'object' && !Array.isArray(input.env) ? { ...input.env } : {},
     inheritEnv: input.inheritEnv !== false, sourceFile: String(input.sourceFile || ''),
     multiInstance: Boolean(input.multiInstance), tmux: Boolean(input.tmux), tmuxSession: String(input.tmuxSession || '')
@@ -56,6 +78,12 @@ function normalize(input) {
   if (!config.name) throw new Error('Configuration name is required');
   if (!config.target.trim()) throw new Error('Script, module, npm script, or shell commands are required');
   if (!['system', 'conda', 'mamba', 'micromamba', 'pyenv', 'nvm'].includes(config.manager)) throw new Error('Unknown environment manager');
+  // A stored manager name that disagrees with its binary (e.g. micromamba plus a
+  // mamba executable) resolves to the binary, since wrapper flags differ per binary.
+  if (['conda', 'mamba', 'micromamba'].includes(config.manager) && config.managerPath) {
+    const binary = config.managerPath.split('/').pop();
+    if (['conda', 'mamba', 'micromamba'].includes(binary) && binary !== config.manager) config.manager = binary;
+  }
   if (config.manager !== 'system' && !config.environment.trim()) throw new Error('Select an environment or version');
   if (config.tmux && config.host === '__local__') throw new Error('tmux execution is available for SSH only');
   if (config.tmuxSession && !/^[A-Za-z0-9_-]+$/.test(config.tmuxSession)) throw new Error('tmux session names may contain letters, digits, hyphens and underscores');
@@ -67,11 +95,18 @@ function normalize(input) {
   parseArguments(config.args);
   return config;
 }
-function buildCommand(config, fileEnv = {}) {
+function buildCommand(config, fileEnv = {}, scriptEnv = {}, scriptMeta = []) {
   const c = normalize(config);
   const log = text => `printf '%s\\n' ${quote(text)}`;
   const lines = ['#!/usr/bin/env bash', 'set -e', log(`Working directory: ${c.cwd}`), `cd -- ${pathExpression(c.cwd)}`, 'printf \'Working directory (resolved): %s\\n\' "$(pwd -P)"'];
   lines.push(log(`Environment files: ${c.envFiles.length ? c.envFiles.join(', ') : '(none)'}`));
+  lines.push(log(`Setup scripts: ${c.setupScripts.length ? c.setupScripts.map(script => `${script.path} (${script.shell})`).join(', ') : '(none)'}`));
+  for (const meta of scriptMeta) {
+    const outcome = meta.status === 'ok'
+      ? `applied ${meta.vars} variable${meta.vars === 1 ? '' : 's'}`
+      : `${meta.status || 'failed'}${meta.detail ? `; ${meta.detail}` : ''}`;
+    lines.push(log(`Setup script: ${meta.path} (${meta.shell}) — ${outcome}`));
+  }
   for (const file of c.envFiles) {
     lines.push(`case ${pathExpression(file)} in /*) printf 'Environment file: %s\\n' ${pathExpression(file)} ;; *) printf 'Environment file: %s/%s\\n' "$(pwd -P)" ${pathExpression(file)} ;; esac`);
   }
@@ -79,7 +114,7 @@ function buildCommand(config, fileEnv = {}) {
   lines.push(log(`Interpreter: ${c.interpreter}`), log(`Environment manager: ${c.manager}${c.manager === 'system' ? '' : ` (${c.managerPath || c.manager}), environment: ${c.environment}`}`));
   // A clean environment retains only essentials used to locate an interpreter.
   if (!c.inheritEnv) lines.push('for key in $(compgen -e); do case "$key" in HOME|PATH|USER|TMPDIR|SHELL) ;; *) unset "$key" 2>/dev/null || true;; esac; done');
-  const exports = Object.entries({ ...fileEnv, ...c.env }).map(([key, value]) => `export ${key}=${quote(value)}`);
+  const exports = Object.entries({ ...fileEnv, ...scriptEnv, ...c.env }).map(([key, value]) => `export ${key}=${quote(value)}`);
   if (c.type === 'shell' && c.sourceFile) {
     // Source in the selected shell, so zsh startup files are never read by bash.
     const shellCode = `set -e\n. ${pathExpression(c.sourceFile)}\n${exports.join('\n')}\n${c.mode === 'commands' ? c.target : `set -- ${parseArguments(c.args).map(quote).join(' ')}\n. ${pathExpression(c.target)}`}`;
@@ -114,14 +149,16 @@ function buildCommand(config, fileEnv = {}) {
   const probe = `resolved=$(command -v ${pathExpression(c.interpreter)}) || exit 127; printf 'Resolved interpreter: %s\\n' "$resolved"; exec "$@"`;
   command = `/bin/bash -c ${quote(probe)} -- ${command}`;
   if (['conda', 'mamba', 'micromamba'].includes(c.manager)) {
-    const explicitEnv = Object.entries({ ...fileEnv, ...c.env }).map(([key, value]) => `${key}=${quote(value)}`);
+    const explicitEnv = Object.entries({ ...fileEnv, ...scriptEnv, ...c.env }).map(([key, value]) => `${key}=${quote(value)}`);
     if (explicitEnv.length) command = `env ${explicitEnv.join(' ')} ${command}`;
     const selector = c.environment.includes('/') ? `-p ${pathExpression(c.environment)}` : `-n ${quote(c.environment)}`;
-    displayCommand = `${pathExpression(c.managerPath || c.manager)} run ${c.manager === 'micromamba' ? '' : '--no-capture-output '} ${selector} ${displayCommand}`;
-    command = `${pathExpression(c.managerPath || c.manager)} run ${c.manager === 'micromamba' ? '' : '--no-capture-output '} ${selector} ${command}`;
+    // --no-capture-output is deliberately not used: mamba 2.x's capture-bypass
+    // wrapper fails on compound commands that contain a `--` separator.
+    displayCommand = `${pathExpression(c.managerPath || c.manager)} run ${selector} ${displayCommand}`;
+    command = `${pathExpression(c.managerPath || c.manager)} run ${selector} ${command}`;
   } else if (c.manager === 'pyenv') command = `${pathExpression(c.managerPath || '~/.pyenv/bin/pyenv')} exec ${command}`;
   if (c.manager === 'pyenv') displayCommand = `${pathExpression(c.managerPath || '~/.pyenv/bin/pyenv')} exec ${displayCommand}`;
   lines.push(log(`Command: ${displayCommand}`), log(''), `exec ${command}`);
   return lines.join('\n');
 }
-module.exports = { quote, pathExpression, parseArguments, parseEnv, normalize, buildCommand };
+module.exports = { quote, pathExpression, parseArguments, parseEnv, normalizeSetupScripts, normalizeDefaults, normalize, buildCommand };

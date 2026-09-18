@@ -1,8 +1,7 @@
-## More room for terminal tabs
+## Setup scripts, group defaults, and project hints for run configurations
 
-- The session tab bar now spans the full window width, above the sidebar and workspace.
-- Tabs use smaller text, tighter padding and spacing, and smaller close icons.
-- Choose **Scroll horizontally** or **Wrap onto multiple rows** in **Settings → UI → Tab overflow**. Horizontal scrolling is the default and supports the mouse wheel.
-- Grouped tabs wrap too, and switching tabs keeps the active tab visible.
-- Terminal panes refit when tabs wrap, the sidebar changes size, or a new terminal first renders.
-- Updated the README screenshot with fictional demo data and kept personal email addresses out of package metadata.
+- **Before run — setup scripts**: add your own shell scripts (bash or zsh per row) that run before launch. Only the variables a script exports are applied, so `source`-based activation files like `.autoenv.zsh` work unchanged. Later scripts override earlier ones, and variables edited under Environment variables still win. The launch header reports applied counts or the script's exit status — never values — and a failing script does not block the launch. Nothing is detected or enforced automatically.
+- **Group defaults**: save a configuration's working directory, interpreter/manager, `.env` files, setup scripts, and environment choice as defaults for a tab group. New configurations created from a tab of that group are prefilled, and the editor can re-apply saved defaults anytime. Defaults live in shelldock's own library (`~/.marinashell/run-group-defaults.json`), never inside the project directory.
+- **Detect** now also offers project hints as click-to-apply suggestions: entry-point directories for the working directory (e.g. `src/` with `app.py`), `.autoenv*`/`.envrc`/`.env` files, and a project-local `.venv` interpreter.
+- A stored conda-family manager name that disagrees with its executable (e.g. micromamba pointing at a mamba binary) now resolves to the binary so the correct wrapper flags are used.
+- `--no-capture-output` is no longer passed to mamba 2.x, whose capture-bypass wrapper fails on compound commands that contain a `--` separator.

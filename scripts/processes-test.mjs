@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { withRates, filterAndSort } from '../plugins/processes/model.mjs';
+const rows=[{pid:1,name:'worker',user:'demo',cpuPercent:10,ramBytes:100,ports:[8080],identity:'one',readBytes:100,writeBytes:200},{pid:2,name:'server',user:'demo',cpuPercent:20,ramBytes:200,ports:[3000],identity:'two',readBytes:null,writeBytes:null}];
+assert.equal(filterAndSort(rows,'WORK','8080')[0].pid,1);
+assert.equal(filterAndSort(rows,'','808').length,0);
+assert.equal(filterAndSort(rows,'','','cpuPercent')[0].pid,2);
+const next=withRates({sampledAt:12,processes:[{...rows[0],readBytes:300,writeBytes:300},rows[1]]},{sampledAt:10,processes:rows});
+assert.equal(next[0].readRate,100);assert.equal(next[0].writeRate,50);assert.equal(next[1].readRate,null);
+assert.equal(withRates({sampledAt:12,processes:[{...rows[0],identity:'reused',readBytes:300}]},{sampledAt:10,processes:rows})[0].readRate,null);
+assert.equal(withRates({sampledAt:10,processes:rows},null)[0].readRate,null);
+assert.equal(filterAndSort(next,'','','readRate',1)[1].pid,2);
+console.log('PASS: process filtering, exact port matching, sorting, sampled disk rates, unavailable counters and PID reuse');

@@ -3,10 +3,10 @@ import { button, modal, confirmAction, showError } from '../../renderer/componen
 
 const ended = run => run && ['exited', 'failed', 'blocked'].includes(run.status);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-export default function activate({ api, state, sessionTabs, dockLayout }) {
+export default function activate({ api, state, sessionTabs, dockLayout, registerCommand }) {
   const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = new URL('./style.css', import.meta.url).href; document.head.append(css);
   const toolbar = document.createElement('div'); toolbar.id = 'run-toolbar'; toolbar.setAttribute('aria-label', 'Run configurations');
-  document.getElementById('session-bar').append(toolbar);
+  document.getElementById('sidebar').append(toolbar);
   const chooser = document.createElement('select'); chooser.setAttribute('aria-label', 'Run configuration');
   const status = document.createElement('span'); status.className = 'run-status';
   let configurations = []; let selectedId = state.appState.selectedRunConfigurationId || ''; let tmuxAvailable = false;
@@ -72,7 +72,7 @@ export default function activate({ api, state, sessionTabs, dockLayout }) {
     stop.title = run?.status === 'stopping' ? 'Force kill' : 'Stop'; stop.setAttribute('aria-label', stop.title);
     status.textContent = describe(run); status.title = run?.error || status.textContent;
     renderRunChip();
-    mountRunTabs();
+
     for (const [id, view] of views) {
       const value = runs.get(id); if (!value) continue;
       view.label.textContent = describe(value); view.label.title = value.error || view.label.textContent;
@@ -90,40 +90,14 @@ export default function activate({ api, state, sessionTabs, dockLayout }) {
     return `${run.groupName ? `${run.groupName}: ` : ''}${run.name}${run.multiInstance && run.instance > 1 ? ` #${run.instance}` : ''}`;
   }
   function renderRunChip() {
-    if (!runChip) return;
-    const runsInViewOrder = [...runs.values()].filter(run => !run.closed);
-    const selected = runsInViewOrder.filter(run => run.configurationId === selectedId).pop();
-    runChip.hidden = !selected;
-    if (!selected) { chipMenu.replaceChildren(); return; }
-    chipDot.className = `run-chip-dot ${runDotClass(selected.status)}`;
-    chipLabel.textContent = runDisplayName(selected);
-    chipLabel.title = describe(selected);
-    // Leave an open dropdown alone; it rebuilds with fresh rows once closed.
-    if (runChip.open) return;
-    chipMenu.replaceChildren();
-    for (const run of runsInViewOrder.slice().reverse()) {
-      const row = document.createElement('button'); row.type = 'button'; row.className = 'run-chip-item';
-      const dot = document.createElement('span'); dot.className = `run-chip-dot ${runDotClass(run.status)}`;
-      const label = document.createElement('span'); label.className = 'run-chip-item-label'; label.textContent = runDisplayName(run);
-      const state = document.createElement('span'); state.className = 'run-chip-item-state'; state.textContent = run.status;
-      row.title = describe(run);
-      row.append(dot, label, state);
-      row.addEventListener('click', () => { runChip.removeAttribute('open'); showOutput(run); });
-      if (ended(run)) {
-        const dismiss = document.createElement('span'); dismiss.className = 'run-chip-dismiss'; dismiss.textContent = '×'; dismiss.title = 'Clear this run';
-        dismiss.addEventListener('click', async event => {
-          event.stopPropagation();
-          runChip.removeAttribute('open');
-          const view = views.get(run.id);
-          const tab = view ? state.tabs.get(view.tabId) : null;
-          if (tab) { sessionTabs.closeTab(tab.id, { approved: true }); return; } // closed() clears the record and the chip.
-          try { await call('close', { id: run.id }); } catch (_) { /* Keep the entry if the process is somehow still up. */ }
-          const current = runs.get(run.id); if (current) current.closed = true;
-          renderRunChip();
-        });
-        row.append(dismiss);
-      }
-      chipMenu.append(row);
+    runList.replaceChildren();
+    for (const run of [...runs.values()].reverse().filter(run => !run.closed && ['starting', 'running', 'stopping', 'unknown'].includes(run.status))) {
+      const row = button('', () => showOutput(run), 'running-configuration');
+      row.dataset.runId = run.id;
+      const dot = document.createElement('span'); dot.className = `running-dot ${run.status}`;
+      const label = document.createElement('span'); label.textContent = runDisplayName(run);
+      row.title = describe(run); row.setAttribute('aria-label', `${runDisplayName(run)}: ${describe(run)}`);
+      row.append(dot, label); runList.append(row);
     }
   }
   async function fetchLibrary(id) {
@@ -244,36 +218,6 @@ export default function activate({ api, state, sessionTabs, dockLayout }) {
       else updateControls();
     } catch (error) { showError(error); pollRun(id); }
   }
-  // Run output tabs live in the terminal pane header (next to "Terminal"),
-  // never in the top session-tab strip.
-  const runTabsBar = document.createElement('div'); runTabsBar.className = 'run-tabs-bar'; runTabsBar.hidden = true;
-  let runTabsSignature = '';
-  function mountRunTabs() {
-    const slot = dockLayout?.getTerminalRunTabsSlot?.();
-    const outputs = [...runs.values()].filter(run => views.has(run.id) && !run.closed);
-    const signature = outputs.map(run => `${run.id}:${run.status}`).join('|');
-    if (signature === runTabsSignature && runTabsBar.parentElement === slot) return;
-    runTabsSignature = signature;
-    if (!slot) { if (runTabsBar.parentElement) runTabsBar.parentElement.removeChild(runTabsBar); return; }
-    if (!outputs.length) {
-      runTabsBar.hidden = true;
-      if (runTabsBar.parentElement === slot) slot.removeChild(runTabsBar);
-      return;
-    }
-    runTabsBar.replaceChildren();
-    for (const run of outputs.slice().reverse()) {
-      const item = document.createElement('button'); item.type = 'button';
-      item.className = 'run-tab-item' + (views.get(run.id)?.tabId === state.activeTabId ? ' active' : '');
-      const dot = document.createElement('span'); dot.className = `run-chip-dot ${runDotClass(run.status)}`;
-      const label = document.createElement('span'); label.className = 'run-tab-item-label'; label.textContent = runDisplayName(run);
-      item.title = describe(run);
-      item.append(dot, label);
-      item.addEventListener('click', () => showOutput(run));
-      runTabsBar.append(item);
-    }
-    runTabsBar.hidden = false;
-    if (runTabsBar.parentElement !== slot) slot.appendChild(runTabsBar);
-  }
   // At most one output tab per configuration: opening output for a newer run
   // refreshes the existing tab instead of stacking another one.
   async function showOutput(run) {
@@ -298,18 +242,7 @@ export default function activate({ api, state, sessionTabs, dockLayout }) {
   const play = icon('play', 'Run', start, 'run-play');
   const restart = icon('rotate-cw', 'Restart', () => restartRun(activeRun()?.id));
   const stop = icon('square', 'Stop', () => stopRun(activeRun()?.id));
-  // PyCharm-style run indicator: shows the latest run of the selected
-  // configuration; opening output is an explicit choice, launching never
-  // steals a terminal tab.
-  const runChip = document.createElement('details'); runChip.className = 'run-chip'; runChip.hidden = true;
-  const chipSummary = document.createElement('summary');
-  const chipDot = document.createElement('span'); chipDot.className = 'run-chip-dot';
-  const chipLabel = document.createElement('span'); chipLabel.className = 'run-chip-label';
-  const chipCaret = document.createElement('span'); chipCaret.className = 'run-chip-caret'; chipCaret.textContent = '▾';
-  chipSummary.append(chipDot, chipLabel, chipCaret);
-  const chipMenu = document.createElement('div'); chipMenu.className = 'run-chip-menu';
-  runChip.append(chipSummary, chipMenu);
-  document.addEventListener('click', event => { if (!runChip.contains(event.target)) runChip.removeAttribute('open'); });
+  const runList = document.createElement('div'); runList.className = 'running-configurations';
   const edit = button('Edit configurations…', openEditor);
   const recover = button('Runs…', async () => {
     try {
@@ -324,7 +257,14 @@ export default function activate({ api, state, sessionTabs, dockLayout }) {
       view.footer.append(button('Close', view.close));
     } catch (error) { showError(error); }
   });
-  toolbar.append(chooser, play, restart, stop, runChip, edit, recover, status); icons(toolbar);
+  const heading = document.createElement('div'); heading.className = 'run-section-heading';
+  const title = document.createElement('span'); title.textContent = 'Run configurations';
+  const manage = icon('settings-2', 'Edit configurations', openEditor);
+  heading.append(title, manage);
+  const controls = document.createElement('div'); controls.className = 'run-launcher'; controls.append(chooser, play, restart, stop);
+  toolbar.append(heading, controls, runList); icons(toolbar);
+  registerCommand?.('Edit run configurations', openEditor);
+  registerCommand?.('Browse configuration runs', () => recover.click());
   chooser.addEventListener('change', () => selectConfig(chooser.value));
   state.runController = {
     async beforeClose(tabs) {
@@ -359,6 +299,7 @@ export default function activate({ api, state, sessionTabs, dockLayout }) {
     const tab = state.tabs.get(state.activeTabId); if (tab?.configurationId && configurations.some(c => c.id === tab.configurationId)) selectConfig(tab.configurationId); renderChoices();
   });
   window.addEventListener('marinashell:groups-changed', renderChoices);
+  api.onRunConfigurationsChanged?.(() => { fetchLibrary().then(updateControls).catch(() => {}); });
   const timer = setInterval(() => {
     for (const id of views.keys()) {
       const run = runs.get(id); const view = views.get(id);

@@ -1,5 +1,5 @@
 .mse-workspace {
-  --mse-bg: #0b0e14;
+  --mse-bg: var(--surface-canvas);
   --mse-panel: #10151f;
   --mse-panel-raised: #151c28;
   --mse-border: rgba(255, 255, 255, 0.075);
@@ -129,8 +129,8 @@
 
 .mse-stage { grid-area: editor; min-width: 0; min-height: 0; position: relative; overflow: hidden; }
 .mse-editor-host { position: absolute; inset: 0; min-width: 0; min-height: 0; overflow: hidden; }
-.mse-editor-host .cm-editor { background: #0b0e14; }
-.mse-editor-host .cm-gutters { background: #0b0e14; color: #4f5967; border-right-color: rgba(255, 255, 255, 0.055); }
+.mse-editor-host .cm-editor { background: var(--surface-canvas); }
+.mse-editor-host .cm-gutters { background: var(--surface-canvas); color: #4f5967; border-right-color: rgba(255, 255, 255, 0.055); }
 .mse-editor-host .cm-activeLine,
 .mse-editor-host .cm-activeLineGutter { background: rgba(123, 199, 246, 0.045); }
 .mse-editor-host .cm-selectionBackground { background: rgba(123, 199, 246, 0.2) !important; }

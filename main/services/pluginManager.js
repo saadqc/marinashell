@@ -28,6 +28,7 @@ function getBundledPluginsDir(app) {
 }
 
 function createPluginManager({ app, sessionManager, getMainWindow, getSettings }) {
+    const services = new Map();
     const defaultEnabled = new Map();
     const plugins = new Map(); // id -> pluginObject
 
@@ -123,6 +124,9 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
                     getSettings,
                     pluginPath: dirPath,
                     getPlugins: getPluginsList,
+                    registerService: (name, service) => services.set(name, { owner: id, service }),
+                    getService: name => { const entry = services.get(name); return entry && isEnabled(entry.owner) ? entry.service : null; },
+                    registerActivation: handler => { pluginInfo.activation = handler; pluginInfo.active = true; },
                     registerShutdown: handler => { pluginInfo.shutdown = handler; },
                     registerIpc: (channel, handler) => {
                         const fullChannel = `plugin:${id}:${channel}`;
@@ -239,7 +243,12 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
         for (const pluginInfo of plugins.values()) {
             if (!pluginInfo) continue;
             if (pluginInfo.error) continue;
-            if (!isEnabled(pluginInfo.id)) continue;
+            const enabled = isEnabled(pluginInfo.id);
+            if (pluginInfo.activation && pluginInfo.active !== enabled) {
+                pluginInfo.active = enabled;
+                Promise.resolve(pluginInfo.activation(enabled)).catch(error => console.error("Plugin activation failed", pluginInfo.id, error.message));
+            }
+            if (!enabled) continue;
             if (pluginInfo.loaded) continue;
             if (!pluginInfo.mainEntry || !fs.existsSync(pluginInfo.mainEntry)) {
                 pluginInfo.loaded = true;
@@ -261,6 +270,9 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
                     getSettings,
                     pluginPath: dirPath,
                     getPlugins: getPluginsList,
+                    registerService: (name, service) => services.set(name, { owner: id, service }),
+                    getService: name => { const entry = services.get(name); return entry && isEnabled(entry.owner) ? entry.service : null; },
+                    registerActivation: handler => { pluginInfo.activation = handler; pluginInfo.active = true; },
                     registerShutdown: handler => { pluginInfo.shutdown = handler; },
                     registerIpc: (channel, handler) => {
                         const fullChannel = `plugin:${id}:${channel}`;

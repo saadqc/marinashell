@@ -1,3 +1,4 @@
+const { portCleanupScript } = require('./port-cleanup');
 const { randomUUID } = require('crypto');
 const quote = value => `'${String(value).replace(/'/g, `'"'"'`)}'`;
 const pathExpression = value => String(value).startsWith('~/') ? `"$HOME"/${quote(String(value).slice(2))}` : value === '~' ? '"$HOME"' : quote(value);
@@ -73,8 +74,10 @@ function normalize(input) {
     setupScripts: normalizeSetupScripts(input.setupScripts),
     env: input.env && typeof input.env === 'object' && !Array.isArray(input.env) ? { ...input.env } : {},
     inheritEnv: input.inheritEnv !== false, sourceFile: String(input.sourceFile || ''),
+    killPortOnLaunch: Boolean(input.killPortOnLaunch), killPort: Number(input.killPort) || null,
     multiInstance: Boolean(input.multiInstance), tmux: Boolean(input.tmux), tmuxSession: String(input.tmuxSession || '')
   };
+  if (config.killPortOnLaunch && (!Number.isInteger(config.killPort) || config.killPort < 1 || config.killPort > 65535)) throw new Error('Port must be an integer between 1 and 65535');
   if (!config.name) throw new Error('Configuration name is required');
   if (!config.target.trim()) throw new Error('Script, module, npm script, or shell commands are required');
   if (!['system', 'conda', 'mamba', 'micromamba', 'pyenv', 'nvm'].includes(config.manager)) throw new Error('Unknown environment manager');
@@ -99,6 +102,7 @@ function buildCommand(config, fileEnv = {}, scriptEnv = {}, scriptMeta = []) {
   const c = normalize(config);
   const log = text => `printf '%s\\n' ${quote(text)}`;
   const lines = ['#!/usr/bin/env bash', 'set -e', log(`Working directory: ${c.cwd}`), `cd -- ${pathExpression(c.cwd)}`, 'printf \'Working directory (resolved): %s\\n\' "$(pwd -P)"'];
+  if (c.killPortOnLaunch) lines.push(portCleanupScript(c.killPort));
   lines.push(log(`Environment files: ${c.envFiles.length ? c.envFiles.join(', ') : '(none)'}`));
   lines.push(log(`Setup scripts: ${c.setupScripts.length ? c.setupScripts.map(script => `${script.path} (${script.shell})`).join(', ') : '(none)'}`));
   for (const meta of scriptMeta) {

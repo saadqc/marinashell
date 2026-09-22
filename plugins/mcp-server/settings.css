@@ -1,0 +1,134 @@
+#mcp-controls {
+  display: grid;
+  gap: 16px;
+}
+.mcp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mcp-row input {
+  width: 160px;
+  margin: 0;
+}
+.mcp-row input[type="number"] {
+  width: 84px;
+}
+.mcp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  text-transform: none;
+}
+.mcp-check input[type="checkbox"] {
+  width: 14px;
+  flex: 0 0 14px;
+  margin: 0;
+}
+.mcp-permissions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
+  margin: 12px 0;
+}
+.mcp-permissions label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0;
+  margin: 0;
+}
+.mcp-permissions select {
+  width: 90px;
+  margin: 0;
+}
+.mcp-scopes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.mcp-scopes fieldset {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  max-height: 220px;
+  overflow: auto;
+  min-width: 0;
+}
+#preferences-mcp button {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-canvas);
+  color: var(--text);
+  padding: 7px 10px;
+  cursor: pointer;
+}
+#preferences-mcp button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+#preferences-mcp pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--surface-canvas);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 12px;
+}
+#preferences-mcp details {
+  margin-top: 12px;
+}
+#preferences-mcp summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+#mcp-guide a {
+  display: inline-block;
+  margin-left: 12px;
+  color: var(--accent);
+}
+#mcp-error,
+.mcp-error {
+  color: #efb277;
+  font-size: 12px;
+}
+#mcp-token:empty {
+  display: none;
+}
+#mcp-token {
+  border-left: 2px solid var(--accent);
+  padding: 0 12px;
+}
+#mcp-token input {
+  font-family: monospace;
+}
+@media (max-width: 560px) {
+  .mcp-permissions,
+  .mcp-scopes {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mcp-row select {
+  width: auto;
+  max-width: 280px;
+  margin: 0;
+}
+.mcp-permissions h3 {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 18px 0 0;
+}
+#mcp-guide {
+  margin-bottom: 16px;
+}
+
+.mcp-policy {
+  display: grid;
+  gap: 12px;
+}

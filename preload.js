@@ -1,6 +1,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('preloadReady', true);
 contextBridge.exposeInMainWorld('api', {
+  onCleanupGroups: handler => ipcRenderer.on('workspace:cleanup-groups-request', (_event, payload) => handler(payload)),
+  respondCleanupGroups: payload => ipcRenderer.send('workspace:cleanup-groups-response', payload),
+  onOpenMenu: handler => ipcRenderer.on('workspace:open', (_event, action) => handler(action)),
+  onRunConfigurationsChanged: handler => ipcRenderer.on('run-configurations:changed', () => handler()),
+  onMcpRequest: handler => ipcRenderer.on('mcp:request', (_event, payload) => handler(payload)),
+  onMcpCancel: handler => ipcRenderer.on('mcp:cancel', (_event, payload) => handler(payload)),
+  respondMcpRequest: payload => ipcRenderer.send('mcp:response', payload),
   getPlugins: () => ipcRenderer.invoke('plugins:list'),
   invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
   installPlugin: (url) => ipcRenderer.invoke('plugins:install', { url }),

@@ -1,9 +1,18 @@
-## Runs that behave like an IDE
+# MarinaShell v0.2.9
 
-- Launching a run configuration no longer opens a terminal tab. Runs appear in a status chip next to the configuration dropdown, with a green dot while running.
-- Open a run's output from the chip dropdown or the new tabs in the terminal pane header. Output views are limited to one per configuration and never appear in the top session-tab strip.
-- Run output tabs live next to the "Terminal" pane title, so switching between runs never disturbs your session tabs.
-- Terminal links recognize absolute file paths, including `path:line`, and open them in the CodeMirror editor. Local files open without a terminal session.
-- The environment picker lists only environments of the selected environment manager: mamba shows mamba environments, pyenv shows pyenv versions, and direct interpreters stay under Direct interpreter.
-- A stale environment manager path falls back to a `PATH` lookup at launch instead of failing.
-- The configuration dropdown shows every tab group's configurations under their group name; only ungrouped configurations remain under All configurations.
+- Redesigned the workspace with compact tabs, project navigation, a unified terminal toolbar, and a clearer run-configuration editor.
+- Saved projects restore directories across local and SSH sessions with their split layout. Removed stale group entries and added cleanup in Settings.
+- Added independent tunnel profiles and fixed migration from older host-grouped profiles.
+- Added a process viewer with name/port filters, usage sorting, normal stop, and confirmed force stop.
+- File menus now open files in the editor or an always-on-top Logs viewer with optional continuous following.
+- Added port cleanup before run/restart and an optional MCP server with configurable agent permissions and setup guides.
+- Added configurable tab navigation, command search, and Editor/Terminal shortcuts. Cmd/Ctrl+E selects Editor, Cmd/Ctrl+T selects Terminal, and Cmd/Ctrl+Alt+T creates a terminal.
+- Links require Cmd+click on macOS or Ctrl+click elsewhere. Disconnected sessions reconnect to their existing host and directory.
+
+## Screenshots
+
+![MarinaShell workspace](https://raw.githubusercontent.com/saadqc/marinashell/v0.2.9/docs/images/demo.png)
+
+![Process viewer with stop controls](https://raw.githubusercontent.com/saadqc/marinashell/v0.2.9/docs/images/processes-v0.2.9.png)
+
+Screenshots use fictional demonstration data.

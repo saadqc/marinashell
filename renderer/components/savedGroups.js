@@ -15,43 +15,49 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
       const linked = library.find(item => item.id === group.savedGroupId && groupKey(item.name) === groupKey(name));
       const members = [...state.tabs.values()].filter(tab => tab.groupId === groupId);
       const snapshot = {
-        id: linked?.id || existing?.id, name, layout: group.layout,
+        id: linked?.id || existing?.id, kind: 'project', name, layout: group.layout,
         configurationIds: [...(group.configurationIds || [])],
         activeIndex: Math.max(0, members.findIndex(tab => tab.id === state.activeTabId)),
         tabs: members.map(tab => ({
           host: tab.host, currentPath: tab.currentPath, treeRootPath: tab.treeRootPath,
           manualTitle: tab.manualTitle || getLabel(tab), tabColor: tab.tabColor,
-          connected: tab.connected, configurationId: tab.configurationId || '', readOnly: Boolean(tab.readOnly)
+          connected: !tab.readOnly, configurationId: tab.configurationId || '', readOnly: Boolean(tab.readOnly)
         }))
       };
       const saved = await state.api.invoke('groups:save', snapshot);
       group.savedGroupId = saved.id;
       await state.api.updateState({ tabGroups: state.appState.tabGroups });
+      window.dispatchEvent(new Event('marinashell:groups-changed'));
     } catch (error) { showError(error); }
   }
-  async function restore(snapshot) {
+  async function restore(snapshot, { focus = true } = {}) {
     const existing = state.appState.tabGroups.find(group => group.savedGroupId === snapshot.id
       && [...state.tabs.values()].some(tab => tab.groupId === group.id));
     if (existing) {
       const member = [...state.tabs.values()].find(tab => tab.groupId === existing.id);
-      tabs.setActiveSessionTab(member.id);
+      if (focus) tabs.setActiveSessionTab(member.id);
       return existing;
     }
     const group = { id: crypto.randomUUID(), name: snapshot.name, layout: snapshot.layout,
       savedGroupId: snapshot.id, configurationIds: [...(snapshot.configurationIds || [])] };
     state.appState.tabGroups.push(group);
-    const restored = [];
-    for (const initial of snapshot.tabs) {
-      const tab = tabs.createTabState({ ...initial, groupId: group.id });
-      restored.push(tab);
+    const restored = snapshot.tabs.map(initial => tabs.createTabState({ ...initial, groupId: group.id }));
+    if (focus && restored.length) tabs.setActiveSessionTab(restored[snapshot.activeIndex]?.id || restored[0].id);
+    const results = await Promise.allSettled(restored.map(async (tab, index) => {
+      const initial = snapshot.tabs[index];
       if (initial.readOnly) {
         tab.statusMessage = 'Configuration ready — press Run to start';
         tab.term.writeln(tab.statusMessage);
-      } else if (initial.connected && initial.host) {
-        await tabs.connectTab(tab, initial.host, { restorePath: initial.currentPath });
+        return;
+      }
+      if (initial.host) return tabs.connectTab(tab, initial.host, { restorePath: initial.currentPath });
+    }));
+    for (let index = 0; index < results.length; index++) {
+      if (results[index].status === 'rejected') {
+        restored[index].statusMessage = results[index].reason?.message || 'Connection failed';
+        restored[index].statusIsError = true;
       }
     }
-    if (restored.length) tabs.setActiveSessionTab(restored[snapshot.activeIndex]?.id || restored[0].id);
     tabs.renderSessionTabs(); tabs.updateTerminalGrid();
     await state.api.updateState({ tabGroups: state.appState.tabGroups });
     window.dispatchEvent(new CustomEvent('marinashell:groups-changed'));

@@ -6,7 +6,7 @@ const { createLibraryStore } = require('../../main/services/libraryStore');
 const { createRunManager } = require('./manager');
 const { normalize, normalizeDefaults, quote, pathExpression } = require('./configuration');
 
-module.exports = function activate({ sessionManager, registerIpc, getPlugins, getMainWindow, registerShutdown }) {
+module.exports = function activate({ sessionManager, registerIpc, getPlugins, getMainWindow, registerShutdown, registerService }) {
   const connections = new Map();
   const tmuxAvailable = () => getPlugins().some(plugin => plugin.id === 'tmux' && plugin.enabled && plugin.loaded && !plugin.error);
   function resolved(host) {
@@ -30,6 +30,7 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
     execute, tmuxAvailable,
     hostIdentity: async host => host === '__local__' ? `local:${os.hostname()}:${os.userInfo().username}` : JSON.stringify(resolved(host))
   });
+  registerService?.('runs', { manager, normalize, changed: () => getMainWindow()?.webContents.send('run-configurations:changed') });
   // Per-group defaults let the configurations of a project (a tab group) share
   // interpreter, working directory, and environment sources. They live in
   // shelldock's own library — never inside the project directory.

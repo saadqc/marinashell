@@ -231,17 +231,18 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       return { ...run };
     } catch (error) { run.status = 'unknown'; run.error = error.message; saveRuns(); throw error; }
   }
-  async function stop(id, force = false) {
+  async function stop(id, force = false, { allowEscalation = true } = {}) {
     const run = runs.get(id); if (!run) throw new Error('Run not found');
     await refresh(run);
     if (ended(run)) return { ...run };
     if (run.status === 'unknown') throw new Error('Run owner cannot be verified. Reconnect and check status before stopping.');
+    if (run.status === 'stopping' && !force && !allowEscalation) throw new Error('Force stop requires explicit permission and force: true.');
     await command(run.host, `bash ${quote(runPath(run) + '/runner.sh')} control ${quote(runPath(run))} ${force || run.status === 'stopping' ? 'kill' : 'stop'}`);
     run.status = 'stopping'; saveRuns(); return { ...run };
   }
-  async function restart(id) {
+  async function restart(id, options = {}) {
     const run = runs.get(id); if (!run) throw new Error('Run not found');
-    await stop(id);
+    await stop(id, false, options);
     for (let i = 0; i < 40; i++) {
       await delay(200); await refresh(run);
       if (ended(run)) return start(run.configurationId, run.groupId, run.groupName);

@@ -859,6 +859,28 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     pollMetrics(tabId).catch(() => { });
   }
 
+  async function streamCommand(tabId, command, onData, onError, onClose) {
+    const session = getSession(tabId);
+    if (session.sessionType === 'local') {
+      const child = require('child_process').spawn('/bin/sh', ['-c', command], {stdio:['ignore','pipe','pipe']});
+      child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+      child.stdout.on('data', onData); child.stderr.on('data', onError);
+      child.on('error', error => onError(error.message)); child.on('close', onClose);
+      return () => child.kill('SIGTERM');
+    }
+    if (!session.hostConfig) throw new Error('Not connected');
+    if (!session.tunnelClient) await ensureTunnelConnection(tabId, session.hostConfig);
+    return new Promise((resolve, reject) => {
+      session.tunnelClient.exec(command, (error, stream) => {
+        if (error) return reject(error);
+        stream.setEncoding('utf8'); stream.stderr.setEncoding('utf8');
+        stream.on('data', onData); stream.stderr.on('data', onError);
+        stream.on('error', error => onError(error.message)); stream.on('close', onClose);
+        resolve(() => { try { stream.signal('TERM'); } catch (_) {} stream.close(); });
+      });
+    });
+  }
+
   async function exec(tabId, command, options = {}) {
     const session = getSession(tabId);
     if (!session) throw new Error('Invalid tab');
@@ -1570,11 +1592,21 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
       });
 
       client.on('error', (err) => {
-        session.tunnelClient = null;
+        if (session.tunnelClient === client) {
+          session.tunnelClient = null;
+          for (const id of session.activeTunnels) tunnelService.closeTunnel(id);
+          session.activeTunnels.clear();
+        }
+        client.end();
         reject(err);
       });
 
-      client.on('close', () => { if (session.tunnelClient === client) session.tunnelClient = null; });
+      client.on('close', () => {
+        if (session.tunnelClient !== client) return;
+        session.tunnelClient = null;
+        for (const id of session.activeTunnels) tunnelService.closeTunnel(id);
+        session.activeTunnels.clear();
+      });
 
       client.on('tcpip', (accept, reject, info) => {
         tunnelService.handleRemoteConnection(client, info, accept, reject);
@@ -1586,7 +1618,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
 
   // Run configurations need authenticated command channels, without creating an
   // interactive terminal or coupling the process to an ordinary tab.
-  async function connectControl(tabId, hostConfig) {
+  async function connectControl(tabId, hostConfig, reason = 'run configuration') {
     const session = getSession(tabId);
     if (!hostConfig) { session.sessionType = 'local'; return; }
     session.sessionType = 'ssh';
@@ -1597,7 +1629,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     catch (error) {
       if (!/authentication|authenticate|passphrase|private key/i.test(error.message)) throw error;
       session.passwordAttempts = 0;
-      const response = await requestPasswordForSession(tabId, hostConfig, { reason: 'run configuration', error: error.message });
+      const response = await requestPasswordForSession(tabId, hostConfig, { reason, error: error.message });
       if (!response || response.action !== 'submit') throw new Error('SSH authentication canceled');
       await ensureTunnelConnection(tabId, hostConfig);
       if (session.rememberPassword && passwordStore) passwordStore.setPassword(session.hostKey, session.lastPassword);
@@ -1606,6 +1638,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
 
   const manager = {
     connectControl,
+    streamCommand,
     createSession: (tabId, hostConfig) => connect(tabId, hostConfig),
     createTunnel: async (tabId, type, config) => {
       const session = getSession(tabId);

@@ -38,7 +38,7 @@ function check(parent, label, value, update) {
 
 export async function editConfigurations({ api, state, call, selectedId, onSaved, tmuxAvailable }) {
   let configurations = (await call('list')).configurations;
-  const view = modal('Run/Debug Configurations', { wide: true });
+  const view = modal('Run configurations', { wide: true });
   view.dialog.classList.add('run-editor');
   const layout = document.createElement('div'); layout.className = 'run-editor-layout';
   const sidebar = document.createElement('aside'); sidebar.className = 'run-editor-sidebar';
@@ -46,6 +46,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   const template = select(templates.map((t, index) => ({ value: String(index), label: t.label })), '0'); template.setAttribute('aria-label', 'Configuration template');
   const list = document.createElement('div'); list.className = 'run-config-list';
   const form = document.createElement('div'); form.className = 'run-config-form';
+  let sectionParent = form; let activeSection = 'run';
   const errorLine = document.createElement('div'); errorLine.className = 'run-error'; errorLine.setAttribute('role', 'alert');
   sidebar.append(tools, list); layout.append(sidebar, form); view.body.append(layout, errorLine);
   let draft = null; let clean = ''; let groupIds = []; let cleanGroups = '';
@@ -76,6 +77,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   }
   async function switchTo(config, isNew = false) {
     if (draft && dirty() && !await confirmAction('Discard unsaved changes?', 'Switch configurations without saving these changes?', 'Discard')) return;
+    if (draft?.id !== config.id) activeSection = 'run';
     draft = clone(config); delete draft.label;
     prefillGroup = null;
     if (isNew && !draft.setupScripts) draft.setupScripts = [];
@@ -147,11 +149,11 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     const browseButton = row.lastElementChild; browseButton.classList.add('run-browse');
     browseButton.setAttribute('aria-label', `Browse ${label.toLowerCase()}`); browseButton.title = `Browse ${label.toLowerCase()}`;
     browseButton.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M1.5 4V2.5h5l2 2h6v9h-13z"/></svg>';
-    field(form, label, row, hint); return el;
+    field(sectionParent, label, row, hint); return el;
   }
   function textField(label, key, placeholder, hint) {
     const el = input(draft[key], placeholder); el.addEventListener('input', () => { draft[key] = el.value; if (key === 'name') renderList(); });
-    field(form, label, el, hint); return el;
+    field(sectionParent, label, el, hint); return el;
   }
   async function editEnv() {
     const envView = modal('Environment Variables', { wide: true }); envView.dialog.classList.add('run-env-dialog');
@@ -217,14 +219,30 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   function renderForm() {
     discoveryVersion++; form.replaceChildren(); errorLine.textContent = '';
     if (!draft) { form.textContent = 'Choose a template to create a run configuration.'; return; }
+    const sections = new Map(); const tabs = document.createElement('div'); tabs.className = 'run-form-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Configuration sections');
+    form.append(tabs);
+    const showSection = key => {
+      activeSection = key;
+      for (const [id, { panel, control }] of sections) {
+        panel.hidden = id !== key; control.setAttribute('aria-selected', String(id === key)); control.tabIndex = id === key ? 0 : -1;
+      }
+    };
+    for (const [key, title] of [['run', 'Run'], ['environment', 'Environment'], ['launch', 'Before launch'], ['projects', 'Projects']]) {
+      const panel = document.createElement('section'); panel.className = 'run-form-panel'; panel.id = `run-panel-${key}`; panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', `run-section-${key}`);
+      const control = button(title, () => showSection(key)); control.id = `run-section-${key}`; control.setAttribute('role', 'tab'); control.setAttribute('aria-controls', panel.id);
+      control.addEventListener('keydown', event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const keys=[...sections.keys()]; const index=keys.indexOf(key); const next=event.key==='Home'?0:event.key==='End'?keys.length-1:(index+(event.key==='ArrowRight'?1:-1)+keys.length)%keys.length; showSection(keys[next]); sections.get(keys[next]).control.focus(); });
+      sections.set(key, { panel, control }); tabs.append(control); form.append(panel);
+    }
+    const section = key => { sectionParent = sections.get(key).panel; };
+    section('run');
     textField('Name', 'name');
-    const runHeading = document.createElement('h3'); runHeading.className = 'run-section-title'; runHeading.textContent = 'Run'; form.append(runHeading);
     const hosts = [{ value: '__local__', label: 'Local machine' }, ...[...state.hostConfigs.entries()].filter(([id]) => id !== '__local__').map(([id]) => ({ value: id, label: `SSH · ${id}` }))];
     if (!hosts.some(item => item.value === draft.host)) hosts.push({ value: draft.host, label: `SSH · ${draft.host} (unavailable)` });
     const host = select(hosts, draft.host); host.addEventListener('change', () => { draft.host = host.value; draft.tmux = false; draft.manager = 'system'; draft.environment = ''; draft.managerPath = ''; draft.interpreter = draft.type === 'python' ? 'python3' : draft.type === 'javascript' ? 'node' : '/bin/bash'; renderForm(); });
-    field(form, 'Run on', host);
+    field(sectionParent, 'Run on', host);
     const type = select([{ value: 'python', label: 'Python' }, { value: 'javascript', label: 'JavaScript' }, { value: 'shell', label: 'Shell' }], draft.type);
-    type.addEventListener('change', () => { draft.type = type.value; draft.mode = 'script'; draft.manager = 'system'; draft.environment = ''; draft.managerPath = ''; draft.interpreter = draft.type === 'python' ? 'python3' : draft.type === 'javascript' ? 'node' : '/bin/bash'; renderList(); renderForm(); }); field(form, 'Type', type);
+    type.addEventListener('change', () => { draft.type = type.value; draft.mode = 'script'; draft.manager = 'system'; draft.environment = ''; draft.managerPath = ''; draft.interpreter = draft.type === 'python' ? 'python3' : draft.type === 'javascript' ? 'node' : '/bin/bash'; renderList(); renderForm(); }); field(sectionParent, 'Type', type);
+    section('environment');
     const environmentRow = document.createElement('div'); environmentRow.className = 'run-path-field';
     const discovered = select([{ value: '', label: 'Detect environments or enter paths below' }], '');
     const discoveryHint = document.createElement('small'); discoveryHint.className = 'run-hint';
@@ -265,33 +283,36 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
       } catch (error) { discoveryHint.textContent = error.message; }
       finally { detect.disabled = false; }
     });
-    environmentRow.append(discovered, detect); field(form, 'Environment', environmentRow); form.append(discoveryHint);
-    suggestionBox = document.createElement('div'); form.append(suggestionBox);
+    environmentRow.append(discovered, detect); field(sectionParent, 'Environment', environmentRow); sectionParent.append(discoveryHint);
+    suggestionBox = document.createElement('div'); sectionParent.append(suggestionBox);
     const managers = draft.type === 'python' ? ['system', 'conda', 'mamba', 'micromamba', 'pyenv'] : draft.type === 'javascript' ? ['system', 'nvm'] : ['system'];
     const manager = select(managers.map(value => ({ value, label: value === 'system' ? 'Direct interpreter' : value })), draft.manager || 'system');
-    manager.addEventListener('change', () => { draft.manager = manager.value; renderForm(); }); field(form, 'Environment manager', manager);
+    manager.addEventListener('change', () => { draft.manager = manager.value; renderForm(); }); field(sectionParent, 'Environment manager', manager);
     if (draft.manager && draft.manager !== 'system') {
       textField('Environment / version', 'environment', draft.manager === 'nvm' ? 'v22.0.0' : 'Name or absolute environment path');
       pathField(draft.manager === 'nvm' ? 'nvm initialization file' : 'Manager executable', 'managerPath');
     }
     pathField(draft.type === 'javascript' ? 'Node interpreter' : draft.type === 'shell' ? 'Shell interpreter' : 'Python interpreter', 'interpreter');
+    section('run');
     const modes = draft.type === 'python' ? ['script', 'module'] : draft.type === 'javascript' ? ['script', 'module', 'npm'] : ['script', 'commands'];
-    const mode = select(modes, draft.mode); mode.addEventListener('change', () => { draft.mode = mode.value; renderForm(); }); field(form, 'Run mode', mode);
+    const mode = select(modes, draft.mode); mode.addEventListener('change', () => { draft.mode = mode.value; renderForm(); }); field(sectionParent, 'Run mode', mode);
     if (draft.mode === 'script') pathField('Script path', 'target');
-    else if (draft.mode === 'commands') { const code = document.createElement('textarea'); code.rows = 5; code.value = draft.target; code.addEventListener('input', () => draft.target = code.value); field(form, 'Shell commands', code); }
+    else if (draft.mode === 'commands') { const code = document.createElement('textarea'); code.rows = 5; code.value = draft.target; code.addEventListener('input', () => draft.target = code.value); field(sectionParent, 'Shell commands', code); }
     else textField(draft.mode === 'npm' ? 'npm script' : 'Module name', 'target', draft.mode === 'npm' ? 'dev' : draft.type === 'python' ? 'celery, uvicorn, flask…' : 'package-name');
     textField('Arguments', 'args', '', 'Use quotes for arguments containing spaces.').classList.add('run-code-field');
     pathField('Working directory', 'cwd', 'directory');
+    section('environment');
     if (draft.type === 'shell') pathField('Source before running (optional)', 'sourceFile', 'file', 'For example ~/.bashrc or ~/.zshrc, read by the selected shell.');
-    const envButton = button(`Edit variables… (${Object.keys(draft.env || {}).length})`, editEnv); field(form, 'Environment variables', envButton);
+    const envButton = button(`Edit variables… (${Object.keys(draft.env || {}).length})`, editEnv); field(sectionParent, 'Environment variables', envButton);
     const envFiles = document.createElement('textarea'); envFiles.rows = 2; envFiles.value = (draft.envFiles || []).join('\n'); envFiles.placeholder = 'One path per line';
     envFiles.addEventListener('input', () => draft.envFiles = envFiles.value.split('\n').map(s => s.trim()).filter(Boolean));
-    field(form, draft.host === '__local__' ? '.env files' : 'Remote .env files', envFiles, 'Loaded in order; later files override earlier files.');
+    field(sectionParent, draft.host === '__local__' ? '.env files' : 'Remote .env files', envFiles, 'Loaded in order; later files override earlier files.');
     const envTools = document.createElement('div'); envTools.className = 'run-inline-actions';
-    envTools.append(button('Add file…', async () => { try { const file = await browse(draft.cwd); if (file) { draft.envFiles ||= []; draft.envFiles.push(file); renderForm(); } } catch (error) { showError(error); } }), button('Create .env file…', createEnvFile)); form.append(envTools);
-    const setupTitle = document.createElement('h3'); setupTitle.className = 'run-section-title'; setupTitle.textContent = 'Before run'; form.append(setupTitle);
+    envTools.append(button('Add file…', async () => { try { const file = await browse(draft.cwd); if (file) { draft.envFiles ||= []; draft.envFiles.push(file); renderForm(); } } catch (error) { showError(error); } }), button('Create .env file…', createEnvFile)); sectionParent.append(envTools);
+    section('launch');
+    const setupTitle = document.createElement('h3'); setupTitle.className = 'run-section-title'; setupTitle.textContent = 'Before launch'; sectionParent.append(setupTitle);
     if (!Array.isArray(draft.setupScripts)) draft.setupScripts = [];
-    const setupRows = document.createElement('div'); setupRows.className = 'run-setup-list'; form.append(setupRows);
+    const setupRows = document.createElement('div'); setupRows.className = 'run-setup-list'; sectionParent.append(setupRows);
     draft.setupScripts.forEach((script, index) => {
       const row = document.createElement('div'); row.className = 'run-setup-row';
       const path = input(script.path, '/path/to/.autoenv.zsh'); path.setAttribute('aria-label', `Setup script ${index + 1} path`);
@@ -307,24 +328,31 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
       try { const file = await browse(draft.cwd); draft.setupScripts.push({ path: file || '', shell: /\.zsh$/i.test(file || '') ? 'zsh' : 'bash' }); renderForm(); }
       catch (error) { showError(error); }
     }));
-    form.append(setupTools);
+    sectionParent.append(setupTools);
     const setupHint = document.createElement('small'); setupHint.className = 'run-hint';
     setupHint.textContent = 'Optional scripts that run before launch, in the shell you pick. Variables a script exports are applied to the run; later rows override earlier ones, and variables edited above win. Add only scripts you trust.';
-    form.append(setupHint);
-    check(form, 'Allow multiple instances', Boolean(draft.multiInstance), value => draft.multiInstance = value);
+    sectionParent.append(setupHint);
+    check(sectionParent, 'Allow multiple instances', Boolean(draft.multiInstance), value => draft.multiInstance = value);
+    const portRow = document.createElement('div'); portRow.className = 'run-port-cleanup';
+    const portToggle = check(portRow, 'Kill process on port before launch / restart', Boolean(draft.killPortOnLaunch), value => { draft.killPortOnLaunch = value; port.disabled = !value; });
+    const port = input(draft.killPort || '', 'Port'); port.type = 'number'; port.min = '1'; port.max = '65535'; port.step = '1'; port.setAttribute('aria-label', 'Port to clear before launch'); port.disabled = !draft.killPortOnLaunch;
+    port.addEventListener('input', () => { draft.killPort = port.value ? Number(port.value) : null; });
+    portRow.append(port); sectionParent.append(portRow);
+    const portHint = document.createElement('small'); portHint.className = 'run-hint'; portHint.textContent = 'Force-stops TCP listeners on the configuration’s host. Requires lsof. Disabled by default.'; sectionParent.append(portHint);
     if (draft.host !== '__local__') {
-      const tmux = check(form, 'Run in tmux', Boolean(draft.tmux), value => { draft.tmux = value; renderForm(); }); tmux.disabled = !tmuxAvailable;
-      if (!tmuxAvailable) { const hint = document.createElement('small'); hint.className = 'run-hint'; hint.textContent = 'Enable the tmux plugin in Settings to use this option.'; form.append(hint); }
+      const tmux = check(sectionParent, 'Run in tmux', Boolean(draft.tmux), value => { draft.tmux = value; renderForm(); }); tmux.disabled = !tmuxAvailable;
+      if (!tmuxAvailable) { const hint = document.createElement('small'); hint.className = 'run-hint'; hint.textContent = 'Enable the tmux plugin in Settings to use this option.'; sectionParent.append(hint); }
       if (draft.tmux) {
         const session = textField('tmux session', 'tmuxSession', `marina-${draft.id.slice(0, 12)}`, 'Reuses the session with a dedicated window for each run. Detect lists existing sessions.');
-        const options = document.createElement('datalist'); options.id = `tmux-sessions-${draft.id}`; session.setAttribute('list', options.id); form.append(options);
+        const options = document.createElement('datalist'); options.id = `tmux-sessions-${draft.id}`; session.setAttribute('list', options.id); sectionParent.append(options);
       }
     }
     const groups = (state.appState.tabGroups || []).filter(group =>
       (group.configurationIds || []).length || [...state.tabs.values()].some(tab => tab.groupId === group.id));
+    section('projects');
     if (groups.length) {
-      const title = document.createElement('div'); title.className = 'run-group-heading'; title.textContent = 'Show in groups'; form.append(title);
-      const memberships = document.createElement('div'); memberships.className = 'run-group-memberships'; form.append(memberships);
+      const title = document.createElement('div'); title.className = 'run-group-heading'; title.textContent = 'Show in projects'; sectionParent.append(title);
+      const memberships = document.createElement('div'); memberships.className = 'run-group-memberships'; sectionParent.append(memberships);
       for (const group of groups) check(memberships, group.name, groupIds.includes(group.id), checked => { groupIds = checked ? [...groupIds, group.id] : groupIds.filter(id => id !== group.id); });
       const bound = groups.filter(group => groupIds.includes(group.id));
       const defaultsGroup = prefillGroup && groups.some(group => group.id === prefillGroup.id)
@@ -351,15 +379,17 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
       }, 'ghost-btn'));
       const existing = groupDefaultsCache.get(defaultsGroup.id);
       if (existing) {
-        defaultsActions.append(button(`Apply “${defaultsGroup.name}” defaults`, () => mergeDefaults(draft, existing)));
+        defaultsActions.append(button(`Apply “${defaultsGroup.name}” defaults`, () => { mergeDefaults(draft, existing); renderForm(); }));
         if (prefillGroup && prefillGroup.id === defaultsGroup.id) {
           const note = document.createElement('small'); note.className = 'run-hint';
           note.textContent = `Prefilled from “${defaultsGroup.name}” group defaults.`;
           defaultsActions.append(note);
         }
       }
-      form.append(defaultsActions);
+      sectionParent.append(defaultsActions);
     }
+    if (!groups.length) sectionParent.textContent = 'Open a project to assign this configuration or share its defaults.';
+    showSection(activeSection);
   }
   async function save(close = false) {
     try {
@@ -382,10 +412,10 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     try { await call('delete', { id: draft.id }); configurations = (await call('list')).configurations; draft = null; clean = ''; await onSaved(); renderList(); renderForm(); }
     catch (error) { errorLine.textContent = error.message; }
   }, 'danger');
-  view.footer.append(duplicate, remove);
+  const libraryActions = document.createElement('div'); libraryActions.className = 'run-library-actions'; libraryActions.append(duplicate, remove); sidebar.append(libraryActions);
   const spacer = document.createElement('span'); spacer.style.flex = '1'; view.footer.append(spacer);
   async function cancel() { if (!dirty() || await confirmAction('Discard unsaved changes?', 'Close without saving configuration changes?', 'Discard')) view.close(); }
-  view.footer.append(button('Cancel', cancel, 'ghost-btn'), button('Apply', () => save()), button('Save', () => save(true)));
+  view.footer.append(button('Cancel', cancel, 'ghost-btn'), button('Apply', () => save()), button('Save', () => save(true), 'run-save-primary'));
   // Override the generic dialog's Escape handler to preserve drafts.
   view.dialog.addEventListener('cancel', event => { event.preventDefault(); event.stopImmediatePropagation(); cancel(); }, { capture: true });
   const initial = configurations.find(c => c.id === selectedId) || configurations[0];

@@ -1,0 +1,1 @@
+{"name":"processes","version":"1.0.0","description":"Process resource usage and port lookup for local and SSH hosts","main":"main.js","renderer":"renderer.js"}

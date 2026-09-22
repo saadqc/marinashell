@@ -29,6 +29,11 @@ function loadSettings() {
   try {
     const raw = fs.readFileSync(settingsPath(), 'utf8');
     const parsed = JSON.parse(raw);
+    // Upgrade the previous default once; preserve custom and disabled bindings.
+    const shortcuts = parsed.ui?.shortcuts;
+    if (shortcuts && !Object.hasOwn(shortcuts, 'selectTerminal') && shortcuts.newTab?.value === 'mod+t') {
+      shortcuts.newTab = { ...shortcuts.newTab, value: 'mod+alt+t' };
+    }
     return mergeSettings(DEFAULT_SETTINGS, parsed);
   } catch (err) {
     return mergeSettings(DEFAULT_SETTINGS, {});

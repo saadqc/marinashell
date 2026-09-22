@@ -34,6 +34,7 @@ const routes = {
   'groups:list': () => groups.read(), 'groups:save': group => groups.upsert(group), 'groups:delete': id => groups.remove(id),
   'plugins:list': () => [{ id: 'run-configurations', enabled: true, rendererEntry: pathToFileURL(path.resolve('plugins/run-configurations/renderer.js')).href }],
   'local:list': () => [], 'sftp:list': () => [], 'clipboard:write': () => ({ ok: true }), 'clipboard:read': () => 'do not execute',
+  'plugin:run-configurations:group-defaults-get': () => ({ ok: true, defaults: {} }),
   'plugin:run-configurations:list': () => ({ ok: true, configurations: manager.configs.read(), runs: manager.list(), tmuxAvailable: false }),
   'plugin:run-configurations:save': ({ configuration }) => ({ ok: true, configuration: manager.configs.upsert(normalize(configuration)) }),
   'plugin:run-configurations:start': async ({ id, groupId, groupName }) => ({ ok: true, run: await manager.start(id, groupId, groupName) }),
@@ -55,41 +56,29 @@ app.whenReady().then(async () => {
   const evaluate = async source => { try { return await window.webContents.executeJavaScript('(async () => { return await (async () => {' + source.replace(/(?<!window\.)testWait\(/g, 'await testWait(') + '\n})() })()', true); } catch (error) { console.error('Failed UI step:', source); console.error(await window.webContents.executeJavaScript("JSON.stringify(['#session-tabs','.session-group','.session-group-tabs','.terminal-pane.active','.terminal-pane.active .xterm-screen','#app','#session-tabs-row','#workspace','#dock-root','#terminal-stack','.run-output','.run-output-terminal','.run-output .xterm-screen','.run-output-bar'].map(s=>({s,rect:document.querySelector(s)?.getBoundingClientRect().toJSON()})))")); console.error(await window.webContents.executeJavaScript("JSON.stringify([...document.querySelectorAll('dialog')].map(d=>({open:d.open,text:d.textContent,rect:d.getBoundingClientRect().toJSON()})))")); throw error; } };
   await evaluate(`window.testWait = async (predicate) => { for (let i=0;i<150;i++) { if(predicate()) return; await new Promise(r=>setTimeout(r,50)); } throw new Error('UI timed out: '+predicate); }; window.testClick = text => { const el=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===text && b.getBoundingClientRect().width); if(!el) throw new Error('Button not found: '+text); el.click(); }; testWait(()=>document.querySelector('#run-toolbar select')?.options.length > 0)`);
   assert.equal(await evaluate(`return Boolean(document.querySelector('#commands') || document.querySelector('#upload-file'))`), false);
-  // Independent snapshot survives closing the live group; restoring keeps titles/order/layout.
-  await evaluate(`document.querySelector('.session-group-header').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:250,clientY:50})); testClick('Save group…');`);
-  await evaluate(`testWait(()=>document.querySelector('.session-text-dialog.open'))`);
-  await evaluate(`document.querySelector('.session-text-dialog form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
+  assert.equal(await evaluate(`return document.querySelector('#run-toolbar').parentElement.id`), 'sidebar');
+  assert.equal(await evaluate(`return document.querySelector('#session-bar').getBoundingClientRect().height`), 0);
+  assert.equal(await evaluate(`return Boolean(document.querySelector('.dock-leaf-header .layout-menu'))`), true);
+  // Saved projects survive closing and reopen their ordered sessions and splits.
+  await evaluate(`document.querySelector('#project-options-btn').click(); testClick('Save current sessions and layout');`);
   for (let i=0;i<30 && !groups.read().length;i++) await new Promise(r=>setTimeout(r,50));
   assert.equal(groups.read()[0].tabs[0].manualTitle, 'Frontend'); assert.equal(groups.read()[0].tabs[1].manualTitle, 'Backend');
-  await evaluate(`document.querySelector('.session-group-header').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:250,clientY:50})); testClick('Close group…');`);
-  await evaluate(`testWait(()=>!document.querySelector('.session-group'))`);
-  await evaluate(`document.querySelector('#saved-groups-btn').click();`);
-  await evaluate(`testWait(()=>document.querySelector('.workspace-library-row')); testClick('Restore');`);
-  await evaluate(`testWait(()=>document.querySelector('.session-group'))`);
-  assert.equal(groups.read().length, 1); assert(state.tabGroups.some(g => g.name === 'Workspace' && g.layout === '2x1'));
-  // Saving the same name updates its snapshot, including case-only changes.
-  await evaluate(`document.querySelector('.session-group-header').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:250,clientY:50})); testClick('Save group…');`);
-  await evaluate(`testWait(()=>document.querySelector('.session-text-dialog.open')); document.querySelector('.session-text-dialog form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
-  await new Promise(r=>setTimeout(r,200)); assert.equal(groups.read().length, 1);
-  // Legacy snapshots remain selectable under one row; Restore focuses an open group.
-  const latest = groups.read()[0];
-  groups.write([{ ...latest, id: 'legacy-copy', name: 'workspace', updatedAt: '2020-01-01T00:00:00Z' }, latest]);
-  await evaluate(`document.querySelector('#saved-groups-btn').click(); testWait(()=>document.querySelector('.saved-group-versions'));`);
-  assert.equal(await evaluate(`return document.querySelectorAll('.workspace-library-row').length`), 1);
-  assert.equal(await evaluate(`return document.querySelector('.saved-group-versions').options.length`), 2);
-  assert.equal(await evaluate(`return document.querySelector('.saved-group-versions').value`), latest.id);
-  const openGroupCount = await evaluate(`return document.querySelectorAll('.session-group').length`);
-  await evaluate(`testClick('Restore'); testWait(()=>!document.querySelector('.saved-groups-dialog'))`);
-  assert.equal(await evaluate(`return document.querySelectorAll('.session-group').length`), openGroupCount);
-  groups.remove('legacy-copy');
+  await evaluate(`document.querySelector('#project-options-btn').click(); testClick('Close project'); testWait(()=>!document.querySelector('.project-switch[data-project-id="project"]')); document.querySelector('#open-project-btn').click(); testWait(()=>document.querySelector('.workspace-library-row')); testClick('Open'); testWait(()=>document.querySelectorAll('#session-tabs .session-tab').length===2);`);
+  assert.equal(groups.read().length,1); assert(state.tabGroups.some(g=>g.name==='Workspace' && g.layout==='2x1'));
+  await evaluate(`document.querySelector('#project-options-btn').click(); testClick('Save current sessions and layout');`);
+  await new Promise(r=>setTimeout(r,200)); assert.equal(groups.read().length,1);
+  const openGroupCount = await evaluate(`return document.querySelectorAll('.project-switch').length`);
+  await evaluate(`document.querySelector('#open-project-btn').click(); testWait(()=>document.querySelector('.workspace-library-row')); testClick('Open'); testWait(()=>!document.querySelector('.project-library'));`);
+  assert.equal(await evaluate(`return document.querySelectorAll('.project-switch').length`),openGroupCount);
   state.tabGroups.push({ id: 'stale-empty', name: 'Old empty group', configurationIds: [] });
   // Editor and variables modal, apply, remote tmux gating and screenshot.
-  await evaluate(`testClick('Edit configurations…')`);
+  await evaluate(`document.querySelector('[aria-label="Edit configurations"]').click()`);
   await evaluate(`testWait(()=>document.querySelector('.run-config-form input'))`);
   assert.equal(await evaluate(`return document.querySelector('.run-config-form').textContent.includes('Old empty group')`), false);
   window.webContents.send('ssh:password-request', { requestId: 'fixture', hostLabel: 'Test SSH', maxAttempts: 1 });
   await evaluate(`testWait(()=>document.querySelector('#password-modal').open); document.querySelector('#password-cancel').click(); testWait(()=>!document.querySelector('#password-modal').open);`);
-  await evaluate(`testClick('Edit variables… (1)');`);
+  assert.equal(await evaluate(`return document.querySelectorAll('.run-form-tabs [role=tab]').length`),4);
+  await evaluate(`document.querySelector('#run-section-environment').click();testClick('Edit variables… (1)');`);
   await evaluate(`testWait(()=>document.querySelector('.run-env-dialog')); document.querySelectorAll('.run-env-row input')[1].value='test'; testClick('OK');`);
   await evaluate(`testClick('Apply')`);
   await evaluate(`testWait(()=>!document.querySelector('.run-error')?.textContent)`);
@@ -99,11 +88,28 @@ app.whenReady().then(async () => {
   await evaluate(`document.fonts.ready; testWait(()=>document.querySelector('.run-editor[open]'))`);
   await new Promise(r=>setTimeout(r,500));
   fs.writeFileSync(path.resolve('design/validation/run-configurations.png'), (await window.webContents.capturePage()).toPNG());
+  await evaluate(`document.querySelector('#run-section-run').click();`);
+  await new Promise(r=>setTimeout(r,150));
+  fs.writeFileSync(path.resolve('design/validation/run-configurations-general.png'), (await window.webContents.capturePage()).toPNG());
+  for(const [width,height] of [[1000,700],[760,650]]) {
+    window.setSize(width,height);
+    await new Promise(r=>setTimeout(r,150));
+    assert.equal(await evaluate(`const dialog=document.querySelector('.run-editor').getBoundingClientRect(); const footer=document.querySelector('.run-editor .workspace-dialog-footer').getBoundingClientRect();const panel=document.querySelector('.run-form-panel:not([hidden])');return dialog.top>=0 && footer.bottom<=innerHeight && panel.scrollWidth<=panel.clientWidth && document.querySelectorAll('.run-form-panel:not([hidden])').length===1;`),true,'Configuration modal must fit without horizontal overflow');
+  }
+  await evaluate(`document.querySelector('#run-section-launch').click();`);
+  await new Promise(r=>setTimeout(r,150));
+  fs.writeFileSync(path.resolve('design/validation/run-configurations-small.png'), (await window.webContents.capturePage()).toPNG());
+  for (const section of ['environment','launch','projects']) {
+    await evaluate(`document.querySelector('#run-section-${section}').click();`);
+    assert.equal(await evaluate(`const panel=document.querySelector('.run-form-panel:not([hidden])');return panel.scrollWidth<=panel.clientWidth;`),true,'Every configuration section must fit narrow windows');
+  }
+  window.setSize(1300,900);
+
   await evaluate(`testClick('Save')`);
   await evaluate(`testWait(()=>!document.querySelector('.run-editor')); document.querySelector('#run-toolbar [aria-label="Run"]').click();`);
   // Launching stays in the run indicator; the output tab opens on demand.
-  await evaluate(`testWait(()=>document.querySelector('.run-chip') && !document.querySelector('.run-chip').hidden)`);
-  await evaluate(`document.querySelector('.run-chip summary').click(); testWait(()=>document.querySelectorAll('.run-chip-item').length === 1); document.querySelector('.run-chip-item').click();`);
+  await evaluate(`testWait(()=>document.querySelector('.running-configuration'))`);
+  await evaluate(`testWait(()=>document.querySelectorAll('.running-configuration').length === 1); document.querySelector('.running-configuration').click();`);
   await evaluate(`testWait(()=>document.querySelector('.run-output-bar')?.textContent.includes('Running'))`);
   assert.equal(manager.list().length, 1);
   // The rendered terminal must fit between the run toolbar and pane bottom,
@@ -119,8 +125,9 @@ app.whenReady().then(async () => {
     })`);
   }
   window.setSize(1300, 900);
+  const writesBeforeReadonly = writes;
   await evaluate(`const textarea=document.querySelector('.run-output .xterm-helper-textarea'); textarea.focus(); textarea.dispatchEvent(new InputEvent('input',{bubbles:true,data:'touch unsafe'}));`);
-  assert.equal(writes, 0, 'Readonly run forwarded terminal input');
+  assert.equal(writes, writesBeforeReadonly, 'Readonly run forwarded terminal input');
   await new Promise(r=>setTimeout(r,350));
   fs.writeFileSync(path.resolve('design/validation/run-output.png'), (await window.webContents.capturePage()).toPNG());
   await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'w',metaKey:true,bubbles:true}));`);
@@ -130,9 +137,10 @@ app.whenReady().then(async () => {
   await evaluate(`testWait(()=>[...document.querySelectorAll('dialog h2')].some(e=>e.textContent==='Stop running configurations?')); testClick('Stop and close');`);
   await evaluate(`testWait(()=>!document.querySelector('.run-output-bar'))`);
   assert.equal(manager.list().length, 0);
+  assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 0);
   // Exercise xterm's real keydown/keyup listeners: one shortcut must write once
   // and cancel Chromium's default paste action.
-  await evaluate(`testClick('Connect'); testWait(()=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Disconnect'));`);
+  await evaluate(`if(document.querySelector('#disconnect-session-btn').disabled) { document.querySelector('.terminal-pane.active .welcome-local').click(); } testWait(()=>!document.querySelector('#disconnect-session-btn').disabled);`);
   const writesBeforePaste = writes;
   const pasteEvents = await evaluate(`
     const textarea = [...document.querySelectorAll('.xterm-helper-textarea')].find(el=>el.closest('.xterm').getBoundingClientRect().width);
@@ -147,8 +155,8 @@ app.whenReady().then(async () => {
   await new Promise(r=>setTimeout(r,150));
   assert.deepEqual(pasteEvents, [true, true], 'Paste shortcut did not cancel native paste');
   assert.equal(writes - writesBeforePaste, 1, 'Paste shortcut must forward clipboard exactly once');
-  await evaluate(`testClick('Disconnect'); testWait(()=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Connect'));`);
-  // The full-width tab bar stays above both panes, with readable overflowing tabs.
+  await evaluate(`document.querySelector('#disconnect-session-btn').click(); testWait(()=>document.querySelector('#disconnect-session-btn').disabled);`);
+  // Sessions belong above the workspace; the connection sidebar has its own heading.
   await evaluate(`for (let i = 0; i < 14; i++) document.querySelector('#new-tab-btn').click();`);
   await evaluate(`testWait(() => {
     const strip = document.querySelector('#session-tabs');
@@ -160,7 +168,8 @@ app.whenReady().then(async () => {
     const bar = document.querySelector('#session-tabs-row').getBoundingClientRect();
     const sidebar = document.querySelector('#sidebar').getBoundingClientRect();
     const workspace = document.querySelector('#workspace').getBoundingClientRect();
-    return bar.top === 0 && bar.left === 0 && bar.right === innerWidth && sidebar.top === bar.bottom && workspace.top === bar.bottom;
+    const header = document.querySelector('#app-header').getBoundingClientRect();
+    return bar.top === header.bottom && bar.left === sidebar.right && bar.right === innerWidth && sidebar.top === header.bottom && workspace.top === bar.bottom;
   `), true);
   assert.equal(await evaluate(`
     const strip = document.querySelector('#session-tabs'); strip.scrollLeft = 0;
@@ -170,16 +179,26 @@ app.whenReady().then(async () => {
   const preferences = new BrowserWindow({ show: false, webPreferences: { preload: path.resolve('preload.js'), contextIsolation: true, nodeIntegration: false } });
   try {
     await preferences.loadFile(path.resolve('settings.html'));
+    assert.equal(await preferences.webContents.executeJavaScript("document.querySelectorAll('main > section.card').length"), 6);
+    assert.equal(await preferences.webContents.executeJavaScript("document.querySelectorAll('section.card section.card').length"), 0);
     await preferences.webContents.executeJavaScript(`(async () => {
       for (let i=0; i<100 && !document.querySelector('#session-tab-title-template').value; i++) await new Promise(r=>setTimeout(r,50));
       const select = document.querySelector('#session-tab-overflow');
       select.value = 'wrap'; select.dispatchEvent(new Event('change', {bubbles:true}));
+      const shortcut=document.querySelector('#shortcut-search');shortcut.value='mod+shift+p';shortcut.dispatchEvent(new Event('input'));
+      const choose=document.querySelector('#shortcut-tab9');choose.value='';choose.dispatchEvent(new Event('input'));
+      const next=document.querySelector('#shortcut-nextTab');next.value='ctrl+tab';next.dispatchEvent(new Event('input'));
     })()`);
     for (let i=0; i<100 && settings.ui.session.tabOverflow.value !== 'wrap'; i++) await new Promise(r=>setTimeout(r,50));
     assert.equal(settings.ui.session.tabOverflow.value, 'wrap');
+    assert.equal(settings.ui.shortcuts.search.value,'mod+shift+p');
+    assert.equal(settings.ui.shortcuts.tab9.value,'');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root,'settings.json'))).ui.shortcuts.nextTab.value,'ctrl+tab');
     assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'settings.json'))).ui.session.tabOverflow.value, 'wrap');
     await new Promise(resolve => { preferences.webContents.once('did-finish-load', resolve); preferences.reload(); });
     assert.equal(await preferences.webContents.executeJavaScript(`new Promise(resolve => setTimeout(() => resolve(document.querySelector('#session-tab-overflow').value), 200))`), 'wrap');
+    assert.equal(await preferences.webContents.executeJavaScript("document.querySelector('#shortcut-search').value"),'mod+shift+p');
+    assert.equal(await preferences.webContents.executeJavaScript("document.querySelector('#shortcut-tab9').value"),'');
   } finally { preferences.destroy(); }
   await evaluate(`window.dispatchEvent(new Event('focus')); testWait(()=>document.querySelector('#session-tabs').dataset.overflow === 'wrap');`);
   for (const [width, height] of [[1300, 900], [760, 650]]) {
@@ -194,12 +213,12 @@ app.whenReady().then(async () => {
     });`);
   }
   await evaluate(`document.querySelector('#sidebar-collapse-btn').click(); testWait(()=>document.querySelector('#sidebar').getBoundingClientRect().width === 0);`);
-  assert.equal(await evaluate(`return document.querySelector('#workspace').getBoundingClientRect().left === 0`), true);
+  assert.equal(await evaluate(`return document.querySelector('#workspace').getBoundingClientRect().left === document.querySelector('#activity-rail').getBoundingClientRect().right`), true);
   await evaluate(`document.querySelector('#sidebar-collapse-btn').click();`);
   settings.ui.session.tabOverflow.value = 'scroll';
   await evaluate(`window.dispatchEvent(new Event('focus')); testWait(()=>document.querySelector('#session-tabs').dataset.overflow === 'scroll');`);
   assert.equal(await evaluate(`return [...document.querySelectorAll('#session-tabs, .session-group-tabs')].every(list => new Set([...list.children].map(t=>t.getBoundingClientRect().top)).size <= 1)`), true);
-  console.log('PASS: full-width tab bar, wheel scrolling, active-tab visibility, persisted settings, grouped tab wrapping, resizing and sidebar collapse');
+  console.log('PASS: workspace tab bar, wheel scrolling, active-tab visibility, persisted settings, grouped tab wrapping, resizing and sidebar collapse');
   assert.deepEqual(errors.filter(e=>!e.includes('Electron Security Warning')), []);
   console.log('PASS: actual workspace group save/close/restore, configuration editor/env modal, readonly output, close confirmation/cancel/stop, single terminal paste');
 }).catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {

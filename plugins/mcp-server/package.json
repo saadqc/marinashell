@@ -1,0 +1,1 @@
+{"name":"mcp-server","version":"1.0.0","description":"Let paired AI agents use selected MarinaShell tools and projects","main":"main.js","marinashell":{"defaultEnabled":false}}

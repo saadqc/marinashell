@@ -46,13 +46,20 @@ export function createSettingsService(state) {
 
   function getShortcutBindings() {
     const isMac = navigator.platform && navigator.platform.toLowerCase().includes('mac');
-    const newTab = readSettingValue('ui', 'shortcuts', 'newTab', 'mod+t');
-    const closeTab = readSettingValue('ui', 'shortcuts', 'closeTab', 'mod+w');
-    return {
-      newTab: parseShortcut(newTab, isMac),
-      closeTab: parseShortcut(closeTab, isMac)
-    };
+    const defaults = { newTab: 'mod+alt+t', selectEditor: 'mod+e', selectTerminal: 'mod+t', closeTab: 'mod+w', nextTab: 'mod+tab', previousTab: 'mod+shift+tab', search: 'mod+k',
+      ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`tab${i + 1}`, `mod+${i + 1}`])) };
+    const bindings = Object.fromEntries(Object.entries(defaults).map(([name, fallback]) =>
+      [name, parseShortcut(readSettingValue('ui', 'shortcuts', name, fallback), isMac)]));
+    // Cmd+Tab belongs to the macOS app switcher. Keep Control+Tab available
+    // while the default binding is selected; a custom/blank binding replaces it.
+    if (isMac) for (const name of ['nextTab', 'previousTab']) {
+      if (matchesDefault(bindings[name], parseShortcut(defaults[name], true)))
+        bindings[`${name}Mac`] = parseShortcut(defaults[name].replace('mod+', 'ctrl+'), true);
+    }
+    return bindings;
   }
+
+  function matchesDefault(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
   function shouldAutoConnectOnSelect() {
     return Boolean(readSettingValue('ui', 'connection', 'autoConnectOnSelect', false));

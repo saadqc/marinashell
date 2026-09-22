@@ -69,6 +69,7 @@ async function waitExit(id) {
   assert.equal((await manager.start(slow.id)).id, first.id);
   await manager.stop(first.id); await delay(350);
   assert.equal((await manager.poll(first.id)).run.status, 'stopping');
+  await assert.rejects(manager.stop(first.id, false, { allowEscalation: false }), /Force stop requires explicit permission/);
   await manager.stop(first.id); await waitExit(first.id);
   // Restart survives a new manager instance (records are independent of tabs).
   const restored = createRunManager({ execute, hostIdentity: async () => 'test-machine', root });
@@ -140,5 +141,24 @@ async function waitExit(id) {
     assert(zshResult.output.includes(`Setup script: ${zshSetup} (zsh) — applied 1 variable`));
     await manager.close(zshRun.id);
   }
+  // Use only a child listener owned by this test; verify both launch and restart.
+  const { spawn } = require('node:child_process');
+  async function listener(port = 0) {
+    const child = spawn(process.execPath, ['-e', "const net=require('net');const s=net.createServer();s.listen(Number(process.argv[1]),'127.0.0.1',()=>console.log(s.address().port));", String(port)], {stdio:['ignore','pipe','pipe']});
+    const assigned = await new Promise((resolve,reject)=>{child.stdout.once('data',data=>resolve(Number(data.toString().trim())));child.once('error',reject);});
+    return {child,port:assigned};
+  }
+  let owned = await listener();
+  try {
+    const portConfig = manager.configs.upsert(normalizeConfig({name:'Clear port',type:'shell',mode:'commands',cwd:root,target:'echo launched-after-cleanup',killPortOnLaunch:true,killPort:owned.port}));
+    const run = await manager.start(portConfig.id); const result = await waitExit(run.id);
+    assert.match(result.output,/launched-after-cleanup/); assert.equal(owned.child.signalCode,'SIGKILL');
+    owned = await listener(owned.port);
+    const restarted = await manager.restart(run.id); const again = await waitExit(restarted.id);
+    assert.match(again.output,/launched-after-cleanup/); assert.equal(owned.child.signalCode,'SIGKILL');
+    await manager.close(restarted.id); await manager.close(run.id);
+    assert.throws(()=>normalizeConfig({...portConfig,killPort:70000}),/Port/);
+    assert(!buildCommand({...portConfig,killPortOnLaunch:false}).includes('lsof'));
+  } finally { owned.child.kill('SIGKILL'); }
   console.log('PASS: argv/env quoting, env precedence, setup scripts, exit/output, single/multiple instances, repeated Stop, persistence and host identity');
 })().finally(async () => { await manager.shutdown(); fs.rmSync(root, { recursive: true, force: true }); }).catch(error => { console.error(error); process.exitCode = 1; });

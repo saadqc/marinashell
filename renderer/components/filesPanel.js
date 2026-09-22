@@ -1,3 +1,4 @@
+import { fileAction } from '../services/fileActions.js';
 import { getActiveTab } from '../state.js';
 import {
   getPathLabel,
@@ -28,6 +29,7 @@ export function createFilesPanel(state, persistenceService, editorService, actio
   function hideContextMenu() {
     contextMenu.classList.remove('open');
     contextMenu.innerHTML = '';
+
   }
 
   let renameCleanup = null;
@@ -176,6 +178,13 @@ export function createFilesPanel(state, persistenceService, editorService, actio
 
   function showContextMenu(x, y, tab, item, row, labelEl) {
     contextMenu.innerHTML = '';
+    if (item.type !== 'd') {
+      for (const [label, action] of [['Open in editor', 'editor'], ['Tail last 500 lines', 'tail']]) {
+        const entry = document.createElement('button'); entry.type = 'button'; entry.textContent = label;
+        entry.addEventListener('click', () => { hideContextMenu(); fileAction(tab, item.path, action); });
+        contextMenu.append(entry);
+      }
+    }
     const copyButton = document.createElement('button');
     copyButton.type = 'button';
     copyButton.textContent = 'Copy path';
@@ -226,29 +235,6 @@ export function createFilesPanel(state, persistenceService, editorService, actio
       beginInlineRename(tab, item, row, labelEl);
     });
     contextMenu.appendChild(renameButton);
-
-    if (item.type === 'd') {
-      const bookmarkButton = document.createElement('button');
-      bookmarkButton.type = 'button';
-      bookmarkButton.textContent = 'Bookmark folder';
-      bookmarkButton.addEventListener('click', () => {
-        if (!tab || !tab.host) {
-          persistenceService.setStatus('No host selected', true, tab);
-          hideContextMenu();
-          return;
-        }
-        const saved = persistenceService.getHostState(state.appState.savedLocations, tab.host);
-        if (!saved.includes(item.path)) {
-          const next = [item.path, ...saved];
-          persistenceService.updateHostState('savedLocations', tab.host, next);
-          if (tab.id === state.activeTabId) {
-            renderSavedLocations();
-          }
-        }
-        hideContextMenu();
-      });
-      contextMenu.appendChild(bookmarkButton);
-    }
 
     contextMenu.style.left = `${x}px`;
     contextMenu.style.top = `${y}px`;
@@ -322,15 +308,7 @@ export function createFilesPanel(state, persistenceService, editorService, actio
         tab.navIndex = tab.navHistory.length - 1;
       }
     }
-    if (options.recordRecent && tab.host) {
-      const recent = persistenceService.getHostState(state.appState.recentLocations, tab.host);
-      const filtered = recent.filter((entry) => entry !== normalized);
-      filtered.unshift(normalized);
-      persistenceService.updateHostState('recentLocations', tab.host, filtered.slice(0, MAX_RECENT));
-      if (tab.id === state.activeTabId) {
-        renderRecentLocations();
-      }
-    }
+
     if (tab.id === state.activeTabId) {
       updateNavButtons();
     }
@@ -750,7 +728,7 @@ export function createFilesPanel(state, persistenceService, editorService, actio
       }
     });
 
-    pathSaveButton.addEventListener('click', () => {
+    pathSaveButton?.addEventListener('click', () => {
       saveCurrentLocation();
     });
 

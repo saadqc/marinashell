@@ -1,5 +1,18 @@
 (() => {
   const api = window.api;
+  document.getElementById('cleanup-groups')?.addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const status = document.getElementById('cleanup-groups-status');
+    button.disabled = true;
+    status.textContent = 'Cleaning up…';
+    try {
+      const { removed, repaired } = await api.invoke('workspace:cleanup-groups');
+      status.textContent = removed || repaired
+        ? `Removed ${removed} unused group entries and repaired ${repaired} tab references.`
+        : 'No unused groups found.';
+    } catch (error) { status.textContent = `Cleanup failed: ${error.message}`; }
+    finally { button.disabled = false; }
+  });
   const statusEl = document.getElementById('settings-status');
   const editorMode = document.getElementById('editor-mode');
   const editorCommand = document.getElementById('editor-command');
@@ -20,6 +33,21 @@
   const enableDockerRpc = document.getElementById('enable-docker-rpc');
   const shortcutNewTab = document.getElementById('shortcut-new-tab');
   const shortcutCloseTab = document.getElementById('shortcut-close-tab');
+
+  const navigationShortcuts = [
+    ['selectEditor', 'Select Editor', 'mod+e'],
+    ['selectTerminal', 'Select Terminal', 'mod+t'],
+    ['search', 'Search commands and sessions', 'mod+k'],
+    ['nextTab', 'Next tab', 'mod+tab'],
+    ['previousTab', 'Previous tab', 'mod+shift+tab'],
+    ...Array.from({ length: 9 }, (_, i) => [`tab${i + 1}`, `Choose tab ${i + 1}`, `mod+${i + 1}`])
+  ].map(([name, title, fallback]) => {
+    const label = document.createElement('label'); label.htmlFor = `shortcut-${name}`; label.textContent = title;
+    const input = document.createElement('input'); input.id = label.htmlFor; input.type = 'text'; input.placeholder = fallback;
+    input.autocomplete = 'off'; input.spellcheck = false;
+    document.getElementById('navigation-shortcuts').append(label, input);
+    return { name, fallback, input };
+  });
 
   let settings = null;
   let saveTimer = null;
@@ -163,6 +191,9 @@
       writeValue(['plugins', 'docker', 'enableRpc'], 'boolean', enableDockerRpc.checked);
       scheduleSave();
     });
+    for (const { name, input } of navigationShortcuts) input.addEventListener('input', () => {
+      writeValue(['ui', 'shortcuts', name], 'string', input.value.trim()); scheduleSave();
+    });
     shortcutNewTab.addEventListener('input', () => {
       writeValue(['ui', 'shortcuts', 'newTab'], 'string', shortcutNewTab.value.trim());
       scheduleSave();
@@ -187,10 +218,10 @@
       const isEnabled = p.enabled !== false;
 
       const el = document.createElement('div');
-      el.style.background = '#141a26';
+      el.style.background = 'var(--surface-raised)';
       el.style.padding = '8px';
       el.style.borderRadius = '6px';
-      el.style.border = '1px solid #2a2f3a';
+      el.style.border = '1px solid var(--border)';
 
       const header = document.createElement('div');
       header.style.display = 'flex';
@@ -212,7 +243,7 @@
       enabledWrap.style.display = 'flex';
       enabledWrap.style.alignItems = 'center';
       enabledWrap.style.gap = '6px';
-      enabledWrap.style.color = '#b5bfcc';
+      enabledWrap.style.color = 'var(--text-muted)';
       enabledWrap.style.fontSize = '11px';
 
       const enabledLabel = document.createElement('label');
@@ -246,6 +277,7 @@
         });
       }
 
+      enabledToggle.dataset.pluginId = p.id;
       enabledToggle.addEventListener('change', () => {
         const current = readList(['plugins', 'disabled', 'list'], []);
         const set = new Set(current);
@@ -277,7 +309,7 @@
       badge.style.fontSize = '10px';
       badge.style.padding = '2px 6px';
       badge.style.borderRadius = '4px';
-      badge.style.background = p.source === 'bundled' ? '#2a2f3a' : '#1e3a5f';
+      badge.style.background = p.source === 'bundled' ? 'var(--border)' : 'var(--surface-selected)';
       badge.textContent = p.source;
 
       if (defaultButton) right.appendChild(defaultButton);
@@ -291,7 +323,7 @@
       if (p.description) {
         const desc = document.createElement('div');
         desc.style.fontSize = '11px';
-        desc.style.color = '#7c8796';
+        desc.style.color = 'var(--text-muted)';
         desc.style.marginTop = '4px';
         desc.textContent = p.description;
         el.appendChild(desc);
@@ -309,7 +341,7 @@
       if (!isEnabled) {
         const hint = document.createElement('div');
         hint.style.fontSize = '11px';
-        hint.style.color = '#7c8796';
+        hint.style.color = 'var(--text-muted)';
         hint.style.marginTop = '6px';
         hint.textContent = 'Disabled (takes effect immediately).';
         el.appendChild(hint);
@@ -396,7 +428,8 @@
       localShellMacPaths.checked = Boolean(readValue(['shell', 'local', 'injectMacPaths'], true));
       // Load docker RPC setting
       enableDockerRpc.checked = Boolean(readValue(['plugins', 'docker', 'enableRpc'], false));
-      shortcutNewTab.value = readValue(['ui', 'shortcuts', 'newTab'], 'mod+t');
+      for (const { name, fallback, input } of navigationShortcuts) input.value = readValue(['ui', 'shortcuts', name], fallback);
+      shortcutNewTab.value = readValue(['ui', 'shortcuts', 'newTab'], 'mod+alt+t');
       shortcutCloseTab.value = readValue(['ui', 'shortcuts', 'closeTab'], 'mod+w');
       bindInputs();
 

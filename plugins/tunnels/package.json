@@ -1,0 +1,1 @@
+{"name":"tunnels","version":"1.0.0","description":"Saved SSH tunnel profiles, independent of terminal sessions","main":"main.js","renderer":"renderer.js"}

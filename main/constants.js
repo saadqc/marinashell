@@ -47,8 +47,14 @@ const DEFAULT_SETTINGS = {
       tabOverflow: { type: 'string', value: 'scroll' }
     },
     shortcuts: {
-      newTab: { type: 'string', value: 'mod+t' },
-      closeTab: { type: 'string', value: 'mod+w' }
+      newTab: { type: 'string', value: 'mod+alt+t' },
+      selectEditor: { type: 'string', value: 'mod+e' },
+      selectTerminal: { type: 'string', value: 'mod+t' },
+      closeTab: { type: 'string', value: 'mod+w' },
+      nextTab: { type: 'string', value: 'mod+tab' },
+      previousTab: { type: 'string', value: 'mod+shift+tab' },
+      search: { type: 'string', value: 'mod+k' },
+      ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`tab${i + 1}`, { type: 'string', value: `mod+${i + 1}` }]))
     },
     connection: {
       autoConnectOnSelect: { type: 'boolean', value: false },

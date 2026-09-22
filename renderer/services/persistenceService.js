@@ -18,17 +18,34 @@ export function createPersistenceService(state, settingsService) {
     state.api.updateState({ [key]: nextMap });
   }
 
+  // Run only after every restored tab has been materialized.
+  function reconcileGroups() {
+    const groups = Array.isArray(state.appState.tabGroups) ? state.appState.tabGroups : [];
+    const referenced = new Set([...state.tabs.values()].map(tab => tab.groupId).filter(Boolean));
+    const retained = new Map();
+    for (const group of groups) {
+      if (group && typeof group.id === 'string' && referenced.has(group.id) && !retained.has(group.id)) {
+        retained.set(group.id, group);
+      }
+    }
+    let repaired = 0;
+    for (const tab of state.tabs.values()) {
+      if (tab.groupId && !retained.has(tab.groupId)) { tab.groupId = ''; repaired++; }
+    }
+    state.appState.tabGroups = [...retained.values()];
+    return { removed: groups.length - retained.size, repaired };
+  }
+
   function persistTabs(options = {}) {
     if (!state.appState || !state.api) {
       return;
     }
+    if (state.workspaceReady) reconcileGroups();
+    const tabGroups = Array.isArray(state.appState.tabGroups) ? state.appState.tabGroups : [];
     const restoreTabs = settingsService.shouldRestoreTabs();
     if (!restoreTabs || options.forceClear) {
-      if ((state.appState.tabs && state.appState.tabs.length) || state.appState.activeTabId) {
-        state.appState = { ...state.appState, tabs: [], activeTabId: '' };
-        state.api.updateState({ tabs: [], activeTabId: '' });
-      }
-      return;
+      state.appState = { ...state.appState, tabs: [], activeTabId: '', tabGroups };
+      return state.api.updateState({ tabs: [], activeTabId: '', tabGroups });
     }
     const serialized = Array.from(state.tabs.values()).map((tab) => ({
       id: tab.id,
@@ -44,9 +61,8 @@ export function createPersistenceService(state, settingsService) {
       runId: tab.runId || ''
     }));
     const activeId = state.activeTabId || (serialized[0] && serialized[0].id) || '';
-    const tabGroups = Array.isArray(state.appState.tabGroups) ? state.appState.tabGroups : [];
     state.appState = { ...state.appState, tabs: serialized, activeTabId: activeId, tabGroups };
-    state.api.updateState({ tabs: serialized, activeTabId: activeId, tabGroups });
+    return state.api.updateState({ tabs: serialized, activeTabId: activeId, tabGroups });
   }
 
   function getDefaultHost(hostConfigs, hostSelect, lastHost) {
@@ -87,6 +103,7 @@ export function createPersistenceService(state, settingsService) {
     getHostState,
     updateHostState,
     persistTabs,
+    reconcileGroups,
     getDefaultHost,
     setStatus,
     getTunnelProfiles,

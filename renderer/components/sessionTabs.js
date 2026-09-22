@@ -1,3 +1,4 @@
+import { fileAction, terminalFileAt } from '../services/fileActions.js';
 import { createSavedGroups } from './savedGroups.js';
 import { showError } from './dialog.js';
 import { getActiveTab, getTab } from '../state.js';
@@ -145,7 +146,6 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
 
   function persistGroups() {
     if (!state.appState || !state.api) return;
-    state.api.updateState({ tabGroups: getTabGroups() });
     persistenceService.persistTabs();
   }
 
@@ -335,7 +335,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       });
     }
     addMenuLabel(tabContextMenu, 'Move to group');
-    for (const group of getTabGroups()) {
+    const liveGroupIds = new Set([...state.tabs.values()].map(tab => tab.groupId));
+    for (const group of getTabGroups().filter(group => liveGroupIds.has(group.id))) {
       addMenuButton(tabContextMenu, group.name || 'Untitled group', () => {
         moveTabToGroup(tabId, group.id);
         hideTabContextMenu();
@@ -393,6 +394,12 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const tab = state.tabs.get(tabId);
     if (!tab) return;
 
+    const file = terminalFileAt(tab, x, y);
+    if (file) {
+      addMenuLabel(terminalContextMenu, 'File');
+      addMenuButton(terminalContextMenu, 'Open in editor', () => { fileAction(tab, file.path, 'editor', file.line); hideTerminalContextMenu(); });
+      addMenuButton(terminalContextMenu, 'Tail last 500 lines', () => { fileAction(tab, file.path, 'tail'); hideTerminalContextMenu(); });
+    }
     const contextLink = tab.hoveredLink && tab.hoveredLink.uri ? { ...tab.hoveredLink } : null;
     if (contextLink) {
       addMenuLabel(terminalContextMenu, contextLink.type === 'email' ? 'Email' : 'Link');
@@ -499,15 +506,17 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
               },
               decorations: { pointerCursor: true, underline: true },
               activate: (event) => {
-                if (event.button !== 0) return;
+                if (event.button !== 0 || !(navigator.platform.toLowerCase().includes('mac') ? event.metaKey : event.ctrlKey)) return;
                 event.preventDefault();
                 openTerminalLink(tab, match);
               },
               hover: () => {
                 tab.hoveredLink = match;
+                tab.term.element.title = `${navigator.platform.toLowerCase().includes('mac') ? 'Command' : 'Ctrl'}+click to open`;
               },
               leave: () => {
                 if (tab.hoveredLink && tab.hoveredLink.uri === match.uri) tab.hoveredLink = null;
+                tab.term.element.title = '';
               }
             };
           });
@@ -623,6 +632,12 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       button.className = 'session-tab';
       button.classList.add(`tab-color-${TAB_COLORS.some((color) => color.id === tab.tabColor) ? tab.tabColor : 'default'}`);
       button.dataset.tabId = tab.id;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-selected', String(tab.id === state.activeTabId));
+      const typeIcon = document.createElement('i');
+      typeIcon.dataset.icon = tab.host === '__local__' ? 'terminal' : 'server';
+      typeIcon.className = 'session-type-icon';
+      button.appendChild(typeIcon);
       button.draggable = true;
       button.classList.toggle('active', tab.id === state.activeTabId);
       const label = getSessionTabLabel(tab);
@@ -635,6 +650,12 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
 
       const closeBtn = document.createElement('span');
       closeBtn.className = 'close-btn';
+      closeBtn.setAttribute('role', 'button');
+      closeBtn.setAttribute('aria-label', `Close ${label}`);
+      closeBtn.tabIndex = 0;
+      closeBtn.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); closeTab(tab.id); }
+      });
       closeBtn.innerHTML = '<i data-icon="x"></i>';
       closeBtn.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -736,18 +757,15 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const previousOverflow = sessionTabs.dataset.overflow;
     sessionTabs.dataset.overflow = settingsService.readSettingValue('ui', 'session', 'tabOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll';
     sessionTabs.innerHTML = '';
-    const tabs = Array.from(state.tabs.values()).filter((tab) => !tab.runOutput);
-    const knownGroupIds = new Set(getTabGroups().map((group) => group.id));
-    const ungrouped = tabs.filter((tab) => !tab.groupId || !knownGroupIds.has(tab.groupId));
-    ungrouped.forEach((tab) => sessionTabs.appendChild(buildTabButton(tab)));
-    for (const group of getTabGroups()) {
-      const groupTabs = tabs.filter((tab) => tab.groupId === group.id);
-      if (groupTabs.length) sessionTabs.appendChild(buildGroup(group, groupTabs));
-    }
+    const activeGroupId = getActiveTab(state)?.groupId || '';
+    const tabs = Array.from(state.tabs.values()).filter(tab => !tab.runOutput && (tab.groupId || '') === activeGroupId);
+    // Projects live in the outer rail; this strip contains only their sessions.
+    tabs.forEach(tab => sessionTabs.appendChild(buildTabButton(tab)));
     renderLucide(sessionTabs);
     sessionTabs.scrollLeft = scrollLeft;
     sessionTabs.scrollTop = scrollTop;
     if (previousOverflow !== sessionTabs.dataset.overflow) requestAnimationFrame(revealActiveTab);
+    window.dispatchEvent(new Event('marinashell:tabs-rendered'));
   }
 
   function revealActiveTab() {
@@ -760,6 +778,19 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     if (tab.top < strip.top) sessionTabs.scrollTop += tab.top - strip.top;
     else if (tab.bottom > strip.bottom) sessionTabs.scrollTop += tab.bottom - strip.bottom;
   }
+
+  sessionTabs?.addEventListener('keydown', event => {
+    if (event.target.closest('.close-btn') || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const buttons = [...sessionTabs.querySelectorAll('.session-tab')];
+    const index = buttons.indexOf(event.target.closest('.session-tab'));
+    if (index < 0) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+      : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+    const id = buttons[next].dataset.tabId;
+    setActiveSessionTab(id);
+    [...sessionTabs.querySelectorAll('.session-tab')].find(button => button.dataset.tabId === id)?.focus();
+  });
 
   sessionTabs?.addEventListener('wheel', event => {
     if (sessionTabs.dataset.overflow === 'wrap' || event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
@@ -779,6 +810,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       return;
     }
     state.activeTabId = tabId;
+    const project = getTabGroup(state.tabs.get(tabId).groupId);
+    if (project) project.lastActiveTabId = tabId;
     updateTerminalGrid();
     renderSessionTabs();
     requestAnimationFrame(revealActiveTab);
@@ -833,13 +866,26 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   function updateConnectUi(tab) {
     const connected = tab ? tab.connected : false;
     connectButton.textContent = connected ? 'Disconnect' : 'Connect';
-    connectButton.disabled = Boolean(tab?.readOnly);
-    hostSelect.disabled = connected || Boolean(tab?.readOnly);
+    connectButton.disabled = Boolean(tab?.readOnly || tab?.connecting);
+    if (tab?.connecting) connectButton.textContent = 'Connecting…';
+    hostSelect.disabled = connected || Boolean(tab?.readOnly || tab?.connecting);
+    updateWelcome(tab);
     if (state.elements.pathInput) state.elements.pathInput.disabled = !connected;
     if (state.elements.pathGoButton) state.elements.pathGoButton.disabled = !connected;
     if (state.elements.pathSaveButton) state.elements.pathSaveButton.disabled = !connected;
     if (state.elements.backButton) state.elements.backButton.disabled = !connected;
     if (state.elements.forwardButton) state.elements.forwardButton.disabled = !connected;
+  }
+
+  function updateWelcome(tab) {
+    if (!tab?.welcome) return;
+    tab.welcome.hidden = Boolean(tab.connected || tab.readOnly);
+    tab.welcome.querySelector('h1').textContent = tab.host ? 'Session disconnected' : 'No connection selected';
+    tab.welcome.querySelector('.welcome-detail').textContent = tab.statusIsError
+      ? tab.statusMessage : tab.host ? `Reconnect to ${tab.host === LOCAL_HOST_VALUE ? 'your local shell' : tab.host} in ${tab.currentPath || '/'}.` : 'Choose a connection from Open → Connect to….';
+    tab.welcome.querySelector('.welcome-detail').classList.toggle('error', Boolean(tab.statusIsError));
+    tab.welcome.querySelectorAll('button').forEach(button => { button.disabled = Boolean(tab.connecting || !tab.host); });
+    tab.welcome.querySelector('.welcome-connect').textContent = tab.connecting ? 'Reconnecting…' : 'Reconnect';
   }
 
   function syncUiToActiveTab() {
@@ -935,12 +981,15 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const term = new TerminalCtor({
       fontFamily: '"JetBrains Mono", monospace',
       fontSize: 13,
+      linkHandler: { activate: (event, uri) => {
+        if (event.button === 0 && (navigator.platform.toLowerCase().includes('mac') ? event.metaKey : event.ctrlKey)) openExternalTarget(tabState, uri);
+      } },
       cursorBlink: !initial.readOnly,
       disableStdin: Boolean(initial.readOnly),
       convertEol: Boolean(initial.readOnly),
       theme: {
-        background: '#0b0e14',
-        foreground: '#e6e6e6'
+        background: getComputedStyle(document.documentElement).getPropertyValue('--surface-canvas').trim() || '#191a1d',
+        foreground: '#e8e8eb'
       }
     });
     const fitAddon = new FitAddonCtor();
@@ -1003,6 +1052,13 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       activeTunnels: new Map() // ID -> { type, config, status, error }
     };
 
+    if (!initial.readOnly) {
+      const welcome = document.createElement('div'); welcome.className = 'terminal-welcome';
+      welcome.innerHTML = '<div class="welcome-content"><i data-icon="terminal"></i><h1>Session disconnected</h1><p class="welcome-detail"></p><div class="welcome-actions"><button class="welcome-connect">Reconnect</button></div><small>Use Open → Connect to… to choose a different connection.</small></div>';
+      tabState.welcome = welcome; container.append(welcome);
+      welcome.querySelector('.welcome-connect').addEventListener('click', () => connectTab(tabState, tabState.host, { restorePath: tabState.currentPath || '/' }));
+      updateWelcome(tabState); renderLucide(welcome);
+    }
     registerSmartLinks(tabState);
 
     let titleRenderTimer = null;
@@ -1092,11 +1148,13 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   }
 
   function setSidebarTab(name) {
-    tabButtons.forEach((button) => {
+    document.querySelectorAll('.tab-btn').forEach((button) => {
       const isActive = button.dataset.tab === name;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-selected', String(isActive));
       button.classList.toggle('active', isActive);
     });
-    tabPanels.forEach((panel) => {
+    document.querySelectorAll('.tab-panel').forEach((panel) => {
       const isActive = panel.id === `tab-${name}`;
       panel.classList.toggle('active', isActive);
     });
@@ -1252,7 +1310,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       filesPanel.resetTreeForTab(tab, true);
       if (tab.id === state.activeTabId) {
         filesPanel.renderTree();
-        actionsPanel.renderTunnels();
+
       }
       try {
         window.dispatchEvent(new CustomEvent('marinashell:ssh-exit', { detail: payload }));
@@ -1300,9 +1358,6 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
           }
         }
 
-        if (tab.id === state.activeTabId) {
-          actionsPanel.renderTunnels();
-        }
       });
     }
 
@@ -1313,7 +1368,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   }
 
   async function connectTab(tab, host, options = {}) {
-    if (tab.readOnly) return false;
+    if (tab.readOnly || tab.connecting) return false;
     if (!state.api) {
       persistenceService.setStatus('IPC unavailable', true, tab);
       return false;
@@ -1323,78 +1378,50 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       return false;
     }
 
-    tab.sessionType = host === LOCAL_HOST_VALUE ? 'local' : 'ssh';
-    const label = tab.sessionType === 'local' ? 'local shell' : host;
-    persistenceService.setStatus(`Connecting to ${label}...`, false, tab);
-    const result = await state.api.connect(tab.id, host);
-    if (!result || !result.ok) {
-      persistenceService.setStatus(result && result.error ? result.error : 'Connection failed', true, tab);
+    tab.connecting = true;
+    if (tab.id === state.activeTabId) updateConnectUi(tab);
+    try {
+      tab.sessionType = host === LOCAL_HOST_VALUE ? 'local' : 'ssh';
+      const label = tab.sessionType === 'local' ? 'local shell' : host;
+      persistenceService.setStatus(`Connecting to ${label}...`, false, tab);
+      const result = await state.api.connect(tab.id, host);
+      if (!result || !result.ok) {
+        persistenceService.setStatus(result && result.error ? result.error : 'Connection failed', true, tab);
+        setConnectedForTab(tab, false);
+        return false;
+      }
+
+      setConnectedForTab(tab, true);
+      setTabHost(tab, host);
+      persistenceService.setStatus(`Connected to ${label}`, false, tab);
+
+      tab.navHistory = [];
+      tab.navIndex = -1;
+      tab.isBusy = false;
+
+      const targetPath = options.path || tab.currentPath || '/';
+      if (options.restorePath) {
+        filesPanel.updateTabPath(tab, options.restorePath, { pushNav: true, recordRecent: false, clearCache: true, force: true });
+        const cdCommand = buildRemoteCdCommand(options.restorePath, { pathStyle: tab.remotePathStyle });
+        state.api.write(tab.id, `${cdCommand}\n`);
+      } else {
+        filesPanel.updateTabPath(tab, targetPath, { pushNav: true, recordRecent: false, clearCache: true, force: true });
+      }
+
+      if (tab.id === state.activeTabId) {
+        fitActiveTerminal();
+      }
+
+      return true;
+    } catch (error) {
+      persistenceService.setStatus(error.message || 'Connection failed', true, tab);
       setConnectedForTab(tab, false);
       return false;
+    } finally {
+      tab.connecting = false;
+      if (tab.id === state.activeTabId) updateConnectUi(tab);
+      else updateWelcome(tab);
     }
-
-    setConnectedForTab(tab, true);
-    setTabHost(tab, host);
-    persistenceService.setStatus(`Connected to ${label}`, false, tab);
-
-    // Start saved tunnels (optional)
-    const shouldAutoStart = settingsService && typeof settingsService.shouldAutoStartTunnels === 'function'
-      ? settingsService.shouldAutoStartTunnels()
-      : true;
-    const tunnelProfiles = shouldAutoStart ? persistenceService.getTunnelProfiles(host) : [];
-    if (tunnelProfiles && tunnelProfiles.length > 0) {
-      persistenceService.setStatus(`Starting ${tunnelProfiles.length} tunnels...`, false, tab);
-      for (const profile of tunnelProfiles) {
-        try {
-          const result = await state.api.createTunnel({
-            tabId: tab.id,
-            type: profile.type,
-            config: {
-              srcPort: profile.srcPort,
-              dstHost: profile.dstHost,
-              dstPort: profile.dstPort
-            }
-          });
-          if (result && result.ok) {
-            tab.activeTunnels.set(result.id, {
-              type: profile.type,
-              config: {
-                srcPort: profile.srcPort,
-                dstHost: profile.dstHost,
-                dstPort: profile.dstPort
-              },
-              status: 'ready'
-            });
-          }
-        } catch (err) {
-          console.error('Failed to start tunnel', err);
-        }
-      }
-      if (tab.id === state.activeTabId) {
-        actionsPanel.renderTunnels();
-      }
-      // Don’t leave the UI stuck on "Starting ... tunnels..."
-      persistenceService.setStatus(`Connected to ${label}`, false, tab);
-    }
-
-    tab.navHistory = [];
-    tab.navIndex = -1;
-    tab.isBusy = false;
-
-    const targetPath = options.path || tab.currentPath || '/';
-    if (options.restorePath) {
-      filesPanel.updateTabPath(tab, options.restorePath, { pushNav: true, recordRecent: false, clearCache: true, force: true });
-      const cdCommand = buildRemoteCdCommand(options.restorePath, { pathStyle: tab.remotePathStyle });
-      state.api.write(tab.id, `${cdCommand}\n`);
-    } else {
-      filesPanel.updateTabPath(tab, targetPath, { pushNav: true, recordRecent: false, clearCache: true, force: true });
-    }
-
-    if (tab.id === state.activeTabId) {
-      fitActiveTerminal();
-    }
-
-    return true;
   }
 
   async function disconnectTab(tab) {
@@ -1411,13 +1438,15 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     filesPanel.resetTreeForTab(tab, true);
     if (tab.id === state.activeTabId) {
       filesPanel.renderTree();
-      actionsPanel.renderTunnels();
+
     }
   }
 
   function setConnectedForTab(tab, next) {
     if (!tab) return;
     tab.connected = next;
+    if (next) tab.hasConnected = true;
+    updateWelcome(tab);
     if (tab.id === state.activeTabId) {
       updateConnectUi(tab);
     }
@@ -1470,6 +1499,12 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     });
   }
 
+  window.addEventListener('marinashell:file:tail', async event => {
+    const { path, host } = event.detail || {};
+    if (!path || /[\r\n\0]/.test(path)) return;
+    try { await state.api.invoke('logs:open', {path, host}); }
+    catch(error) { persistenceService.setStatus(error.message, true); }
+  });
   const savedGroups = createSavedGroups(state, { createTabState, connectTab, setActiveSessionTab, renderSessionTabs, updateTerminalGrid }, askForText, getSessionTabLabel);
   bindEvents();
 
@@ -1491,6 +1526,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     createNewTab,
     closeActiveTab,
     closeTab,
+    closeGroup,
+    setGroupLayout,
     savedGroups,
     duplicateTab,
     updateTerminalGrid,

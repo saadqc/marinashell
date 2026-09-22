@@ -1,9 +1,12 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
   <meta charset="UTF-8" />
   <title>MarinaShell - Settings</title>
+  <link rel="stylesheet" href="renderer/theme.css" />
+  <link rel="stylesheet" href="renderer/preferences.css" />
+  <link rel="stylesheet" href="plugins/mcp-server/settings.css" />
   <style>
     :root {
       color-scheme: dark;
@@ -18,13 +21,13 @@
     body {
       margin: 0;
       font-family: "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-      background: #0b0e14;
-      color: #e6e6e6;
+      background: var(--surface-canvas);
+      color: var(--text);
     }
 
     header {
       padding: 16px;
-      border-bottom: 1px solid #1f2430;
+      border-bottom: 1px solid var(--border);
     }
 
     h1 {
@@ -39,8 +42,8 @@
     }
 
     .card {
-      border: 1px solid #1f2430;
-      background: #0f1420;
+      border: 1px solid var(--border);
+      background: var(--surface-sidebar);
       border-radius: 10px;
       padding: 12px;
     }
@@ -48,7 +51,7 @@
     .card h2 {
       margin: 0 0 8px;
       font-size: 14px;
-      color: #9aa4b2;
+      color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
@@ -67,9 +70,9 @@
       font-size: 12px;
       padding: 8px;
       border-radius: 6px;
-      border: 1px solid #2a2f3a;
-      background: #141a26;
-      color: #e6e6e6;
+      border: 1px solid var(--border);
+      background: var(--surface-raised);
+      color: var(--text);
       margin-bottom: 10px;
     }
 
@@ -104,7 +107,7 @@
 
     .status {
       font-size: 12px;
-      color: #8dd0ff;
+      color: var(--accent);
     }
 
     .status.error {
@@ -116,9 +119,10 @@
 <body>
   <header>
     <h1>Settings</h1>
+    <nav class="preferences-nav" aria-label="Settings sections"><a href="#preferences-editor">Editor</a><a href="#preferences-workspace">Workspace</a><a href="#preferences-shell">Local shell</a><a href="#preferences-shortcuts">Shortcuts</a><a href="#preferences-plugins">Plugins</a><a href="#preferences-mcp">Agent access</a></nav>
   </header>
   <main>
-    <div class="card">
+    <section class="card" id="preferences-editor">
       <h2>Editor</h2>
       <label for="editor-mode">Open mode</label>
       <select id="editor-mode">
@@ -140,9 +144,12 @@
       <label for="editor-associations">File associations (JSON)</label>
       <textarea id="editor-associations"></textarea>
       <div class="hint">Array of {pattern, mode, commandTemplate, localCommandTemplate, sftpUriTemplate}</div>
-    </div>
-    <div class="card">
-      <h2>UI</h2>
+    </section>
+    <section class="card" id="preferences-workspace">
+      <h2>Workspace</h2>
+      <button id="cleanup-groups" type="button">Clean up unused groups</button>
+      <div class="hint">Remove leftover group entries. Open sessions and saved projects are preserved.</div>
+      <div id="cleanup-groups-status" class="hint" role="status" aria-live="polite"></div>
       <label for="tree-page-size">Tree page size</label>
       <input id="tree-page-size" type="number" min="100" max="2000" step="50" />
       <div class="hint">Maximum nodes per directory page in the tree view.</div>
@@ -186,8 +193,8 @@
         <label for="enable-docker-rpc">Enable Docker RPC (Experimental)</label>
       </div>
       <div class="hint">Allow plugins to run RPC servers on remote mainframes.</div>
-    </div>
-    <div class="card">
+    </section>
+    <section class="card" id="preferences-shell">
       <h2>Local shell</h2>
       <label for="local-shell-command">Shell command</label>
       <input id="local-shell-command" type="text" placeholder="auto" />
@@ -203,17 +210,19 @@
         <label for="local-shell-mac-paths">Inject macOS Homebrew PATH</label>
       </div>
       <div class="hint">Adds /opt/homebrew and /usr/local entries on macOS when enabled.</div>
-    </div>
-    <div class="card">
+    </section>
+    <section class="card" id="preferences-shortcuts">
       <h2>Shortcuts</h2>
-      <label for="shortcut-new-tab">New tab</label>
-      <input id="shortcut-new-tab" type="text" placeholder="mod+t" />
-      <div class="hint">Use mod for Cmd/Ctrl. Example: mod+t or ctrl+t.</div>
+      <label for="shortcut-new-tab">New terminal</label>
+      <input id="shortcut-new-tab" type="text" placeholder="mod+alt+t" />
+      <div class="hint">Use mod for Cmd/Ctrl. Example: mod+alt+t.</div>
       <label for="shortcut-close-tab">Close tab</label>
       <input id="shortcut-close-tab" type="text" placeholder="mod+w" />
-      <div class="hint">Example: mod+w or cmd+w.</div>
-    </div>
-    <div class="card">
+      <div class="hint">Example: mod+w or cmd+w. Leave a binding blank to disable it.</div>
+      <div id="navigation-shortcuts"></div>
+      <div class="hint">Tabs are numbered left to right within the current project. Next/previous wraps around. On macOS, Cmd+Tab switches apps; Ctrl+Tab and Ctrl+Shift+Tab also work while the default tab-cycle bindings are selected.</div>
+    </section>
+    <section class="card" id="preferences-plugins">
       <h2>Plugins</h2>
       <div id="plugin-list" style="margin-bottom: 15px; display: flex; flex-direction: column; gap: 8px;">
         <!-- Plugin list items injected here -->
@@ -224,13 +233,15 @@
         <input id="plugin-install-url" type="text" placeholder="https://github.com/user/repo"
           style="margin-bottom: 0;" />
         <button id="plugin-install-btn"
-          style="white-space: nowrap; cursor: pointer; padding: 0 12px; background: #2a2f3a; color: #e6e6e6; border: 1px solid #1f2430; border-radius: 6px;">Install</button>
+          style="white-space: nowrap; cursor: pointer; padding: 0 12px; background: var(--border); color: var(--text); border: 1px solid var(--border); border-radius: 6px;">Install</button>
       </div>
       <div class="hint" style="margin-top: 6px;">Enter a Git repository URL to clone into ~/.marinashell/plugins/</div>
-    </div>
+    </section>
+<section class="card" id="preferences-mcp"><h2>Agent access · MCP</h2><div id="mcp-guide"></div><div id="mcp-controls"></div><div id="mcp-token"></div><p id="mcp-error" role="status"></p></section>
     <div class="status" id="settings-status">Saved</div>
   </main>
   <script src="settings.js"></script>
+  <script type="module" src="plugins/mcp-server/settings.js"></script>
 </body>
 
 </html>

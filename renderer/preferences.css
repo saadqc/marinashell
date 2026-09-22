@@ -1,0 +1,20 @@
+@font-face { font-family: 'JetBrains UI'; src: url('../assets/jetbrains/Inter-Regular.otf'); font-display: swap; }
+@font-face { font-family: 'JetBrains UI'; src: url('../assets/jetbrains/Inter-SemiBold.otf'); font-weight: 600; font-display: swap; }
+html body { font-family: var(--font-ui); font-size: 13px; }
+body header { position: sticky; top: 0; z-index: 2; background: var(--surface-sidebar); padding: 20px 28px; }
+body main { padding: 24px 28px; max-width: 1000px; margin: auto; gap: 24px; }
+body .card { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; padding: 0 0 24px; }
+body .card h2 { color: var(--text); text-transform: none; letter-spacing: normal; margin-bottom: 18px; font-size: 15px; }
+body label, body .hint { color: var(--text-muted); line-height: 1.5; }
+body input, body select, body textarea, body button { font: inherit; border-radius: var(--radius); }
+body :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body input[type=checkbox] { accent-color: var(--accent); }
+
+.preferences-nav { display: flex; gap: 5px; margin: 16px -6px -6px; flex-wrap: wrap; }
+.preferences-nav a { color: var(--text-muted); text-decoration: none; font-size: 12px; padding: 6px; border-radius: 4px; }
+.preferences-nav a:hover, .preferences-nav a:focus-visible { color: var(--accent); background: var(--accent-wash); }
+.card[id] { scroll-margin-top: 115px; }
+
+/* Keep per-position shortcut editing compact in the settings window. */
+#navigation-shortcuts { display:grid; grid-template-columns:minmax(0,1fr) minmax(130px,200px); align-items:center; gap:8px 16px; margin:18px 0; }
+#navigation-shortcuts label, #navigation-shortcuts input { margin:0; }

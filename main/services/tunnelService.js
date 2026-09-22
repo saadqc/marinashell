@@ -31,6 +31,7 @@ class TunnelService extends EventEmitter {
                 this.emit('tunnel:error', { id, error: err.message });
                 // If the server itself errors (e.g. port in use), we might need to close it
                 this.updateStatus(id, 'error', err.message);
+                reject(err);
             });
 
             server.listen(config.localPort, '127.0.0.1', () => {

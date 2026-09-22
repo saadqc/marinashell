@@ -1,3 +1,4 @@
+import { installMcpBridge } from './services/mcpBridge.js';
 import { createState } from './state.js';
 import { createSettingsService } from './services/settingsService.js';
 import { createPersistenceService } from './services/persistenceService.js';
@@ -9,6 +10,8 @@ import { createPasswordPrompt } from './components/passwordPrompt.js';
 import { matchesShortcutEvent } from './utils.js';
 import { createDockLayout } from './components/dockLayout.js';
 import { createStatusBar } from './components/statusBar.js';
+import { createProjects } from './components/projects.js';
+import { createWorkspaceNavigation } from './components/workspaceNavigation.js';
 
 import { createPluginLoader } from './services/pluginLoader.js';
 
@@ -99,6 +102,9 @@ function setSidebarCollapsed(collapsed, options = {}) {
   requestAnimationFrame(() => sessionTabs.fitActiveTerminal());
 }
 
+const projects = createProjects({ state, sessionTabs, dockLayout });
+const workspaceNavigation = createWorkspaceNavigation({ state, sessionTabs, dockLayout, setSidebarCollapsed, projects });
+
 if (elements.sidebarCollapseButton) {
   elements.sidebarCollapseButton.addEventListener('click', () => {
     const collapsed = document.getElementById('app').classList.contains('sidebar-collapsed');
@@ -151,6 +157,7 @@ window.addEventListener('focus', async () => {
         onTreeUpdate: () => filesPanel.renderTree()
       });
       state.shortcutBindings = settingsService.getShortcutBindings();
+      window.dispatchEvent(new Event('marinashell:shortcuts-changed'));
       sessionTabs.renderSessionTabs();
       sessionTabs.updateTerminalGrid();
     }
@@ -168,18 +175,43 @@ if (!window.Terminal || !window.FitAddon) {
 }
 
 window.addEventListener('keydown', (event) => {
-  if (event.defaultPrevented || document.querySelector('dialog[open], .modal.open')) return;
+  if (event.defaultPrevented || event.isComposing || document.querySelector('dialog[open], .modal.open')) return;
   const bindings = state.shortcutBindings || {};
-  if (matchesShortcutEvent(event, bindings.newTab)) {
-    event.preventDefault();
+  const matches = name => matchesShortcutEvent(event, bindings[name]);
+  let action;
+  if (matches('search')) action = () => workspaceNavigation.openPalette();
+  else if (matches('newTab')) action = () => {
     sessionTabs.createNewTab();
-    return;
+    document.querySelector('#tool-navigation [data-view="terminal"]')?.click();
+    state.tabs.get(state.activeTabId)?.term.focus();
+  };
+  else if (matches('selectEditor') || matches('selectTerminal')) {
+    const view = matches('selectEditor') ? 'editor' : 'terminal';
+    const control = document.querySelector(`#tool-navigation [data-view="${view}"]`);
+    if (!control || control.disabled) return;
+    action = () => { control.click(); if(view === 'terminal') state.tabs.get(state.activeTabId)?.term.focus(); };
   }
-  if (matchesShortcutEvent(event, bindings.closeTab)) {
-    event.preventDefault();
-    sessionTabs.closeActiveTab();
+  else if (matches('closeTab')) action = () => sessionTabs.closeActiveTab();
+  else {
+    // Match the tab strip's order and current project, including run-output tabs.
+    const ids = [...document.querySelectorAll('#session-tabs .session-tab')].map(el => el.dataset.tabId).filter(id => state.tabs.has(id));
+    let target;
+    const position = Array.from({ length: 9 }, (_, i) => i).find(i => matches(`tab${i + 1}`));
+    if (position !== undefined) target = ids[position];
+    else if (ids.length && (matches('nextTab') || matches('nextTabMac') || matches('previousTab') || matches('previousTabMac'))) {
+      const direction = matches('previousTab') || matches('previousTabMac') ? -1 : 1;
+      const index = ids.indexOf(state.activeTabId);
+      target = ids[(Math.max(0, index) + direction + ids.length) % ids.length];
+    } else return;
+    action = () => {
+      if (!target) return;
+      sessionTabs.setActiveSessionTab(target);
+      state.tabs.get(target)?.term.focus();
+    };
   }
-});
+  // Capture before xterm/editor handlers so shortcut keystrokes never reach the shell.
+  event.preventDefault(); event.stopImmediatePropagation(); action();
+}, true);
 
 window.addEventListener('marinashell:open-terminal-tab', async (event) => {
   const detail = event && event.detail ? event.detail : {};
@@ -238,7 +270,9 @@ window.addEventListener('marinashell:detach-terminal', () => {
   // Apply plugin enable/disable immediately by reloading the renderer when settings change.
   if (typeof api.onPluginsChanged === 'function') {
     let reloadTimer = null;
-    api.onPluginsChanged(() => {
+    api.onPluginsChanged((change) => {
+      // MCP is a main-process service; toggling it must preserve live terminals.
+      if (change?.changedIds?.length && change.changedIds.every(id => id === 'mcp-server')) return;
       if (reloadTimer) clearTimeout(reloadTimer);
       reloadTimer = setTimeout(() => {
         try { window.location.reload(); } catch (err) { }
@@ -268,6 +302,7 @@ window.addEventListener('marinashell:detach-terminal', () => {
       onReconcileTabs: () => persistenceService.persistTabs({ forceClear: true })
     });
     state.shortcutBindings = settingsService.getShortcutBindings();
+    window.dispatchEvent(new Event('marinashell:shortcuts-changed'));
 
     await sessionTabs.refreshHosts();
     Object.keys(state.sectionState).forEach((key) => filesPanel.updateSectionUI(key));
@@ -299,12 +334,32 @@ window.addEventListener('marinashell:detach-terminal', () => {
       }
     }
 
+    state.workspaceReady = true;
+    await persistenceService.persistTabs();
+    sessionTabs.renderSessionTabs();
+    sessionTabs.updateTerminalGrid();
+    api.onCleanupGroups?.(async ({ id }) => {
+      try {
+        const result = persistenceService.reconcileGroups();
+        await persistenceService.persistTabs();
+        sessionTabs.renderSessionTabs();
+        sessionTabs.updateTerminalGrid();
+        projects.render();
+        window.dispatchEvent(new Event('marinashell:groups-changed'));
+        api.respondCleanupGroups({ id, result });
+      } catch (error) {
+        api.respondCleanupGroups({ id, error: error.message });
+      }
+    });
+
     for (const item of reconnectQueue) {
       sessionTabs.connectTab(item.tab, item.host, { restorePath: item.path });
     }
 
     filesPanel.updateNavButtons();
+    sessionTabs.setSidebarTab('files');
     statusBar.render();
+    projects.render();
     renderLucide(document);
 
     // Plugin Context
@@ -313,11 +368,7 @@ window.addEventListener('marinashell:detach-terminal', () => {
       state,
       sessionTabs,
       dockLayout,
-      registerCommand: async (name, callback) => {
-        // Simple command registration (could be enhanced)
-        console.log(`[Plugin] Registered command: ${name}`);
-        // For now, we don't have a command palette, but plugins can do custom logic
-      },
+      registerCommand: workspaceNavigation.registerCommand,
       registerView: (id, info) => {
         dockLayout.registerView(id, info);
       },
@@ -332,62 +383,21 @@ window.addEventListener('marinashell:detach-terminal', () => {
         dockLayout.registerTerminalAction(id, info);
       },
       registerTab: (id, label, renderCallback) => {
-        // 1. Create button
+        if (!id || document.getElementById(`tab-${id}`)) return;
         const btn = document.createElement('button');
-        btn.className = 'tab-btn';
-        btn.dataset.tab = id;
-        btn.textContent = label;
-        btn.addEventListener('click', () => {
-          sessionTabs.setSidebarTab(id);
-        });
+        btn.className = 'tab-btn'; btn.dataset.tab = id; btn.textContent = label;
+        btn.setAttribute('role', 'tab'); btn.setAttribute('aria-selected', 'false');
+        btn.addEventListener('click', () => { setSidebarCollapsed(false); sessionTabs.setSidebarTab(id); });
         document.getElementById('tabs').appendChild(btn);
-
-        // 2. Create panel
-        const panel = document.createElement('div');
-        panel.id = `tab-${id}`;
-        panel.className = 'tab-panel';
+        document.getElementById('tabs').hidden = false;
+        const panel = document.createElement('div'); panel.id = `tab-${id}`;
+        panel.className = 'tab-panel'; panel.setAttribute('role', 'tabpanel');
         document.getElementById('tab-panels').appendChild(panel);
-
-        // 3. Update selectors logic (hacky but works for now to include new elements)
-        // We need to re-query or update the lists in sessionTabs if it caches them.
-        // sessionTabs.setSidebarTab uses document.querySelectorAll('.tab-btn'), so it should be fine if called dynamically,
-        // BUT sessionTabs.js might need a refresh of its internal lists if it caches them.
-        // Actually sessionTabs.js uses `tabButtons` from `elements` which is static at init.
-        // We probably need to update that list or handle switching here.
-
-        // Let's monkey-patch usage or just handle it manually here for the new tab
-        // Re-bind click on this new button is already done above.
-        // But we need to update the "setSidebarTab" logic to know about this new button/panel
-        // if it iterates over a fixed list.
-
-        // Let's update the global elements reference if possible, or just rely on the class toggling logic
-        // which we can duplicate or expose.
-
-        // Expose setSidebarTab to context or just duplicate logic:
-        // Actually, sessionTabs.js doesn't export setSidebarTab directly in a way we can easily patch without re-creating.
-        // But we can just implement the switching logic for this tab here.
-
-        // Actually, let's look at `sessionTabs.setSidebarTab`. It queries `tabButtons` which is from `elements`.
-        // `elements` is passed to createSessionTabs.
-        // If we want `setSidebarTab` to work for new tabs, we need to update the `elements.tabButtons` NodeList 
-        // or make `setSidebarTab` re-query.
-        // Since `elements` sends static NodeLists, we might have an issue.
-
-        // Strategy: We will re-query and toggle classes manually in this event listener
-        // ensuring we also deselect others.
-
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
-          document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${id}`));
-        });
-
-        // 4. Render
-        if (typeof renderCallback === 'function') {
-          renderCallback(panel);
-        }
+        if (typeof renderCallback === 'function') renderCallback(panel);
       }
     };
 
+    installMcpBridge({ api, state, sessionTabs, persistenceService });
     await pluginLoader.loadPlugins(pluginContext);
     renderLucide(document);
 

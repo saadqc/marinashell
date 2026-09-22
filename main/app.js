@@ -104,6 +104,14 @@ function buildMenu() {
       ]
     },
     {
+      label: 'Open',
+      submenu: [
+        { label: 'Connect to…', accelerator: 'CmdOrCtrl+Shift+O', click: () => mainWindow?.webContents.send('workspace:open', 'connect') },
+        { label: 'Open project…', click: () => mainWindow?.webContents.send('workspace:open', 'project') },
+        { label: 'New project…', click: () => mainWindow?.webContents.send('workspace:open', 'new-project') }
+      ]
+    },
+    {
       label: 'Edit',
       submenu: [
         { role: 'undo' },
@@ -201,7 +209,7 @@ app.whenReady().then(() => {
   ipcMain.handle('groups:list', () => groupsLibrary.read());
   ipcMain.handle('groups:save', (_event, group) => {
     if (!group || !String(group.name || '').trim() || !Array.isArray(group.tabs)) throw new Error('Invalid saved group');
-    return groupsLibrary.upsert(group);
+    return groupsLibrary.upsert(group.kind === 'project' ? require('./services/projects').normalizeProject(group) : group);
   });
   ipcMain.handle('groups:delete', (_event, id) => groupsLibrary.remove(id));
 
@@ -213,6 +221,9 @@ app.whenReady().then(() => {
     state = saveState(state, patch);
     return state;
   });
+
+  require('./services/groupCleanup').registerGroupCleanup(ipcMain, () => mainWindow);
+  require('./services/logViewer').registerLogViewer({ipcMain, BrowserWindow, sessionManager});
 
   ipcMain.handle('settings:get', () => settings);
   ipcMain.handle('settings:update', (event, patch) => {
@@ -240,7 +251,10 @@ app.whenReady().then(() => {
         const windows = BrowserWindow.getAllWindows();
         for (const w of windows) {
           try {
-            w.webContents.send('plugins:changed', { disabled: afterDisabled });
+            const oldEnabled = JSON.parse(beforeEnabled);
+            const newEnabled = JSON.parse(readEnabled(settings));
+            const changedIds = [...new Set([...oldEnabled, ...newEnabled, ...beforeDisabled, ...afterDisabled])].filter(id => oldEnabled.includes(id) !== newEnabled.includes(id) || beforeDisabled.includes(id) !== afterDisabled.includes(id));
+            w.webContents.send('plugins:changed', { disabled: afterDisabled, changedIds });
           } catch (err) { }
         }
       } catch (err) {

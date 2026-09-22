@@ -32,10 +32,24 @@ Regenerate it with `env -u ELECTRON_RUN_AS_NODE npx electron scripts/capture-dem
   - Detects outside changes before saving and offers reload/overwrite resolution
   - Preserves unsaved drafts while switching files or dock views and warns before closing the app
   - Accepts UTF-8 text files up to 5 MB; binary files remain available through the other open modes
-- **Actions panel**: port forwarding; file transfers remain available from the file tree and status area.
-- **Saved groups**: right-click a group to save or update an independent snapshot. Use the Saved groups button beside New group to restore or delete snapshots. Names, order, colors, hosts, directories, layout, and configuration links are retained.
+- **Tunnels extension**: independent saved SSH profiles for local, remote, and SOCKS forwarding. Start/stop profiles from the left tool rail; closing a project leaves its tunnels running.
+- **Saved projects**: use Open → New project to configure named directories across local and different SSH hosts. Open → Open project reconnects the sessions, changes directories, and restores the saved split layout. Open projects appear above the divider in the left tool rail; their menu saves, edits, or closes the project.
+- **File context menus**: Open in editor and Tail last 500 lines are available for terminal filenames/selected paths and explorer files. Tail opens a separate terminal on the same host.
+- **Port cleanup**: configurations can optionally kill TCP listeners on a specified port before launch or restart. This is disabled by default, requires `lsof` on the execution host, and does not use sudo.
+- **Configuration editor**: compact Run, Environment, Before launch, and Projects tabs, an independent configuration list, and an always-visible save footer.
+- **Run sidebar**: configuration dropdown and launch controls beneath Files; active runs appear as a compact list with green dots. Terminal and Layout share one header.
+- **Process list**: search for Show Process List to inspect local or SSH processes. Sort by CPU, RAM, disk throughput or cumulative disk I/O; filter by name/user/PID or exact local port. Requires Python 3 on macOS/Linux hosts; `lsof` supplies port information. Restricted counters display —.
+- **Workspace navigation**:
+  - Charcoal surfaces with an amber active-state accent
+  - Search sessions, tools, and plugin commands with `Cmd/Ctrl+K`
+  - Choose visible project tabs with `Cmd/Ctrl+1` through `9`; cycle with `Cmd/Ctrl+Tab` and reverse with `Cmd/Ctrl+Shift+Tab`
+  - Customize each tab position, next/previous tab, and search in Settings → Shortcuts; an empty binding disables it
+  - macOS reserves Cmd+Tab for app switching, so Ctrl+Tab / Ctrl+Shift+Tab also work with the default cycle bindings
+  - Discover installed extensions from the rail; configure them in Settings
+  - Tools retain their view state when switching within a pane
+  - Disconnected terminals offer Reconnect using the same local/SSH host and directory; choose a different connection from Open → Connect to…
 - **Multi-tab sessions**:
-  - Full-width session tab bar above the sidebar and workspace
+  - Dedicated session tab strip above the workspace, with compact Beekeeper-style tabs for the selected project
   - Choose horizontal scrolling (default) or multiple rows in Settings → UI → Tab overflow
   - Multiple SSH tabs (each tab has its own terminal + SFTP session)
   - Interpolated tab titles with host, current folder/path, terminal title, and slice syntax such as `<current_folder_name[:15]>`
@@ -43,13 +57,12 @@ Regenerate it with `env -u ELECTRON_RUN_AS_NODE npx electron scripts/capture-dem
   - Drag-and-drop tab ordering and right-click tab renaming
   - Per-tab color labels plus a configurable default color for new tabs
   - Optional “restore tabs on launch”
-- **Saved + recent locations**:
-  - Per-host (only shown when connected to that host)
-  - Save from toolbar or right-click a folder in the tree
+- **Connections**: Open → Connect to… opens the local/SSH connection picker. Bookmarks and recent-location lists are removed from the interface.
 - **Quality-of-life**:
-  - Collapsible file/action sidebar
+  - Collapsible Files sidebar, persistent tool rail, and a Layout menu
   - Right-click tree context menu: copy remote path
   - Drag & drop local files into the tree to upload (SFTP)
+  - Terminal links require Command+click on macOS or Ctrl+click elsewhere
   - Terminal copy/paste (Cmd/Ctrl+C copies selection, Cmd/Ctrl+V pastes)
 
 ## Tech stack
@@ -80,6 +93,8 @@ Regenerate it with `env -u ELECTRON_RUN_AS_NODE npx electron scripts/capture-dem
   - `assets/icons/` (app icon + file-type icons)
 
 ## Settings & persistence
+
+Unused workspace groups are cleaned up automatically on startup and as tabs change. If leftover entries appear, use **Settings → Workspace → Clean up unused groups**. This preserves open sessions, active groups (including groups with the same name), and the saved project library.
 
 - **Settings file**: `~/.marinashell/settings.json`
 - **State file** (known hosts, recents/saved, tab restore data): Electron user data folder
@@ -190,6 +205,25 @@ Enable **run-configurations** in **Settings → Plugins**. It ships disabled and
 - Run records are stored separately in `~/.marinashell/run-records.json`; per-run status and output live under `~/.marinashell/runs/` on the execution host. Logs retain approximately 4–8 MB per run. Older output may rotate. Launch scripts containing inline environment variables use owner-only permissions and are removed after exit.
 - Process control uses a Bash supervisor that owns the job, not name-based `pkill` or blind signaling of saved PIDs. Unknown/disconnected runs must be rechecked before controlling them. Programs should run in the foreground; deliberately daemonized children are outside the managed job.
 - The runner currently targets **macOS/Linux hosts with Bash**, including POSIX SSH hosts when the client runs on Windows. Native Windows execution hosts are not supported. tmux persistence covers SSH loss, not remote reboots. Ordinary runs are stopped on app quit; tmux runs remain remote until stopped or their tab is explicitly closed.
-- Saved group snapshots are independent in `~/.marinashell/saved-groups.json`. Restoring configuration tabs does not execute them.
+- Saved project snapshots are independent in `~/.marinashell/saved-groups.json`. Restoring configuration tabs does not execute them.
 
 Validation: `npm run test:runs`, `npm run test:runs:ssh` (requires local tmux; uses an isolated loopback SSH server/socket), and `npm run test:workspace` (Electron UI plus real local processes).
+
+### Agent access (MCP)
+
+Enable **MCP server** in Plugins, then open **Settings → Agent access**. Pair an agent, choose its tool permissions and project/host/configuration scope, save, and start the server. Nothing is exposed by default. The **Connect your agent** guide provides copyable instructions for Codex, Claude Code and ZCode.
+
+- Local Streamable HTTP endpoint, paired bearer tokens encrypted using the system credential store, immediate token rotation/revocation, and per-agent **Hidden / Ask / Allow** permissions.
+- Start/Stop and optional restoration of the last running state on app startup. MarinaShell must remain running on the agent's computer.
+- Scoped terminal lists/scrollback, visible-terminal screenshots, saved/open projects, split layouts, configuration creation/launch/restart/stop, managed run output and process lists. Run tools use the existing run manager; enable Run configurations to expose them.
+- Ask opens an approval in MarinaShell for the exact action. Allow for launch/restart is tied to the saved configuration revision; save permissions again after edits. Port cleanup and force termination have separate permissions. Creating and running configurations permits code execution on the allowed host.
+- Screenshots capture one visible terminal, never the desktop or Settings, and are blocked while dialogs are open. Managed run output tabs must be closed in the app; project close requires its runs to have stopped.
+- Write requests carry a durable request ID. A retry reports the previous operation status rather than executing it again; inspect the current state before issuing another ID after a timeout.
+
+Validation: `npm run test:mcp` exercises the official SDK against both the server and the real Electron app. Protocol support is negotiated by the pinned SDK (latest supported revision: 2025-11-25). [Implementation details and remaining extensions](docs/plans/mcp-server-plugin.md).
+
+In the Processes window, **Kill** requests a normal stop. Click it again for the same process to confirm **Force stop**. Process identity is checked before signalling; unavailable identities disable the action.
+
+**Tail last 500 lines** opens an always-on-top Logs window from terminal and explorer file menus. Enable **Follow** to watch new lines (including file rotation); uncheck it to return to a snapshot. Closing the window stops its stream. The viewer retains up to 2 MB of recent output.
+
+Select Editor with **Cmd/Ctrl + E**, select Terminal with **Cmd/Ctrl + T**, and create a new terminal with **Cmd/Ctrl + Alt + T**. Customize or disable these in **Settings → Shortcuts**.

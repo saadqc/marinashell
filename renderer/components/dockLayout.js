@@ -8,19 +8,20 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
   let leafCounter = 0;
   const leaves = new Map(); // leafId -> { el, headerEl, bodyEl, viewId, cleanup }
 
-  const toolbarViewsEl = toolbarEl ? document.createElement('div') : null;
-  const toolbarActionsEl = toolbarEl ? document.createElement('div') : null;
-  if (toolbarEl) {
-    toolbarEl.innerHTML = '';
-    toolbarViewsEl.style.display = 'flex';
-    toolbarViewsEl.style.gap = '6px';
-    toolbarViewsEl.style.alignItems = 'center';
-    toolbarActionsEl.style.display = 'flex';
-    toolbarActionsEl.style.gap = '6px';
-    toolbarActionsEl.style.alignItems = 'center';
-    toolbarEl.appendChild(toolbarViewsEl);
-    toolbarEl.appendChild(toolbarActionsEl);
-  }
+  const toolbarViewsEl = document.getElementById('tool-navigation') || document.createElement('div');
+  const contextEl = document.createElement('div');
+  contextEl.className = 'workspace-context';
+  const layoutMenu = document.createElement('details');
+  layoutMenu.className = 'layout-menu';
+  layoutMenu.innerHTML = '<summary><i data-icon="panels-top-left"></i>Layout<i data-icon="chevron-down"></i></summary><div class="layout-menu-items"></div>';
+  const toolbarActionsEl = layoutMenu.querySelector('.layout-menu-items');
+  if (toolbarEl) toolbarEl.replaceChildren(contextEl, layoutMenu);
+  document.addEventListener('click', event => {
+    if (!layoutMenu.contains(event.target)) layoutMenu.open = false;
+  });
+  layoutMenu.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { layoutMenu.open = false; layoutMenu.querySelector('summary').focus(); }
+  });
 
   function renderLucide(root) {
     const lucide = window.lucide;
@@ -111,7 +112,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
     leafEl.appendChild(headerEl);
     leafEl.appendChild(bodyEl);
 
-    const leaf = { id, el: leafEl, headerEl, bodyEl, viewId: null, cleanup: null, iconEl, nameEl, refreshBtn, refresh: null, extraActionsEl, runTabsEl };
+    const leaf = { cachedViews: new Map(), id, el: leafEl, headerEl, bodyEl, viewId: null, cleanup: null, iconEl, nameEl, refreshBtn, refresh: null, extraActionsEl, runTabsEl };
     leaves.set(id, leaf);
 
     leafEl.addEventListener('pointerdown', (e) => {
@@ -182,6 +183,8 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
     leaf.nameEl.textContent = viewInfo ? viewInfo.title : 'Empty';
     const cls = viewInfo && viewInfo.iconClass ? viewInfo.iconClass : 'icon-terminal';
     leaf.iconEl.className = `dock-icon ${cls}`;
+    leaf.iconEl.replaceChildren();
+    if (viewInfo?.icon) { const icon = createEl('i'); icon.dataset.icon = viewInfo.icon; leaf.iconEl.append(icon); renderLucide(leaf.iconEl); }
     if (leaf.refreshBtn) {
       const eligible = Boolean(viewInfo && viewInfo.id && viewInfo.id !== 'terminal');
       leaf.refreshBtn.disabled = !eligible;
@@ -190,6 +193,10 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
   }
 
   function clearLeaf(leaf) {
+    for (const cached of leaf.cachedViews.values()) {
+      try { cached.cleanup?.(); } catch (err) { }
+    }
+    leaf.cachedViews.clear();
     try {
       if (leaf.cleanup) leaf.cleanup();
     } catch (err) {
@@ -210,7 +217,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
       leaf.bodyEl.innerHTML = `
         <div style="padding: 18px; color: rgba(255,255,255,0.65);">
           <div style="font-weight: 650; color: rgba(255,255,255,0.92); margin-bottom: 6px;">Pick a view</div>
-          <div style="line-height: 1.45;">Use the toolbar to open Terminal or any plugin.</div>
+          <div style="line-height: 1.45;">Choose Terminal, Editor, or another tool from the left rail.</div>
         </div>
       `;
       renderLeafExtraActions(leaf);
@@ -220,9 +227,29 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
     const view = views.get(viewId);
     if (!view) return;
 
-    clearLeaf(leaf);
+    // Selecting the current tool is a focus action, not a destructive remount.
+    if (leaf.viewId === viewId && !Object.keys(options).length) return;
+    // Keep each tool's DOM and controller while navigating within a pane.
+    // Explicit pane close/reset still disposes every mounted tool.
+    if (leaf.viewId && leaf.viewId !== 'terminal') {
+      leaf.cachedViews.set(leaf.viewId, { node: leaf.bodyEl.firstElementChild, cleanup: leaf.cleanup, refresh: leaf.refresh });
+    } else {
+      try { leaf.cleanup?.(); } catch (err) { }
+    }
+    leaf.bodyEl.replaceChildren();
+    leaf.cleanup = null; leaf.refresh = null;
     leaf.viewId = viewId;
     setLeafTitle(leaf, view);
+    const cached = leaf.cachedViews.get(viewId);
+    if (cached) {
+      leaf.cachedViews.delete(viewId);
+      if (!Object.keys(options).length) {
+        leaf.bodyEl.append(cached.node); leaf.cleanup = cached.cleanup; leaf.refresh = cached.refresh;
+        return;
+      }
+      // Opening a specific file forwards its options through the plugin's mount API.
+      try { cached.cleanup?.(); } catch (err) { }
+    }
 
     // Special-case terminal: move the existing terminal stack into this pane.
     if (viewId === 'terminal') {
@@ -232,7 +259,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
           otherLeaf.bodyEl.innerHTML = `
             <div style="padding: 18px; color: rgba(255,255,255,0.65);">
               <div style="font-weight: 650; color: rgba(255,255,255,0.92); margin-bottom: 6px;">Terminal moved</div>
-              <div style="line-height: 1.45;">Use the toolbar to open a view in this pane.</div>
+              <div style="line-height: 1.45;">Choose a tool from the left rail to use this pane.</div>
             </div>
           `;
           renderLeafExtraActions(otherLeaf);
@@ -273,7 +300,9 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
       }
     };
 
-    const cleanup = view.mount(leaf.bodyEl, mountOptions) || null;
+    const viewContainer = createEl('div', 'dock-view');
+    leaf.bodyEl.append(viewContainer);
+    const cleanup = view.mount(viewContainer, mountOptions) || null;
     leaf.cleanup = typeof cleanup === 'function' ? () => {
       leaf.refresh = null;
       try { cleanup(); } catch (err) { }
@@ -404,34 +433,18 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
       return;
     }
 
-    // If parent is a split container, collapse it.
-    const splitEl = parent.classList && parent.classList.contains('dock-split') ? parent : null;
+    // A sibling may itself contain splits. Preserve the complete remaining subtree.
+    const splitEl = parent.classList.contains('dock-split') ? parent : null;
     if (splitEl) {
-      const siblings = Array.from(splitEl.children).filter((c) => c.classList && c.classList.contains('dock-leaf'));
-      const remaining = siblings.find((c) => c !== leaf.el) || null;
-
-      // Remove our leaf DOM
-      try { splitEl.removeChild(leaf.el); } catch (err) { }
+      const remaining = [...splitEl.children].find(child => child !== leaf.el &&
+        (child.classList.contains('dock-leaf') || child.classList.contains('dock-split')));
       leaves.delete(leafId);
-
       if (remaining) {
-        // Remove resizer too
-        Array.from(splitEl.children).forEach((c) => {
-          if (c.classList && c.classList.contains('dock-resizer')) splitEl.removeChild(c);
-        });
-
-        // Replace split with remaining leaf
-        const splitParent = splitEl.parentElement;
-        if (splitParent === rootEl) {
-          rootEl.innerHTML = '';
-          rootEl.appendChild(remaining);
-        } else if (splitParent) {
-          splitParent.replaceChild(remaining, splitEl);
-        }
-      }
+        remaining.style.flex = '1 1 0';
+        splitEl.replaceWith(remaining);
+      } else splitEl.remove();
     } else {
-      // No split parent; just remove.
-      try { parent.removeChild(leaf.el); } catch (err) { }
+      leaf.el.remove();
       leaves.delete(leafId);
     }
 
@@ -451,10 +464,19 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
     const leaf = leafId ? leaves.get(leafId) : null;
     const activeView = leaf ? leaf.viewId : null;
     const activeTab = state ? getActiveTab(state) : null;
+    const viewName = views.get(activeView)?.title || 'Choose a tool';
+    contextEl.replaceChildren();
+    const name = document.createElement('span'); name.textContent = viewName;
+    const path = document.createElement('span'); path.className = 'context-path';
+    path.textContent = activeTab?.currentPath ? ` / ${activeTab.currentPath}` : '';
+    path.title = activeTab?.currentPath || '';
+    contextEl.append(name, path);
+    if (leaf) leaf.headerEl.querySelector('.dock-leaf-actions').prepend(layoutMenu);
     const sessionType = activeTab && activeTab.sessionType ? String(activeTab.sessionType) : '';
     const normalizedType = sessionType === 'local' ? 'local' : (sessionType === 'ssh' ? 'ssh' : sessionType);
     toolbarViewsEl.querySelectorAll('[data-view]').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.view === activeView);
+      btn.setAttribute('aria-pressed', String(btn.dataset.view === activeView));
       const viewInfo = views.get(btn.dataset.view) || null;
       if (!viewInfo || viewInfo.id === 'terminal') {
         btn.disabled = false;
@@ -483,8 +505,11 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
 
     const btn = createEl('button', 'tool-btn');
     btn.dataset.view = viewInfo.id;
+    btn.title = viewInfo.title;
+    btn.setAttribute('aria-label', viewInfo.title);
 
     const icon = createEl('span', `dock-icon ${viewInfo.iconClass || ''}`);
+    if (viewInfo.icon) { const glyph = createEl('i'); glyph.dataset.icon = viewInfo.icon; icon.append(glyph); }
     btn.appendChild(icon);
     const label = createEl('span');
     label.textContent = viewInfo.title;
@@ -496,14 +521,8 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
       const leaf = leaves.get(leafId);
       if (!leaf) return;
 
-      // Default behavior:
-      // - Single-pane layout: open the view full-window (replace the current view).
-      // - Split layout: open the view in the active pane (user explicitly created splits).
-      if (leaves.size <= 1) {
-        resetLayoutToSingle(viewInfo.id);
-        return;
-      }
-
+      const existing = [...leaves.values()].find(item => item.viewId === viewInfo.id);
+      if (existing) { setLeafActive(existing.id); return; }
       mountViewInLeaf(leafId, viewInfo.id);
       setLeafActive(leafId);
     });
@@ -519,6 +538,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
       id,
       title: info && info.title ? info.title : id,
       iconClass: info && info.iconClass ? info.iconClass : '',
+      icon: info?.icon || '',
       mount: info && typeof info.mount === 'function' ? info.mount : () => null,
       supports: info && Array.isArray(info.supports) ? info.supports : null,
       requiresConnection: info && Object.prototype.hasOwnProperty.call(info, 'requiresConnection')
@@ -568,6 +588,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
       const viewId = leafId && leaves.get(leafId) ? leaves.get(leafId).viewId : 'terminal';
       resetLayoutToSingle(viewId || 'terminal');
     },
+    getViews: () => [...views.values()].map(({ id, title }) => ({ id, title })),
     getActiveLeaf: () => {
       const id = ensureLeafSelected();
       return id ? leaves.get(id) : null;
@@ -602,44 +623,41 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
   window.addEventListener('marinashell:active-tab-changed', () => {
     syncToolbarActiveState();
   });
+  window.addEventListener('marinashell:tab-path-changed', syncToolbarActiveState);
   window.addEventListener('marinashell:session-state-changed', () => {
     syncToolbarActiveState();
   });
 
   // Add split controls to toolbar (optional, but useful).
   if (toolbarActionsEl) {
-    const sep = createEl('span');
-    sep.style.width = '1px';
-    sep.style.height = '22px';
-    sep.style.background = 'rgba(255,255,255,0.10)';
-    sep.style.margin = '0 4px';
-    toolbarActionsEl.appendChild(sep);
-
     const splitV = createEl('button', 'tool-btn');
     splitV.title = 'Split Right';
-    splitV.innerHTML = `<i data-icon="columns-2"></i><span>Split</span>`;
+    splitV.innerHTML = `<i data-icon="columns-2"></i><span>Split right</span>`;
     splitV.addEventListener('click', () => api.splitVertical());
     toolbarActionsEl.appendChild(splitV);
 
     const splitH = createEl('button', 'tool-btn');
     splitH.title = 'Split Down';
-    splitH.innerHTML = `<i data-icon="rows-2"></i><span>Split</span>`;
+    splitH.innerHTML = `<i data-icon="rows-2"></i><span>Split down</span>`;
     splitH.addEventListener('click', () => api.splitHorizontal());
     toolbarActionsEl.appendChild(splitH);
 
     const close = createEl('button', 'tool-btn');
     close.title = 'Close Active Pane';
-    close.innerHTML = `<i data-icon="x"></i><span>Close</span>`;
+    close.innerHTML = `<i data-icon="x"></i><span>Close active pane</span>`;
     close.addEventListener('click', () => api.closeActive());
     toolbarActionsEl.appendChild(close);
 
     const reset = createEl('button', 'tool-btn');
     reset.title = 'Reset to single pane';
-    reset.innerHTML = `<i data-icon="square"></i><span>Single</span>`;
+    reset.innerHTML = `<i data-icon="square"></i><span>Single pane</span>`;
     reset.addEventListener('click', () => api.resetLayout());
     toolbarActionsEl.appendChild(reset);
 
-    renderLucide(toolbarActionsEl);
+    toolbarActionsEl.addEventListener('click', event => {
+      if (event.target.closest('button')) layoutMenu.open = false;
+    });
+    renderLucide(layoutMenu);
   }
 
   return api;

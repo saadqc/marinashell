@@ -23,6 +23,8 @@ app.whenReady().then(async () => {
   const result = await window.webContents.executeJavaScript(`window.api.invoke('plugin:run-configurations:discover', {host:'__local__',type:'shell'})`);
   assert.equal(result.ok, true, result.error); assert(result.runtimes.some(runtime => runtime.interpreter.includes('bash')));
   const exists = await window.webContents.executeJavaScript('Boolean(document.querySelector("#run-toolbar"))'); assert(exists);
+  const processes = await window.webContents.executeJavaScript(`window.api.invoke('plugin:processes:list', {host:'__local__'})`);
+  assert.equal(processes.ok,true,processes.error); assert(processes.processes.length>0); assert(processes.processes.every(row=>Number.isInteger(row.pid) && Number.isFinite(row.ramBytes)));
   console.log('PASS: real application defaults plugin off, enables plugin without restart, loads renderer/IPC, discovers local shells');
 }).catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {
   for (const window of BrowserWindow.getAllWindows()) window.destroy();

@@ -74,7 +74,10 @@ module.exports = ({
   function ipc(name, handler) {
     registerIpc(name, async (event, args = {}) => {
       try {
-        if (event.sender.getURL() !== settingsUrl)
+        // Section links add a fragment without changing the Settings document.
+        const senderUrl = new URL(event.sender.getURL());
+        senderUrl.hash = '';
+        if (senderUrl.href !== settingsUrl || event.senderFrame !== event.sender.mainFrame)
           throw new Error("Settings access only");
         return await handler(args);
       } catch (e) {

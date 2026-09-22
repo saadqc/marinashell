@@ -59,6 +59,8 @@ app
         'document.querySelector("#mcp-error")?.textContent',
       ),
     );
+    await settings.webContents.executeJavaScript(`document.querySelector('a[href="#preferences-mcp"]').click()`);
+    assert(settings.webContents.getURL().endsWith('#preferences-mcp'));
     let mcpReloads=0;main.webContents.on("did-start-loading",()=>mcpReloads++);
     await settings.webContents.executeJavaScript(
       `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Enable MCP extension').click()`,

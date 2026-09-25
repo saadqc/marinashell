@@ -1,5 +1,5 @@
-# MarinaShell v0.2.11
+# MarinaShell v0.2.12
 
-- Run configuration launcher shows only the selected workspace's configurations instead of every group's.
-- The run indicator keeps a session history: active runs on top, ended runs remain listed until dismissed with the row's ✕ (session-only; configurations and stored run records are untouched).
-- Agent-started runs and runs still active from an earlier window appear automatically; ended history from previous windows stays out of the list.
+- Agents can authenticate with a fixed password you choose — pair a new agent with your own password or set one on an existing agent; stored encrypted, replacing one invalidates the old credential immediately.
+- The agent scope editor nests configurations under their project in a tree (the standalone Configurations block is gone): checking a project selects its whole branch, individual configurations stay toggleable.
+- Project→configuration links read from the live workspace, so configurations linked after saving a project no longer appear as unassigned.

@@ -110,6 +110,99 @@ app
         (t) => t.name === "configurations.run",
       ),
     );
+    // A user-chosen fixed password pairs an agent without a generated token,
+    // is stored encrypted, and can be replaced like any other credential.
+    const fixedPair = await invoke("pair", {
+      name: "Fixed password agent",
+      password: "integration-fixed-1",
+    });
+    assert(fixedPair.ok, fixedPair.error);
+    assert.equal(fixedPair.fixed, true);
+    assert.equal(fixedPair.token, "integration-fixed-1");
+    assert(
+      !fs
+        .readFileSync(path.join(root, ".marinashell", "mcp-settings.json"), "utf8")
+        .includes("integration-fixed-1"),
+      "Fixed password must be encrypted",
+    );
+    const fixedScope = {
+      projects: [],
+      hosts: ["__local__"],
+      configurations: [],
+      scratchpad: true,
+    };
+    assert(
+      (
+        await invoke("policy", {
+          id: fixedPair.id,
+          tools: { "terminals.list": "allow" },
+          scope: fixedScope,
+        })
+      ).ok,
+    );
+    const fixedClient = new Client({ name: "fixed", version: "1" });
+    await fixedClient.connect(
+      new StreamableHTTPClientTransport(new URL(started.url), {
+        requestInit: { headers: { Authorization: "Bearer integration-fixed-1" } },
+      }),
+    );
+    assert.equal((await fixedClient.listTools()).tools.length, 1);
+    await fixedClient.close();
+    assert(
+      (await invoke("password", { id: fixedPair.id, password: "integration-fixed-2" })).ok,
+    );
+    const stale = new Client({ name: "stale", version: "1" });
+    await assert.rejects(
+      stale.connect(
+        new StreamableHTTPClientTransport(new URL(started.url), {
+          requestInit: { headers: { Authorization: "Bearer integration-fixed-1" } },
+        }),
+      ),
+    );
+    await stale.close().catch(() => {});
+    const reconnected = new Client({ name: "fixed2", version: "1" });
+    await reconnected.connect(
+      new StreamableHTTPClientTransport(new URL(started.url), {
+        requestInit: { headers: { Authorization: "Bearer integration-fixed-2" } },
+      }),
+    );
+    assert.equal((await reconnected.listTools()).tools.length, 1);
+    await reconnected.close();
+    const invalid = await invoke("password", {
+      id: fixedPair.id,
+      password: "short",
+    });
+    assert.equal(invalid.ok, false);
+    assert.match(invalid.error, /printable/);
+    // The scope editor renders projects as a tree; configurations are nested
+    // under their project instead of a standalone block.
+    await settings.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Refresh status').click()`,
+    );
+    await pause(300);
+    const treeView = await settings.webContents.executeJavaScript(
+      `(() => {
+        const select = document.querySelector('#mcp-controls select[aria-label="Paired agent"]');
+        const option = Array.from(select.options).find(o => o.textContent === 'Fixed password agent');
+        if (!option) return { tree: false, missing: 'agent option' };
+        select.value = option.value;
+        select.dispatchEvent(new Event('change'));
+        return {
+          tree: Boolean(document.querySelector('.mcp-tree')),
+          rows: document.querySelectorAll('.mcp-tree .mcp-tree-row').length,
+          children: document.querySelectorAll('.mcp-tree .mcp-tree-children .mcp-tree-label').length,
+          wildcards: [...document.querySelectorAll('.mcp-tree-row, .mcp-tree ~ label')].length,
+          labels: Array.from(document.querySelectorAll('#mcp-controls fieldset legend')).map(l => l.textContent),
+        };
+      })()`,
+    );
+    assert(treeView.tree, `project tree missing: ${JSON.stringify(treeView)}`);
+    assert(treeView.rows >= 1, `project rows missing: ${JSON.stringify(treeView)}`);
+    assert(
+      !treeView.labels.includes("Configurations"),
+      "standalone Configurations block must be gone",
+    );
+    assert(treeView.labels.includes("Projects") && treeView.labels.includes("Hosts"));
     const project = await call("projects.create", {
       name: "MCP test",
       tabs: [
@@ -186,6 +279,64 @@ app
       },
       requestId: "config-create",
     });
+    // Tree interactions: an unlinked configuration nests under "Unassigned
+    // configurations"; checking it leaves the parent indeterminate, selecting
+    // the parent branch checks everything, and saving persists exactly that.
+    await settings.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Refresh status').click()`,
+    );
+    await pause(300);
+    const treeFlow = await settings.webContents.executeJavaScript(
+      `(() => {
+        const select = document.querySelector('#mcp-controls select[aria-label="Paired agent"]');
+        const option = Array.from(select.options).find(o => o.textContent === 'Fixed password agent');
+        select.value = option.value;
+        select.dispatchEvent(new Event('change'));
+        const rows = Array.from(document.querySelectorAll('.mcp-tree > .mcp-tree-row .mcp-tree-label'));
+        const project = rows.find(l => l.textContent === 'MCP test');
+        if (!project) return { ok: false, reason: 'no MCP test branch', rows: rows.map(r => r.textContent) };
+        project.closest('.mcp-tree-row').querySelector('input').click();
+        const unassigned = rows.find(l => l.textContent === 'Unassigned configurations');
+        if (!unassigned) return { ok: false, reason: 'no unassigned branch' };
+        const row = unassigned.closest('.mcp-tree-row');
+        const parent = row.querySelector('input');
+        const child = row.nextElementSibling.querySelector('.mcp-tree-label input');
+        child.click();
+        const s1 = { child: child.checked, parent: parent.checked, indet: parent.indeterminate };
+        parent.click();
+        const s2 = { child: child.checked, parent: parent.checked, indet: parent.indeterminate };
+        parent.click();
+        const s3 = { child: child.checked, parent: parent.checked, indet: parent.indeterminate };
+        return { ok: true, s1, s2, s3 };
+      })()`,
+    );
+    assert(
+      treeFlow.ok &&
+        treeFlow.s1.child && treeFlow.s1.parent &&
+        !treeFlow.s2.child && !treeFlow.s2.parent &&
+        treeFlow.s3.child && treeFlow.s3.parent,
+      `tree interactions failed: ${JSON.stringify(treeFlow)}`,
+    );
+    await settings.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Save agent permissions').click()`,
+    );
+    await pause(300);
+    const treeScope = (await invoke("status")).settings.clients.find(
+      (c) => c.id === fixedPair.id,
+    ).scope;
+    assert(
+      treeScope.projects.includes(project.id),
+      "project branch must be in saved scope",
+    );
+    assert(
+      treeScope.configurations.includes(config.id),
+      "selected configuration must be in saved scope",
+    );
+    assert(
+      !treeScope.projects.includes("__unassigned__") &&
+        !treeScope.configurations.includes("__unassigned__"),
+      "the grouping row must not leak into saved scope",
+    );
     let conflict = await client.callTool({
       name: "configurations.run",
       arguments: {
@@ -323,7 +474,7 @@ app
       (await settings.webContents.capturePage()).toPNG(),
     );
     console.log(
-      "PASS MCP Electron: encrypted pairing, Settings-only controls, real SDK project restore/layout/read, shared run launch/output/stop, approval dialog, rotation, disable/re-enable and saved state",
+      "PASS MCP Electron: encrypted pairing and fixed passwords, Settings-only controls, real SDK project restore/layout/read, shared run launch/output/stop, approval dialog, rotation, disable/re-enable and saved state",
     );
   })
   .catch((e) => {

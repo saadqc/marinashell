@@ -41,7 +41,9 @@ function createHttpServer({ store, tools, onStop = () => {} }) {
       )
         return reject(403);
       if (req.url !== "/mcp") return reject(404);
-      const auth = /^Bearer ([A-Za-z0-9_-]+)$/.exec(
+      // Printable ASCII without spaces covers generated base64url tokens and
+      // user-chosen fixed passwords alike; store.authenticate caps the length.
+      const auth = /^Bearer ([!-~]{1,256})$/.exec(
         req.headers.authorization || "",
       );
       const client = auth && store.authenticate(auth[1]);

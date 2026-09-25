@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.12 — 2026-09-25
+
+- Agents can authenticate with a fixed password you choose: pair a new agent with your own password, or set one on an existing agent at any time. Fixed passwords are validated, stored encrypted in the system keychain, and replacing one invalidates the old credential immediately.
+- Agent scope editor redesigned: configurations now nest under their project in a tree, replacing the standalone Configurations block. Checking a project selects its whole branch; individual configurations stay toggleable with the standard tri-state display.
+- Project→configuration links now read from the live workspace instead of the saved-project snapshot, so configurations linked after a project was saved no longer appear as unassigned.
+- Pairing gained an in-Settings explainer, and the fixed-password controls were clarified. Settings checkboxes render correctly alongside the page's base styles.
+
+
 ## v0.2.11 — 2026-09-25
 
 - The run configuration launcher now lists only the selected workspace's configurations instead of every group's; an empty workspace shows a placeholder and ungrouped sessions keep the full library.

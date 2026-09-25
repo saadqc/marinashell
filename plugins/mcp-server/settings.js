@@ -69,7 +69,7 @@ function guide(url) {
   details.append(
     el(
       "p",
-      "1. Pair an agent above and copy its token. 2. Choose its allowed tools and scope, then save. 3. Start the server and add the connection below. Keep MarinaShell running on the same computer as your agent.",
+      "1. Pair an agent above and copy its token, or pair it with your own fixed password. 2. Choose its allowed tools and scope, then save. 3. Start the server and add the connection below. Keep MarinaShell running on the same computer as your agent.",
     ),
   );
   const selector = el("select");
@@ -108,7 +108,7 @@ function guide(url) {
     link,
     el(
       "p",
-      "No tools listed? Save permissions and reconnect the agent. Connection refused? Start the server. Authentication failed? Use the current token; rotating or revoking a token invalidates the old one. Ask requests expire after 55 seconds.",
+      "No tools listed? Save permissions and reconnect the agent. Connection refused? Start the server. Authentication failed? Use the current token or your set fixed password; rotating, setting a password, or revoking invalidates the old credential. Ask requests expire after 55 seconds.",
       "hint",
     ),
   );
@@ -194,18 +194,42 @@ async function refresh() {
     name.placeholder = "Agent name";
     name.maxLength = 80;
     name.setAttribute("aria-label", "New agent name");
+    const pairPassword = el("input");
+    pairPassword.type = "password";
+    pairPassword.placeholder = "Fixed password (optional)";
+    pairPassword.maxLength = 128;
+    pairPassword.autocomplete = "new-password";
+    pairPassword.setAttribute("aria-label", "New agent fixed password");
     agentRow.append(
       agents,
       name,
+      pairPassword,
       button("Pair agent", async () => {
-        const result = await call("pair", { name: name.value });
+        const result = await call("pair", {
+          name: name.value,
+          password: pairPassword.value || undefined,
+        });
         selected = result.id;
-        tokenView(result.token);
+        name.value = "";
+        if (result.fixed) {
+          pairPassword.value = "";
+          error.textContent =
+            "Agent paired with your fixed password. Use that password as the agent’s bearer token.";
+        } else {
+          tokenView(result.token);
+        }
         busy = false;
         await refresh();
       }),
     );
     root.append(agentRow);
+    root.append(
+      el(
+        "p",
+        "Pairing registers one of your AI tools (Codex, Claude Code, ZCode…) as an agent. Each agent gets its own credential — a generated token or a fixed password you choose — plus the tool permissions and project scope you save below.",
+        "hint",
+      ),
+    );
     const policy = el("div", undefined, "mcp-policy");
     root.append(policy);
     function renderPolicy() {
@@ -213,10 +237,23 @@ async function refresh() {
       const client = data.settings.clients.find((c) => c.id === selected);
       if (!client) return;
       const actions = el("div", undefined, "mcp-row");
+      const fixedPassword = el("input");
+      fixedPassword.type = "password";
+      fixedPassword.placeholder = "New fixed password";
+      fixedPassword.maxLength = 128;
+      fixedPassword.autocomplete = "new-password";
+      fixedPassword.setAttribute("aria-label", "Fixed password for this agent");
       actions.append(
         button("Rotate token", async () => {
           const result = await call("rotate", { id: client.id });
           tokenView(result.token);
+        }),
+        fixedPassword,
+        button("Set password", async () => {
+          await call("password", { id: client.id, password: fixedPassword.value });
+          fixedPassword.value = "";
+          error.textContent =
+            "Fixed password updated. Agents must use the new password.";
         }),
         button("Revoke agent", async () => {
           await call("revoke", { id: client.id });
@@ -288,33 +325,185 @@ async function refresh() {
           "hint",
         ),
       );
-      const scopes = {};
       const scopeGrid = el("div", undefined, "mcp-scopes");
       const hosts = [
         { id: "__local__", name: "Local" },
         ...(data.hosts || []).map((h) => ({ id: h.alias, name: h.alias })),
       ];
-      for (const [key, items] of [
-        ["projects", data.projects],
-        ["hosts", hosts],
-        ["configurations", data.configurations],
-      ]) {
-        const field = el("fieldset");
-        field.append(el("legend", key[0].toUpperCase() + key.slice(1)));
-        const options = [
-          { id: "*", name: `All ${key}, including future ones` },
-          ...items,
-        ];
-        for (const id of client.scope[key])
-          if (!options.some((o) => o.id === id))
-            options.push({ id, name: `${id} (unavailable)` });
-        scopes[key] = options.map((item) => {
-          const c = check(item.name, client.scope[key].includes(item.id));
-          field.append(c.label);
-          return { id: item.id, input: c.input };
-        });
-        scopeGrid.append(field);
+      const hostField = el("fieldset");
+      hostField.append(el("legend", "Hosts"));
+      const hostOptions = [
+        { id: "*", name: "All hosts, including future ones" },
+        ...hosts,
+      ];
+      for (const id of client.scope.hosts)
+        if (!hostOptions.some((o) => o.id === id))
+          hostOptions.push({ id, name: `${id} (unavailable)` });
+      const hostInputs = hostOptions.map((item) => {
+        const c = check(item.name, client.scope.hosts.includes(item.id));
+        hostField.append(c.label);
+        return { id: item.id, input: c.input };
+      });
+      scopeGrid.append(hostField);
+      // Projects tree: every project carries its run configurations, so the
+      // standalone Configurations block is gone. The project checkbox selects
+      // or clears its whole branch; individual configurations stay toggleable.
+      const projectField = el("fieldset");
+      projectField.append(el("legend", "Projects"));
+      const allProjects = check(
+        "All projects, including future ones",
+        client.scope.projects.includes("*"),
+      );
+      projectField.append(allProjects.label);
+      const allConfigurations = check(
+        "All configurations, including future ones",
+        client.scope.configurations.includes("*"),
+      );
+      projectField.append(allConfigurations.label);
+      const knownConfigurations = new Map(
+        data.configurations.map((c) => [c.id, c.name]),
+      );
+      const linked = new Set(
+        data.projects.flatMap((p) => p.configurationIds || []),
+      );
+      const branches = [
+        ...data.projects.map((p) => ({
+          id: p.id,
+          name: p.name,
+          children: [...new Set(p.configurationIds || [])],
+          project: true,
+        })),
+        {
+          id: "__unassigned__",
+          name: "Unassigned configurations",
+          children: [
+            ...data.configurations
+              .filter((c) => !linked.has(c.id))
+              .map((c) => c.id),
+            ...client.scope.configurations.filter(
+              (id) =>
+                id !== "*" &&
+                !knownConfigurations.has(id) &&
+                !linked.has(id),
+            ),
+          ],
+          project: false,
+        },
+        ...client.scope.projects
+          .filter(
+            (id) => id !== "*" && !data.projects.some((p) => p.id === id),
+          )
+          .map((id) => ({
+            id,
+            name: `${id} (unavailable)`,
+            children: [],
+            project: true,
+          })),
+      ];
+      const selectedProjects = new Set(
+        client.scope.projects.filter((id) => id !== "*"),
+      );
+      const selectedConfigurations = new Set(
+        client.scope.configurations.filter((id) => id !== "*"),
+      );
+      const projectInputs = new Map();
+      const configurationInputs = new Map();
+      const tree = el("div", undefined, "mcp-tree");
+      function refreshTree() {
+        for (const [id, rows] of configurationInputs) {
+          const on =
+            allConfigurations.input.checked || selectedConfigurations.has(id);
+          for (const input of rows) {
+            input.checked = on;
+            input.disabled = allConfigurations.input.checked;
+            input.indeterminate = false;
+          }
+        }
+        for (const [id, row] of projectInputs) {
+          const all = row.children.every((cid) =>
+            selectedConfigurations.has(cid),
+          );
+          if (row.project) {
+            const inScope = selectedProjects.has(id);
+            row.input.checked = inScope && all;
+            row.input.indeterminate =
+              row.children.length > 0 && inScope !== all;
+          } else {
+            row.input.checked = row.children.length > 0 && all;
+            row.input.indeterminate =
+              !row.input.checked &&
+              row.children.some((cid) => selectedConfigurations.has(cid));
+          }
+        }
       }
+      for (const branch of branches) {
+        const row = el("div", undefined, "mcp-tree-row");
+        const label = el("label", undefined, "mcp-tree-label");
+        const input = el("input");
+        input.type = "checkbox";
+        input.setAttribute("aria-label", branch.name);
+        label.append(input, document.createTextNode(branch.name));
+        const arrow = el("button", "▾", "mcp-tree-arrow");
+        arrow.type = "button";
+        arrow.setAttribute("aria-label", `Toggle ${branch.name} configurations`);
+        const childBox = el("div", undefined, "mcp-tree-children");
+        for (const childId of branch.children) {
+          const childLabel = el("label", undefined, "mcp-tree-label");
+          const child = el("input");
+          child.type = "checkbox";
+          child.setAttribute(
+            "aria-label",
+            knownConfigurations.get(childId) || childId,
+          );
+          childLabel.append(
+            child,
+            document.createTextNode(
+              knownConfigurations.get(childId) || `${childId} (unavailable)`,
+            ),
+          );
+          child.onchange = () => {
+            if (child.checked) selectedConfigurations.add(childId);
+            else selectedConfigurations.delete(childId);
+            refreshTree();
+          };
+          childBox.append(childLabel);
+          const rows = configurationInputs.get(childId) || [];
+          rows.push(child);
+          configurationInputs.set(childId, rows);
+        }
+        if (branch.children.length) {
+          arrow.onclick = () => {
+            childBox.hidden = !childBox.hidden;
+            arrow.textContent = childBox.hidden ? "▸" : "▾";
+          };
+        } else {
+          arrow.style.visibility = "hidden";
+        }
+        row.append(arrow, label);
+        input.onchange = () => {
+          const turnOn = input.indeterminate ? true : input.checked;
+          if (turnOn) {
+            if (branch.project) selectedProjects.add(branch.id);
+            for (const childId of branch.children)
+              selectedConfigurations.add(childId);
+          } else {
+            selectedProjects.delete(branch.id);
+            for (const childId of branch.children)
+              selectedConfigurations.delete(childId);
+          }
+          refreshTree();
+        };
+        projectInputs.set(branch.id, {
+          input,
+          children: branch.children,
+          project: branch.project,
+        });
+        tree.append(row, childBox);
+      }
+      projectField.append(tree);
+      allConfigurations.input.onchange = refreshTree;
+      refreshTree();
+      scopeGrid.append(projectField);
       policy.append(scopeGrid);
       const scratch = check(
         "Allow Scratchpad (ungrouped terminals and runs)",
@@ -329,12 +518,17 @@ async function refresh() {
               [...controls].map(([k, s]) => [k, s.value]),
             ),
             scope: {
-              ...Object.fromEntries(
-                Object.entries(scopes).map(([k, rows]) => [
-                  k,
-                  rows.filter((r) => r.input.checked).map((r) => r.id),
-                ]),
-              ),
+              projects: [
+                ...(allProjects.input.checked ? ["*"] : []),
+                ...[...selectedProjects],
+              ],
+              configurations: [
+                ...(allConfigurations.input.checked ? ["*"] : []),
+                ...[...selectedConfigurations],
+              ],
+              hosts: hostInputs
+                .filter((r) => r.input.checked)
+                .map((r) => r.id),
               scratchpad: scratch.input.checked,
             },
           });

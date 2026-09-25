@@ -175,6 +175,64 @@ const { createLibraryStore } = require("../main/services/libraryStore");
     }),
     403,
   );
+  // Fixed agent passwords: user-chosen credentials behave like generated
+  // tokens — validated, encrypted, revocable, and replaceable via setPassword.
+  assert.throws(() => store.add("Bad", "short"), /printable/);
+  assert.throws(() => store.add("Bad", "has a space inside"), /printable/);
+  assert.throws(() => store.setPassword("missing-id", "longenough1"), /Agent not found/);
+  const shared = store.add("Fixed password agent", "clang-wrench-42!");
+  assert.equal(shared.fixed, true);
+  assert.equal(shared.token, "clang-wrench-42!");
+  store.policy(shared.id, { "terminals.list": "allow" }, scope, engine.names);
+  const fixedClient = new Client({ name: "fixed", version: "1" });
+  await fixedClient.connect(
+    new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: { Authorization: "Bearer clang-wrench-42!" } },
+    }),
+  );
+  assert.equal((await fixedClient.listTools()).tools.length, 1);
+  assert.equal(
+    (await fixedClient.callTool({ name: "terminals.list", arguments: {} }))
+      .structuredContent.items.length,
+    1,
+  );
+  await fixedClient.close();
+  assert.equal(
+    (
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer wrong-password",
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      })
+    ).status,
+    401,
+  );
+  store.setPassword(shared.id, "hot-pipe-7777");
+  assert.equal(
+    (
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer clang-wrench-42!",
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      })
+    ).status,
+    401,
+  );
+  assert.throws(() => store.setPassword(shared.id, "ok but spaced"), /printable/);
+  const rotated = new Client({ name: "fixed2", version: "1" });
+  await rotated.connect(
+    new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: { Authorization: "Bearer hot-pipe-7777" } },
+    }),
+  );
+  assert.equal((await rotated.listTools()).tools.length, 1);
+  await rotated.close();
   await client.close();
   await server.stop();
   const blocker = net.createServer();
@@ -193,11 +251,11 @@ const { createLibraryStore } = require("../main/services/libraryStore");
       decryptString: (b) => b.toString(),
     },
   });
-  assert.equal(persisted.data.clients.length, 1);
+  assert.equal(persisted.data.clients.length, 2);
   assert.equal(persisted.receipt(`${pair.id}:once`).status, "completed");
   fs.rmSync(root, { recursive: true, force: true });
   console.log(
-    "PASS MCP: real SDK discovery/calls, hidden tools, bounded schemas, scopes, approval, revocation, idempotency, auth, Host/Origin and lifecycle",
+    "PASS MCP: real SDK discovery/calls, hidden tools, bounded schemas, scopes, approval, revocation, idempotency, generated and fixed-password auth, Host/Origin and lifecycle",
   );
 })().catch((e) => {
   console.error(e);

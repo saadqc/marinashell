@@ -24,6 +24,7 @@ export function installMcpBridge({
       savedGroupId: group.savedGroupId || "",
       name: group.name,
       layout: group.layout || "1x1",
+      configurationIds: [...(group.configurationIds || [])],
       terminalIds: [...state.tabs.values()]
         .filter((t) => t.groupId === group.id)
         .map((t) => t.id),

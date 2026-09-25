@@ -53,18 +53,49 @@ module.exports = ({
     const live = await broker
       .request("snapshot", {}, AbortSignal.timeout(1500))
       .catch(() => ({ projects: [] }));
+    // Project linkage is freshest in the live workspace (window state and
+    // broker snapshot); the saved-project library can lag behind when
+    // configurations were linked after the project was saved.
+    const stateStore = require("../../main/services/stateStore");
+    const liveGroups = new Map();
+    for (const g of [
+      ...(stateStore.loadState().tabGroups || []),
+      ...live.projects,
+    ]) {
+      if (g && g.id)
+        liveGroups.set(g.id, {
+          name: g.name || "",
+          configurationIds: [...(g.configurationIds || [])],
+          savedGroupId: g.savedGroupId || "",
+        });
+    }
+    const projects = library.read().map((l) => {
+      const counterpart = [...liveGroups.values()].find(
+        (g) => g.savedGroupId === l.id,
+      );
+      return {
+        id: l.id,
+        name: l.name,
+        configurationIds: counterpart
+          ? counterpart.configurationIds
+          : l.configurationIds || [],
+      };
+    });
+    for (const [id, g] of liveGroups) {
+      if (!g.savedGroupId)
+        projects.push({
+          id,
+          name: `${g.name} (open)`,
+          configurationIds: g.configurationIds,
+        });
+    }
     return {
       ok: true,
       ...server.status(),
       settings: store.publicState(),
       tools: engine.names,
       activity: store.activity(),
-      projects: [
-        ...library.read().map((p) => ({ id: p.id, name: p.name })),
-        ...live.projects
-          .filter((p) => !p.savedGroupId)
-          .map((p) => ({ id: p.id, name: `${p.name} (open)` })),
-      ],
+      projects,
       configurations: (getService("runs")?.manager.configs.read() || []).map(
         (c) => ({ id: c.id, name: c.name }),
       ),
@@ -106,7 +137,12 @@ module.exports = ({
     store.update({ port: patch.port, restore: patch.restore });
     return current();
   });
-  ipc("pair", ({ name }) => ({ ok: true, ...store.add(name) }));
+  ipc("pair", ({ name, password }) => ({ ok: true, ...store.add(name, password) }));
+  ipc("password", ({ id, password }) => {
+    store.setPassword(id, password);
+    broker.cancel();
+    return current();
+  });
   ipc("rotate", ({ id }) => {
     const result = store.rotate(id);
     broker.cancel();

@@ -48,7 +48,7 @@
 }
 .mcp-scopes {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: 12px;
 }
 .mcp-scopes fieldset {
@@ -57,6 +57,57 @@
   max-height: 220px;
   overflow: auto;
   min-width: 0;
+}
+.mcp-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+#preferences-mcp .mcp-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+#preferences-mcp .mcp-tree-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 3px 0;
+  text-transform: none;
+  font-weight: normal;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+#preferences-mcp .mcp-tree-label input[type="checkbox"] {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+}
+#preferences-mcp .mcp-tree-children {
+  margin-left: 24px;
+  display: flex;
+  flex-direction: column;
+}
+#preferences-mcp .mcp-tree-children .mcp-tree-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+#preferences-mcp .mcp-tree-arrow {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
 }
 #preferences-mcp button {
   border: 1px solid var(--border);

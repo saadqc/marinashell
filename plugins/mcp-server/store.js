@@ -21,7 +21,7 @@ function createStore({ root, secureStorage }) {
       clients: data.clients.map(({ secret, ...client }) => client),
     };
   }
-  function token() {
+  function credential(value) {
     if (
       !secureStorage.isEncryptionAvailable() ||
       secureStorage.getSelectedStorageBackend?.() === "basic_text"
@@ -29,11 +29,25 @@ function createStore({ root, secureStorage }) {
       throw new Error(
         "Secure system credential storage is unavailable. Unlock your keychain or secret service first.",
       );
-    const value = crypto.randomBytes(32).toString("base64url");
     return {
       value,
       secret: secureStorage.encryptString(value).toString("base64"),
     };
+  }
+  function token() {
+    return credential(crypto.randomBytes(32).toString("base64url"));
+  }
+  // A user-chosen fixed password; stored encrypted exactly like tokens.
+  function validatePassword(value) {
+    const password = String(value ?? "");
+    if (!/^[\x21-\x7e]{8,128}$/.test(password))
+      throw new Error(
+        "Use 8 to 128 printable characters with no spaces (letters, digits, or symbols).",
+      );
+    return password;
+  }
+  function fixedCredential(value) {
+    return credential(validatePassword(value));
   }
   return {
     get data() {
@@ -53,10 +67,13 @@ function createStore({ root, secureStorage }) {
           data[key] = key === "port" ? patch[key] : Boolean(patch[key]);
       save();
     },
-    add(name) {
+    add(name, password) {
       if (!String(name || "").trim() || String(name).length > 80)
         throw new Error("Enter an agent name (up to 80 characters).");
-      const credential = token();
+      const useFixed = password !== undefined && password !== null && password !== "";
+      const credential = useFixed
+        ? fixedCredential(validatePassword(password))
+        : token();
       const client = {
         id: crypto.randomUUID(),
         name: String(name).trim(),
@@ -72,7 +89,16 @@ function createStore({ root, secureStorage }) {
       };
       data.clients.push(client);
       save();
-      return { id: client.id, token: credential.value };
+      return { id: client.id, token: credential.value, fixed: useFixed };
+    },
+    // Replaces an agent's credential with a user-chosen fixed password.
+    setPassword(id, password) {
+      const client = data.clients.find((c) => c.id === id);
+      if (!client) throw new Error("Agent not found");
+      client.secret = credential(validatePassword(password)).secret;
+      client.version++;
+      save();
+      return { id: client.id };
     },
     rotate(id) {
       const client = data.clients.find((c) => c.id === id);

@@ -74,7 +74,7 @@
 .run-output .terminal-grid-label { top:42px; }
 .run-output .xterm-cursor-layer, .run-output .xterm-cursor { visibility:hidden; }
 @media(max-width:800px) { .run-editor-layout { grid-template-columns:180px minmax(0,1fr); } .run-form-tabs { gap:12px; padding:0 14px; } .run-form-panel { padding:16px 14px; } .run-field { grid-template-columns:125px minmax(0,1fr); gap:5px 10px; } .run-inline-actions { margin-left:135px; } }
-/* Runs live beneath Files; only active jobs are listed. */
+/* Runs live beneath Files; active jobs first, ended ones until dismissed. */
 #sidebar #run-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:9px; padding:12px; margin-top:4px; border-top:1px solid var(--border); flex-shrink:0; }
 .run-section-heading { display:flex; align-items:center; justify-content:space-between; font-size:11px; font-weight:600; color:var(--text-muted); }
 .run-section-heading .icon-btn { width:23px; height:23px; padding:3px; }
@@ -83,8 +83,15 @@
 .run-launcher .icon-btn { flex-shrink:0; width:25px; height:27px; padding:4px; }
 .running-configurations { display:flex; flex-direction:column; gap:2px; overflow:auto; max-height:220px; }
 .running-configurations:empty { display:none; }
-.running-configuration { display:flex; align-items:center; gap:8px; width:100%; padding:7px 4px; border:0; background:transparent; text-align:left; font-size:11px; }
+.running-configuration { display:flex; align-items:center; gap:2px; width:100%; padding:7px 4px; border-radius:4px; font-size:11px; }
 .running-configuration:hover { background:var(--surface-hover); }
-.running-configuration > span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.running-configuration .run-chip { flex:1; min-width:0; display:flex; align-items:center; gap:8px; padding:0; border:0; background:transparent; color:inherit; font:inherit; text-align:left; }
+.running-configuration .run-chip > span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.running-configuration.ended .run-chip { color:var(--text-muted); }
+.running-configuration .run-dismiss { flex-shrink:0; width:20px; height:20px; padding:3px; color:var(--text-muted); opacity:0; }
+.running-configuration .run-dismiss svg { width:12px; height:12px; }
+.running-configuration:hover .run-dismiss, .running-configuration .run-dismiss:focus-visible { opacity:1; }
 .running-dot { width:6px; height:6px; flex-shrink:0; border-radius:50%; background:var(--success); }
 .running-dot.unknown { background:var(--text-muted); }
+.running-dot.exited, .running-dot.blocked { background:var(--text-muted); }
+.running-dot.failed { background:var(--danger); }

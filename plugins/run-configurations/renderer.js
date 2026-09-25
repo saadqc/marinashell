@@ -11,6 +11,9 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
   const status = document.createElement('span'); status.className = 'run-status';
   let configurations = []; let selectedId = state.appState.selectedRunConfigurationId || ''; let tmuxAvailable = false;
   const runs = new Map(); const views = new Map(); const polling = new Set();
+  // Session-scoped indicator list: runs launched (or opened) in this window,
+  // minus the ones dismissed with the row's ✕. Never touches stored records.
+  const sessionRunIds = new Set(); const dismissedRunIds = new Set();
   let launching = false;
   function icon(name, label, action, className = '') {
     const el = button('', action, `icon-btn ${className}`); el.innerHTML = `<i data-icon="${name}"></i>`; el.title = label; el.setAttribute('aria-label', label); return el;
@@ -35,30 +38,25 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
     selectedId = id; chooser.value = id; state.appState.selectedRunConfigurationId = id;
     api.updateState({ selectedRunConfigurationId: id }); updateControls();
   }
+  function selectedGroup() {
+    const groups = state.appState.tabGroups || [];
+    return groups.find(g => g.id === state.tabs.get(state.activeTabId)?.groupId) || null;
+  }
   function renderChoices() {
     chooser.replaceChildren();
-    const groups = state.appState.tabGroups || [];
-    const activeGroup = groups.find(g => g.id === state.tabs.get(state.activeTabId)?.groupId);
-    // Show every group's configurations, active tab's group first, so configs
-    // stay grouped no matter which tab is open.
-    const ordered = activeGroup ? [activeGroup, ...groups.filter(g => g !== activeGroup)] : groups;
-    const claimed = new Set();
-    function add(label, configs) {
-      if (!configs.length) return;
-      const options = document.createElement('optgroup'); options.label = label;
-      for (const config of configs) options.append(new Option(config.name, config.id)); chooser.append(options);
+    const activeGroup = selectedGroup();
+    // Only the selected workspace's configurations are offered; an ungrouped
+    // tab falls back to the whole library.
+    const visible = activeGroup
+      ? configurations.filter(config => (activeGroup.configurationIds || []).includes(config.id))
+      : configurations;
+    if (visible.length) {
+      for (const config of visible) chooser.append(new Option(config.name, config.id));
+    } else {
+      chooser.append(new Option(activeGroup ? `No configurations in ${activeGroup.name}` : 'No configurations', ''));
     }
-    for (const group of ordered) {
-      const linked = configurations.filter(config => (group.configurationIds || []).includes(config.id));
-      if (!linked.length) continue;
-      for (const config of linked) claimed.add(config.id);
-      add(group.name, linked);
-    }
-    add('All configurations', configurations.filter(config => !claimed.has(config.id)));
-    if (!configurations.length) chooser.append(new Option('No configurations', ''));
-    if (!configurations.some(c => c.id === selectedId)) {
-      const preferred = activeGroup?.configurationIds?.find(id => configurations.some(c => c.id === id));
-      selectedId = preferred || configurations[0]?.id || '';
+    if (!visible.some(config => config.id === selectedId)) {
+      selectedId = visible[0]?.id || '';
     }
     chooser.value = selectedId; updateControls();
   }
@@ -91,18 +89,33 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
   }
   function renderRunChip() {
     runList.replaceChildren();
-    for (const run of [...runs.values()].reverse().filter(run => !run.closed && ['starting', 'running', 'stopping', 'unknown'].includes(run.status))) {
-      const row = button('', () => showOutput(run), 'running-configuration');
+    const group = selectedGroup();
+    const listed = [...runs.values()].reverse().filter(run => sessionRunIds.has(run.id) && !run.closed
+      && !dismissedRunIds.has(run.id) && (group ? run.groupId === group.id : !run.groupId));
+    // Active runs stay on top; ended ones remain listed until dismissed.
+    const ordered = [...listed.filter(run => !ended(run)), ...listed.filter(run => ended(run))];
+    for (const run of ordered) {
+      const row = document.createElement('div'); row.className = 'running-configuration';
+      row.classList.toggle('ended', ended(run));
       row.dataset.runId = run.id;
+      const chip = button('', () => showOutput(run), 'run-chip');
       const dot = document.createElement('span'); dot.className = `running-dot ${run.status}`;
       const label = document.createElement('span'); label.textContent = runDisplayName(run);
-      row.title = describe(run); row.setAttribute('aria-label', `${runDisplayName(run)}: ${describe(run)}`);
-      row.append(dot, label); runList.append(row);
+      chip.title = describe(run); chip.setAttribute('aria-label', `${runDisplayName(run)}: ${describe(run)}`);
+      chip.append(dot, label); row.append(chip);
+      if (ended(run)) row.append(icon('x', 'Remove from list', () => { dismissedRunIds.add(run.id); renderRunChip(); }, 'run-dismiss'));
+      runList.append(row);
     }
+    icons(runList);
   }
   async function fetchLibrary(id) {
     const data = await call('list'); configurations = data.configurations; tmuxAvailable = data.tmuxAvailable;
-    for (const run of data.runs) runs.set(run.id, run);
+    for (const run of data.runs) {
+      // Runs started outside this window (agent tools) join the indicator
+      // while they are still going; ended history from earlier windows does not.
+      if (!runs.has(run.id) && !ended(run)) sessionRunIds.add(run.id);
+      runs.set(run.id, run);
+    }
     if (id) selectConfig(id); renderChoices(); return data;
   }
   async function openEditor() {
@@ -124,7 +137,7 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
     finally { polling.delete(id); }
   }
   function attach(run, { focus = true, replaceTab } = {}) {
-    runs.set(run.id, run);
+    runs.set(run.id, run); sessionRunIds.add(run.id);
     if (views.has(run.id)) { if (focus) sessionTabs.setActiveSessionTab(views.get(run.id).tabId); return; }
     let tab = replaceTab || [...state.tabs.values()].find(tab => tab.runId === run.id);
     if (!tab) tab = [...state.tabs.values()].find(tab => tab.readOnly && !tab.runId && tab.configurationId === run.configurationId && tab.groupId === run.groupId);
@@ -181,7 +194,7 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
       const active = state.tabs.get(state.activeTabId);
       const group = state.appState.tabGroups?.find(g => g.id === active?.groupId);
       const result = await call('start', { id: selectedId, groupId: group?.id || '', groupName: group?.name || '' });
-      runs.set(result.run.id, result.run);
+      runs.set(result.run.id, result.run); sessionRunIds.add(result.run.id);
       // An already-open output view for this configuration is refreshed in
       // place; otherwise the run stays in the indicator until output is wanted.
       const previous = [...views.keys()].reverse().find(id => id !== result.run.id
@@ -212,7 +225,7 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
         await call('close', { id });
         const old = runs.get(id); if (old) old.closed = true;
       }
-      runs.set(result.run.id, result.run);
+      runs.set(result.run.id, result.run); sessionRunIds.add(result.run.id);
       // Keep an already-open output view attached across the restart.
       if (tab) attach(result.run, { replaceTab: tab, focus: false });
       else updateControls();

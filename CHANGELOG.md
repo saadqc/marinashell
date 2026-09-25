@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.11 — 2026-09-25
+
+- The run configuration launcher now lists only the selected workspace's configurations instead of every group's; an empty workspace shows a placeholder and ungrouped sessions keep the full library.
+- The run indicator keeps a session history: active runs stay on top and ended runs (exited, failed, stopped) remain listed until dismissed with the row's ✕. Dismissing is session-only and never removes the configuration or the stored run record.
+- Runs started by agent tools and runs still active from an earlier window join the indicator automatically; ended history from previous windows stays out of the list.
+- Ended runs show a neutral dot (red for failures) and workspace tests cover the scoping, persistence, and dismissal behavior end to end.
+
+
 ## v0.2.10 — 2026-09-22
 
 - Fixed the “Settings access only” error when opening Agent access from the Settings navigation. Pairing, token creation, and MCP server controls now remain available after switching sections.

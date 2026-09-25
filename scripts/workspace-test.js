@@ -20,9 +20,11 @@ const execute = async (_host, command, options = {}) => {
 const manager = createRunManager({ execute, hostIdentity: async () => 'fixture', root });
 const groups = createLibraryStore('groups', root);
 const configuration = manager.configs.upsert(normalize({ name: 'Development server', type: 'shell', mode: 'commands', target: 'echo "Server ready"; trap "exit 0" TERM; while :; do sleep 1; done', cwd: root, env: { ENVIRONMENT: 'development' } }));
-let state = { lastHost: '__local__', tabGroups: [{ id: 'project', name: 'Workspace', layout: '2x1', configurationIds: [configuration.id] }], tabs: [
+const otherConfiguration = manager.configs.upsert(normalize({ name: 'Other job', type: 'shell', mode: 'commands', target: 'echo "Other ready"; trap "exit 0" TERM; while :; do sleep 1; done', cwd: root }));
+let state = { lastHost: '__local__', tabGroups: [{ id: 'project', name: 'Workspace', layout: '2x1', configurationIds: [configuration.id] }, { id: 'other', name: 'Other workspace', layout: '1x1', configurationIds: [otherConfiguration.id] }], tabs: [
   { id: 'one', host: '__local__', manualTitle: 'Frontend', currentPath: root, tabColor: 'blue', groupId: 'project' },
-  { id: 'two', host: '__local__', manualTitle: 'Backend', currentPath: root, tabColor: 'green', groupId: 'project' }
+  { id: 'two', host: '__local__', manualTitle: 'Backend', currentPath: root, tabColor: 'green', groupId: 'project' },
+  { id: 'three', host: '__local__', manualTitle: 'Other', currentPath: root, tabColor: 'default', groupId: 'other' }
 ], activeTabId: 'one', sidebarCollapsed: false };
 let writes = 0;
 const settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); settings.ui.session.restoreTabs.value = true;
@@ -39,6 +41,7 @@ const routes = {
   'plugin:run-configurations:save': ({ configuration }) => ({ ok: true, configuration: manager.configs.upsert(normalize(configuration)) }),
   'plugin:run-configurations:start': async ({ id, groupId, groupName }) => ({ ok: true, run: await manager.start(id, groupId, groupName) }),
   'plugin:run-configurations:poll': async ({ id, offset, generation }) => ({ ok: true, ...await manager.poll(id, offset, generation) }),
+  'plugin:run-configurations:status': async ({ id }) => ({ ok: true, run: await manager.status(id) }),
   'plugin:run-configurations:stop': async ({ id, force }) => ({ ok: true, run: await manager.stop(id, force) }),
   'plugin:run-configurations:restart': async ({ id }) => ({ ok: true, run: await manager.restart(id) }),
   'plugin:run-configurations:close': async ({ id }) => { await manager.close(id); return { ok: true }; },
@@ -109,7 +112,7 @@ app.whenReady().then(async () => {
   await evaluate(`testWait(()=>!document.querySelector('.run-editor')); document.querySelector('#run-toolbar [aria-label="Run"]').click();`);
   // Launching stays in the run indicator; the output tab opens on demand.
   await evaluate(`testWait(()=>document.querySelector('.running-configuration'))`);
-  await evaluate(`testWait(()=>document.querySelectorAll('.running-configuration').length === 1); document.querySelector('.running-configuration').click();`);
+  await evaluate(`testWait(()=>document.querySelectorAll('.running-configuration').length === 1); document.querySelector('.running-configuration .run-chip').click();`);
   await evaluate(`testWait(()=>document.querySelector('.run-output-bar')?.textContent.includes('Running'))`);
   assert.equal(manager.list().length, 1);
   // The rendered terminal must fit between the run toolbar and pane bottom,
@@ -138,9 +141,30 @@ app.whenReady().then(async () => {
   await evaluate(`testWait(()=>!document.querySelector('.run-output-bar'))`);
   assert.equal(manager.list().length, 0);
   assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 0);
+  // The launcher offers only the selected workspace's configurations, never
+  // the whole library.
+  assert.deepEqual(await evaluate(`return [...document.querySelector('#run-toolbar select').options].map(o => o.textContent)`), ['Development server']);
+  // Launch, then stop: the ended run stays listed and gains a dismiss control.
+  await evaluate(`document.querySelector('#run-toolbar [aria-label="Run"]').click(); testWait(()=>document.querySelector('.running-configuration .run-chip'));`);
+  await evaluate(`document.querySelector('#run-toolbar [aria-label="Stop"]').click(); testWait(()=>document.querySelector('.running-configuration.ended .run-dismiss'));`);
+  // Relaunching must not hide the ended run; active runs stay on top.
+  await evaluate(`document.querySelector('#run-toolbar [aria-label="Run"]').click(); testWait(()=>document.querySelectorAll('.running-configuration').length === 2);`);
+  assert.equal(await evaluate(`return document.querySelector('.running-configuration').classList.contains('ended')`), false);
+  assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration')[1].classList.contains('ended')`), true);
+  // Dismissing removes only the indicator row; stored run records survive.
+  await evaluate(`document.querySelector('.running-configuration.ended .run-dismiss').click();`);
+  assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 1);
+  assert.equal(manager.list().length, 2);
+  await evaluate(`document.querySelector('#run-toolbar [aria-label="Stop"]').click(); testWait(()=>document.querySelector('.running-configuration.ended .run-dismiss'));`);
+  // Selecting the other workspace scopes the dropdown and the indicator to it.
+  await evaluate(`document.querySelector('.session-tab.active .close-btn').click();`);
+  await evaluate(`document.querySelector('.session-tab.active .close-btn').click(); testWait(()=>[...document.querySelector('#run-toolbar select').options].some(o => o.textContent === 'Other job'));`);
+  assert.deepEqual(await evaluate(`return [...document.querySelector('#run-toolbar select').options].map(o => o.textContent)`), ['Other job']);
+  assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 0);
+  assert.equal(manager.list().length, 2);
   // Exercise xterm's real keydown/keyup listeners: one shortcut must write once
   // and cancel Chromium's default paste action.
-  await evaluate(`if(document.querySelector('#disconnect-session-btn').disabled) { document.querySelector('.terminal-pane.active .welcome-local').click(); } testWait(()=>!document.querySelector('#disconnect-session-btn').disabled);`);
+  await evaluate(`if(document.querySelector('#disconnect-session-btn').disabled) { document.querySelector('.terminal-pane.active .welcome-connect').click(); } testWait(()=>!document.querySelector('#disconnect-session-btn').disabled);`);
   const writesBeforePaste = writes;
   const pasteEvents = await evaluate(`
     const textarea = [...document.querySelectorAll('.xterm-helper-textarea')].find(el=>el.closest('.xterm').getBoundingClientRect().width);

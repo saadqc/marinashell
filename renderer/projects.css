@@ -3,7 +3,10 @@
 #app { grid-template-columns: 62px var(--sidebar-width) minmax(0, 1fr); }
 #app.sidebar-collapsed { grid-template-columns: 62px 0 minmax(0, 1fr); }
 #project-rail { display: flex; flex-direction: column; gap: 8px; align-items: center; padding: 0 0 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border); min-height: 0; max-height: 42%; flex-shrink: 0; }
-#open-projects { display: flex; flex-direction: column; gap: 10px; overflow: auto; scrollbar-width: none; min-height: 0; flex-shrink: 1; }
+#open-projects { display: flex; flex-direction: column; gap: 10px; overflow: auto; min-height: 0; flex-shrink: 1; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+#open-projects::-webkit-scrollbar { width: 4px; }
+#open-projects::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+#open-projects::-webkit-scrollbar-track { background: transparent; }
 .project-switch { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 51px; border: 0; background: transparent; padding: 3px 0; color: var(--text-muted); }
 .project-monogram { display: grid; place-items: center; width: 33px; height: 33px; border-radius: 8px; background: var(--surface-raised); font-size: 12px; font-weight: 600; border: 1px solid transparent; }
 .project-switch.active .project-monogram { color: var(--accent); border-color: var(--accent); background: var(--surface-selected); }

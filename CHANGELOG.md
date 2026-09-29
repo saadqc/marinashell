@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.13 — 2026-09-29
+
+- Run configurations grouped by server type: uvicorn and uv configurations get their own sidebar groups (with drawn uvicorn and uv marks) alongside Flask, and a "uv run" template makes uv-based servers easy to add.
+- Every configuration in the run editor shows the projects it belongs to beneath its name, and the launcher dropdown appends the project, so repeated names like "Backend" are distinguishable at a glance.
+- Fixed the interpreter file picker in the run editor: the dialog now opens in the current interpreter's folder, a pick survives a form re-render while the dialog is open, and a late pick after switching configurations is discarded instead of leaking into the other configuration.
+- Fixed newly opened or activated projects not appearing in the left project rail: the rail kept the newest entries clipped below its fold with the scrollbar hidden. The active project is now scrolled into view and overflow shows a thin scrollbar.
+- The MCP HTTP server answers browser-style CORS preflights and normalizes the Accept header some desktop agents send, while keeping the DNS-rebinding guard on the Host header and bearer authentication.
+
+
 ## v0.2.12 — 2026-09-25
 
 - Agents can authenticate with a fixed password you choose: pair a new agent with your own password, or set one on an existing agent at any time. Fixed passwords are validated, stored encrypted in the system keychain, and replacing one invalidates the old credential immediately.

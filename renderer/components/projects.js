@@ -40,6 +40,14 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     const loose = [...state.tabs.values()].filter(tab => !tab.groupId && !tab.runOutput);
     if (loose.length) item('Scratchpad', '', loose);
     for (const group of groups) item(group.name, group.id, [...state.tabs.values()].filter(tab => tab.groupId === group.id));
+    // The rail clips overflow without a scrollbar, so keep the active project inside the visible fold.
+    const activeItem = rail.querySelector('.project-switch.active');
+    if (activeItem) {
+      const railRect = rail.getBoundingClientRect();
+      const itemRect = activeItem.getBoundingClientRect();
+      if (itemRect.top < railRect.top) rail.scrollTop += itemRect.top - railRect.top;
+      else if (itemRect.bottom > railRect.bottom) rail.scrollTop += itemRect.bottom - railRect.bottom;
+    }
     document.getElementById('project-heading').textContent = currentGroup()?.name || 'Files';
     document.getElementById('sidebar-session-label').textContent = active ? `${active.manualTitle || 'Files'} · ${active.host === '__local__' ? 'Local' : active.host || 'No connection'}` : 'Files';
     document.getElementById('sidebar').classList.toggle('session-disconnected', !active?.connected);

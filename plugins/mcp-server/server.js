@@ -30,17 +30,28 @@ function createHttpServer({ store, tools, onStop = () => {} }) {
         res.writeHead(code, {
           "Content-Type": "text/plain",
           "Cache-Control": "no-store",
+          "Access-Control-Allow-Origin": "*",
         });
         res.end(http.STATUS_CODES[code]);
       };
       if (state !== "running") return reject(503);
-      if (
-        req.headers.host !== `127.0.0.1:${port}` ||
-        (req.headers.origin &&
-          req.headers.origin !== `http://127.0.0.1:${port}`)
-      )
-        return reject(403);
+      // DNS-rebinding guard: a browser cannot forge the Host header. The
+      // Origin header is deliberately not validated — desktop agents send
+      // their own app origins, and every request still needs the bearer
+      // credential, which a hostile page does not have.
+      if (req.headers.host !== `127.0.0.1:${port}`) return reject(403);
       if (req.url !== "/mcp") return reject(404);
+      // Browser-style clients preflight cross-origin POSTs without
+      // credentials; answer the preflight before demanding auth.
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+          "Access-Control-Allow-Methods": "POST",
+          "Access-Control-Allow-Headers":
+            "Authorization, Content-Type, Mcp-Session-Id, Accept",
+          "Access-Control-Max-Age": "86400",
+        });
+        return res.end();
+      }
       // Printable ASCII without spaces covers generated base64url tokens and
       // user-chosen fixed passwords alike; store.authenticate caps the length.
       const auth = /^Bearer ([!-~]{1,256})$/.exec(
@@ -58,6 +69,10 @@ function createHttpServer({ store, tools, onStop = () => {} }) {
         )
       )
         return reject(415);
+      // The transport insists on the dual Accept the Streamable HTTP spec
+      // mandates; some desktop agents send only `application/json`, so
+      // normalize instead of rejecting an otherwise valid call.
+      req.headers.accept = "application/json, text/event-stream";
       if (inflight.size >= 8) return reject(429);
       const controller = new AbortController();
       inflight.add(controller);

@@ -51,7 +51,19 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
       ? configurations.filter(config => (activeGroup.configurationIds || []).includes(config.id))
       : configurations;
     if (visible.length) {
-      for (const config of visible) chooser.append(new Option(config.name, config.id));
+      // The launcher shows only this project's configurations, but names repeat
+      // across projects; keep the owning project visible in each choice.
+      const projectsByConfig = new Map();
+      for (const group of state.appState.tabGroups || []) {
+        for (const id of group.configurationIds || []) {
+          if (!projectsByConfig.has(id)) projectsByConfig.set(id, []);
+          projectsByConfig.get(id).push(group.name);
+        }
+      }
+      for (const config of visible) {
+        const projects = (projectsByConfig.get(config.id) || []).join(', ');
+        chooser.append(new Option(projects ? `${config.name} — ${projects}` : config.name, config.id));
+      }
     } else {
       chooser.append(new Option(activeGroup ? `No configurations in ${activeGroup.name}` : 'No configurations', ''));
     }

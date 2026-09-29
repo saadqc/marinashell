@@ -140,6 +140,8 @@ const { createLibraryStore } = require("../main/services/libraryStore");
     401,
   );
   const another = store.add("Another");
+  // A foreign Origin no longer rejects: the Host guard covers DNS rebinding
+  // and every request still needs a valid credential.
   assert.equal(
     (
       await fetch(url, {
@@ -147,12 +149,22 @@ const { createLibraryStore } = require("../main/services/libraryStore");
         headers: {
           Authorization: `Bearer ${another.token}`,
           Origin: "https://evil.example",
+          Accept: "application/json",
           "Content-Type": "application/json",
         },
         body: "{}",
       })
     ).status,
-    403,
+    400,
+  );
+  assert.equal(
+    (
+      await fetch(url, {
+        method: "OPTIONS",
+        headers: { Origin: "https://evil.example", "Access-Control-Request-Method": "POST" },
+      })
+    ).status,
+    204,
   );
   assert.equal(
     await new Promise((resolve) => {

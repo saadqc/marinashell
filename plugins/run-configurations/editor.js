@@ -6,6 +6,7 @@ const templates = [
   { label: 'Celery worker', type: 'python', mode: 'module', target: 'celery', args: '-A app worker --loglevel=INFO', interpreter: 'python3' },
   { label: 'Uvicorn server', type: 'python', mode: 'module', target: 'uvicorn', args: 'app:app --reload', interpreter: 'python3' },
   { label: 'Flask server', type: 'python', mode: 'module', target: 'flask', args: '--app app run', interpreter: 'python3' },
+  { label: 'uv run', type: 'shell', mode: 'commands', target: 'uv run uvicorn app:app --reload', interpreter: '/bin/bash' },
   { label: 'Node.js script', type: 'javascript', mode: 'script', interpreter: 'node' },
   { label: 'Node.js module', type: 'javascript', mode: 'module', interpreter: 'node' },
   { label: 'npm script', type: 'javascript', mode: 'npm', target: 'dev', interpreter: 'node' },
@@ -88,29 +89,47 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   }
   tools.append(template, button('Add', () => switchTo(newDraft(templates[Number(template.value)]), true)));
   const collapsed = new Set();
-  const kind = c => c.type === 'python' && c.mode === 'module' && c.target === 'flask' ? 'flask' : c.type;
+  const kind = c => {
+    if (c.type === 'python' && c.mode === 'module') {
+      if (c.target === 'flask') return 'flask';
+      if (c.target === 'uvicorn') return 'uvicorn';
+      if (c.target === 'uv') return 'uv';
+    }
+    // uv servers run as plain shell commands (`uv run …`); uv is not a Python module.
+    if (c.type === 'shell' && /^\s*uv\s+run\b/.test(String(c.target || ''))) return 'uv';
+    return c.type;
+  };
+  const projectsOf = id => (state.appState.tabGroups || []).filter(group => (group.configurationIds || []).includes(id)).map(group => group.name);
   function icon(type) {
     const image = document.createElement('img'); image.className = 'run-type-icon'; image.alt = '';
     image.src = new URL(`../../assets/${type === 'javascript' ? 'icons/file-icons/language-javascript.svg' : `jetbrains/${type}.svg`}`, import.meta.url).href;
     return image;
   }
+  const groupTitles = { flask: 'Flask server', uvicorn: 'Uvicorn server', uv: 'uv', python: 'Python', javascript: 'JavaScript', shell: 'Shell Script' };
   function renderList() {
     list.replaceChildren(); list.setAttribute('role', 'tree');
     const all = configurations.map(c => c.id === draft?.id ? draft : c);
     if (draft && !all.some(c => c.id === draft.id)) all.push(draft);
-    for (const type of ['flask', 'python', 'javascript', 'shell']) {
+    for (const type of ['flask', 'uvicorn', 'uv', 'python', 'javascript', 'shell']) {
       const items = all.filter(c => kind(c) === type);
       if (!items.length) continue;
       const heading = button('', () => { collapsed.has(type) ? collapsed.delete(type) : collapsed.add(type); renderList(); }, 'run-list-heading');
       heading.setAttribute('role', 'treeitem'); heading.setAttribute('aria-expanded', String(!collapsed.has(type)));
       const arrow = document.createElement('span'); arrow.className = 'run-tree-arrow'; arrow.textContent = collapsed.has(type) ? '›' : '⌄';
-      heading.append(arrow, icon(type), document.createTextNode({ flask: 'Flask server', python: 'Python', javascript: 'JavaScript', shell: 'Shell Script' }[type])); list.append(heading);
+      heading.append(arrow, icon(type), document.createTextNode(groupTitles[type])); list.append(heading);
       if (collapsed.has(type)) continue;
       const group = document.createElement('div'); group.setAttribute('role', 'group');
       for (const config of items) {
         const row = button('', () => switchTo(config), config.id === draft?.id ? 'run-tree-item selected' : 'run-tree-item');
         row.setAttribute('role', 'treeitem'); row.setAttribute('aria-selected', String(config.id === draft?.id));
-        row.append(icon(type), document.createTextNode(config.name)); group.append(row);
+        // Identical names across projects are the norm ("Backend"), so show the
+        // project membership directly beneath each configuration name.
+        const body = document.createElement('span'); body.className = 'run-tree-item-body';
+        const name = document.createElement('span'); name.textContent = config.name; body.append(name);
+        const projects = projectsOf(config.id);
+        if (projects.length) { const sub = document.createElement('small'); sub.className = 'run-tree-item-projects'; sub.textContent = projects.join(', '); body.append(sub); }
+        row.title = projects.length ? `${config.name} — ${projects.join(', ')}` : config.name;
+        row.append(icon(type), body); group.append(row);
       }
       list.append(group);
     }
@@ -145,7 +164,21 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   function pathField(label, key, kind = 'file', hint = '') {
     const row = document.createElement('div'); row.className = 'run-path-field';
     const el = input(draft[key]); el.addEventListener('input', () => draft[key] = el.value);
-    row.append(el, button('Browse…', async () => { try { const value = await browse(draft.cwd, kind); if (value) { draft[key] = value; el.value = value; } } catch (error) { showError(error); } }));
+    row.append(el, button('Browse…', async () => {
+      try {
+        // Start inside the folder of the current value so swapping an
+        // interpreter does not mean re-navigating hidden paths every time.
+        const start = kind === 'file' && /^[/~]/.test(draft[key] || '') && draft[key].includes('/') ? draft[key].slice(0, draft[key].lastIndexOf('/')) : draft.cwd;
+        const editing = draft;
+        const value = await browse(start, kind);
+        // The native dialog stays open for a while; switching configurations
+        // in between must not write the pick into the wrong draft.
+        if (!value || draft !== editing) return;
+        draft[key] = value;
+        // A re-render while the dialog was open detaches this input.
+        if (el.isConnected) el.value = value; else renderForm();
+      } catch (error) { showError(error); }
+    }));
     const browseButton = row.lastElementChild; browseButton.classList.add('run-browse');
     browseButton.setAttribute('aria-label', `Browse ${label.toLowerCase()}`); browseButton.title = `Browse ${label.toLowerCase()}`;
     browseButton.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M1.5 4V2.5h5l2 2h6v9h-13z"/></svg>';
@@ -298,7 +331,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     const mode = select(modes, draft.mode); mode.addEventListener('change', () => { draft.mode = mode.value; renderForm(); }); field(sectionParent, 'Run mode', mode);
     if (draft.mode === 'script') pathField('Script path', 'target');
     else if (draft.mode === 'commands') { const code = document.createElement('textarea'); code.rows = 5; code.value = draft.target; code.addEventListener('input', () => draft.target = code.value); field(sectionParent, 'Shell commands', code); }
-    else textField(draft.mode === 'npm' ? 'npm script' : 'Module name', 'target', draft.mode === 'npm' ? 'dev' : draft.type === 'python' ? 'celery, uvicorn, flask…' : 'package-name');
+    else textField(draft.mode === 'npm' ? 'npm script' : 'Module name', 'target', draft.mode === 'npm' ? 'dev' : draft.type === 'python' ? 'celery, uvicorn, flask, uv…' : 'package-name');
     textField('Arguments', 'args', '', 'Use quotes for arguments containing spaces.').classList.add('run-code-field');
     pathField('Working directory', 'cwd', 'directory');
     section('environment');

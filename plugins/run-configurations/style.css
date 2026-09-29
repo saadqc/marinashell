@@ -15,6 +15,8 @@
 .run-editor .run-config-list button:hover { background:var(--surface-hover); }
 .run-editor .run-config-list button.selected { background:var(--surface-selected); color:var(--accent); box-shadow:inset 2px 0 var(--accent); }
 .run-editor .run-config-list .run-tree-item { padding-left:27px; }
+.run-tree-item-body { display:flex; flex-direction:column; align-items:flex-start; gap:1px; min-width:0; }
+.run-tree-item-projects { max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:10px; color:var(--text-subtle); }
 .run-editor .run-config-list .run-list-heading { color:var(--text-muted); font-size:11px; font-weight:600; margin-top:5px; }
 .run-tree-arrow { width:12px; flex-shrink:0; font-size:15px; }
 .run-type-icon { width:15px; height:15px; flex-shrink:0; }

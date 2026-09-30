@@ -1,3 +1,8 @@
+# MarinaShell v0.2.14
+
+- Layout changes finally land where you expect: saving an already-open project applies its layout to your live terminals immediately, and the project-settings ellipsis no longer sneaks you into the New-project editor when your session has no project.
+- The command palette (⌘K) has a Close button.
+
 # MarinaShell v0.2.13
 
 - Run configurations now group uvicorn and uv servers in their own sections with dedicated icons (plus a "uv run" template), and every configuration lists its projects underneath its name — no more guessing which "Backend" is which, in the editor or the launcher.

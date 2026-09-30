@@ -58,7 +58,7 @@ export function createWorkspaceNavigation({ state, sessionTabs, dockLayout, setS
     input.setAttribute('aria-controls', 'command-results'); input.setAttribute('aria-autocomplete', 'list');
     const list = document.createElement('div'); list.id = 'command-results'; list.setAttribute('role', 'listbox');
     view.body.append(input, list);
-    const help = document.createElement('span'); help.textContent = '↑ ↓ Navigate   ↵ Open   Esc Close'; view.footer.append(help);
+    const help = document.createElement('span'); help.textContent = '↑ ↓ Navigate   ↵ Open   Esc Close'; view.footer.append(help, button('Close', view.close, 'ghost-btn'));
     let selected = 0, filtered = [];
     async function choose(index) {
       const entry = filtered[index];

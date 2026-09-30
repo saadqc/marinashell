@@ -143,7 +143,7 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 0);
   // The launcher offers only the selected workspace's configurations, never
   // the whole library.
-  assert.deepEqual(await evaluate(`return [...document.querySelector('#run-toolbar select').options].map(o => o.textContent)`), ['Development server']);
+  assert.deepEqual(await evaluate(`return [...document.querySelector('#run-toolbar select').options].map(o => o.textContent)`), ['Development server — Workspace']);
   // Launch, then stop: the ended run stays listed and gains a dismiss control.
   await evaluate(`document.querySelector('#run-toolbar [aria-label="Run"]').click(); testWait(()=>document.querySelector('.running-configuration .run-chip'));`);
   await evaluate(`document.querySelector('#run-toolbar [aria-label="Stop"]').click(); testWait(()=>document.querySelector('.running-configuration.ended .run-dismiss'));`);
@@ -158,8 +158,8 @@ app.whenReady().then(async () => {
   await evaluate(`document.querySelector('#run-toolbar [aria-label="Stop"]').click(); testWait(()=>document.querySelector('.running-configuration.ended .run-dismiss'));`);
   // Selecting the other workspace scopes the dropdown and the indicator to it.
   await evaluate(`document.querySelector('.session-tab.active .close-btn').click();`);
-  await evaluate(`document.querySelector('.session-tab.active .close-btn').click(); testWait(()=>[...document.querySelector('#run-toolbar select').options].some(o => o.textContent === 'Other job'));`);
-  assert.deepEqual(await evaluate(`return [...document.querySelector('#run-toolbar select').options].map(o => o.textContent)`), ['Other job']);
+  await evaluate(`document.querySelector('.session-tab.active .close-btn').click(); testWait(()=>[...document.querySelector('#run-toolbar select').options].some(o => o.textContent === 'Other job — Other workspace'));`);
+  assert.deepEqual(await evaluate(`return [...document.querySelector('#run-toolbar select').options].map(o => o.textContent)`), ['Other job — Other workspace']);
   assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 0);
   assert.equal(manager.list().length, 2);
   // Exercise xterm's real keydown/keyup listeners: one shortcut must write once

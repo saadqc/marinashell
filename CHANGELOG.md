@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.14 — 2026-09-30
+
+- Fixed project layout changes appearing to do nothing. Saving a project that is already open now applies the chosen layout to the live session immediately (directories and connections still apply on next open), and the editor hint says so.
+- The sidebar Project settings button no longer silently opens the New project creator when the active session is not part of a project; it now explains there is no layout to change and offers to open or create a project.
+- The command palette (⌘/Ctrl+K) gained a Close button next to the keyboard hints.
+- Workspace tests now cover the launcher's project-suffixed configuration names introduced in v0.2.13.
+
+
 ## v0.2.13 — 2026-09-29
 
 - Run configurations grouped by server type: uvicorn and uv configurations get their own sidebar groups (with drawn uvicorn and uv marks) alongside Flask, and a "uv run" template makes uv-based servers easy to add.

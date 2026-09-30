@@ -85,7 +85,7 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     for (const [value, title] of [['1x1','One terminal at a time'],['2x1','Two columns'],['1x2','Two rows'],['2x2','Four panes']]) layout.add(new Option(title, value));
     layout.value = snapshot?.layout || '1x1';
     const hint = document.createElement('p'); hint.className = 'form-hint';
-    hint.textContent = snapshot ? 'Set the directories and connections used when this project next opens. Open sessions stay as they are.' : 'Each directory opens as a session. Connections can be local or on different SSH hosts.';
+    hint.textContent = snapshot ? 'The saved layout applies to the open project immediately; directories and connections are used when it next opens.' : 'Each directory opens as a session. Connections can be local or on different SSH hosts.';
     const list = document.createElement('div'); list.className = 'project-entries';
     const rows = [];
     function add(entry = {}) {
@@ -108,6 +108,11 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
       try {
         const saved = await state.api.invoke('groups:save', { ...snapshot, kind: 'project', name: name.value.trim(), layout: layout.value, tabs });
         if (!saved?.id) throw new Error(saved?.error || 'The project could not be saved.');
+        // A layout chosen for a project that is already open applies immediately;
+        // directories and connections are used when it next opens.
+        const liveGroup = (state.appState?.tabGroups || []).find(group => group.savedGroupId === saved.id
+          && [...state.tabs.values()].some(tab => tab.groupId === group.id));
+        if (liveGroup && liveGroup.layout !== layout.value) sessionTabs.setGroupLayout(liveGroup.id, layout.value);
         view.close(); emit();
         if (andOpen) { await sessionTabs.savedGroups.restore(saved); showTerminal(); }
       } catch (err) { error.textContent = err.message; view.footer.querySelectorAll('button').forEach(el => { el.disabled = false; }); }
@@ -146,7 +151,16 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
 
   async function options(groupId = currentGroup()?.id) {
     const group = state.appState.tabGroups.find(item => item.id === groupId);
-    if (!group) { editProject(); return; }
+    if (!group) {
+      // With no project in this session the ellipsis must not silently open the
+      // project creator; its layout picker would appear to do nothing.
+      const view = modal('Project settings');
+      const note = document.createElement('p'); note.className = 'form-hint';
+      note.textContent = 'This session is not part of a project, so there is no layout to change yet.';
+      view.body.append(note);
+      view.footer.append(button('Open project…', () => { view.close(); openLibrary(); }, 'primary-btn'), button('New project…', () => { view.close(); editProject(); }), button('Cancel', view.close, 'ghost-btn'));
+      return;
+    }
     const view = modal(group.name); view.dialog.classList.add('project-options');
     const controls = document.createElement('div'); controls.className = 'project-option-actions';
     const layout = document.createElement('select'); layout.setAttribute('aria-label', 'Project layout');

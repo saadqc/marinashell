@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.15 — 2026-10-02
+
+- Fixed the pane-header Layout dropdown failing to open: re-parenting the menu during a pointer press canceled the summary's click activation. The menu now only moves when its container actually changes.
+- Workspace tests drive real pointer events through the Layout dropdown and verify all four pane actions (split right, split down, close, reset).
+
+
 ## v0.2.14 — 2026-09-30
 
 - Fixed project layout changes appearing to do nothing. Saving a project that is already open now applies the chosen layout to the live session immediately (directories and connections still apply on next open), and the editor hint says so.

@@ -471,7 +471,11 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
     path.textContent = activeTab?.currentPath ? ` / ${activeTab.currentPath}` : '';
     path.title = activeTab?.currentPath || '';
     contextEl.append(name, path);
-    if (leaf) leaf.headerEl.querySelector('.dock-leaf-actions').prepend(layoutMenu);
+    if (leaf) {
+      const actionsEl = leaf.headerEl.querySelector('.dock-leaf-actions');
+      // Moving the summary during pointerdown cancels its native click activation.
+      if (layoutMenu.parentElement !== actionsEl) actionsEl.prepend(layoutMenu);
+    }
     const sessionType = activeTab && activeTab.sessionType ? String(activeTab.sessionType) : '';
     const normalizedType = sessionType === 'local' ? 'local' : (sessionType === 'ssh' ? 'ssh' : sessionType);
     toolbarViewsEl.querySelectorAll('[data-view]').forEach((btn) => {

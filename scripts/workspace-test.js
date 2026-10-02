@@ -62,6 +62,27 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`return document.querySelector('#run-toolbar').parentElement.id`), 'sidebar');
   assert.equal(await evaluate(`return document.querySelector('#session-bar').getBoundingClientRect().height`), 0);
   assert.equal(await evaluate(`return Boolean(document.querySelector('.dock-leaf-header .layout-menu'))`), true);
+  const clickAt = async selector => {
+    const point = await evaluate(`const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };`);
+    window.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
+    window.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
+    await new Promise(resolve => setTimeout(resolve, 100));
+  };
+  await clickAt('.dock-leaf-header .layout-menu summary');
+  assert.equal(await evaluate(`return document.querySelector('.dock-leaf-header .layout-menu').open`), true, 'Layout opens with a real pointer click');
+  assert.equal(await evaluate(`const button = document.querySelector('.dock-leaf-header .layout-menu-items button'); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));`), true, 'Layout actions are visible and clickable above the terminal');
+  await clickAt('.dock-leaf-header .layout-menu-items button[title="Split Right"]');
+  assert.equal(await evaluate(`return document.querySelectorAll('.dock-leaf').length`), 2);
+  await clickAt('.dock-leaf-header .layout-menu summary');
+  await clickAt('.dock-leaf-header .layout-menu-items button[title="Split Down"]');
+  assert.equal(await evaluate(`return document.querySelectorAll('.dock-leaf').length`), 3);
+  await clickAt('.dock-leaf-header .layout-menu summary');
+  await clickAt('.dock-leaf-header .layout-menu-items button[title="Close Active Pane"]');
+  assert.equal(await evaluate(`return document.querySelectorAll('.dock-leaf').length`), 2);
+  await clickAt('.dock-leaf-header .layout-menu summary');
+  await clickAt('.dock-leaf-header .layout-menu-items button[title="Reset to single pane"]');
+  assert.equal(await evaluate(`return document.querySelectorAll('.dock-leaf').length`), 1);
+  console.log('PASS: Layout dropdown opens by pointer and all four pane actions work');
   // Saved projects survive closing and reopen their ordered sessions and splits.
   await evaluate(`document.querySelector('#project-options-btn').click(); testClick('Save current sessions and layout');`);
   for (let i=0;i<30 && !groups.read().length;i++) await new Promise(r=>setTimeout(r,50));

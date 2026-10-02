@@ -1,3 +1,7 @@
+# MarinaShell v0.2.15
+
+- The Layout dropdown in the terminal pane header opens reliably again — a click could be silently canceled when the menu changed panes mid-press.
+
 # MarinaShell v0.2.14
 
 - Layout changes finally land where you expect: saving an already-open project applies its layout to your live terminals immediately, and the project-settings ellipsis no longer sneaks you into the New-project editor when your session has no project.

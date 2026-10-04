@@ -196,6 +196,13 @@
     </section>
     <section class="card" id="preferences-shell">
       <h2>Local shell</h2>
+      <label for="local-shell-log-level">Startup diagnostics</label>
+      <select id="local-shell-log-level">
+        <option value="errors">Errors only (quiet)</option>
+        <option value="info">Info and errors</option>
+        <option value="debug">Debug, info and errors</option>
+      </select>
+      <div class="hint">Controls MarinaShell startup messages for new local terminals. Your commands, shell profile output and errors remain visible.</div>
       <label for="local-shell-command">Shell command</label>
       <input id="local-shell-command" type="text" placeholder="auto" />
       <div class="hint">Leave blank for defaults: macOS /bin/zsh, Linux /bin/bash, Windows cmd.exe.</div>
@@ -237,7 +244,12 @@
       </div>
       <div class="hint" style="margin-top: 6px;">Enter a Git repository URL to clone into ~/.marinashell/plugins/</div>
     </section>
-<section class="card" id="preferences-mcp"><h2>Agent access · MCP</h2><div id="mcp-controls"></div><div id="mcp-token"></div><div id="mcp-guide"></div><p id="mcp-error" role="status"></p></section>
+    <section class="card" id="preferences-mcp">
+      <h2>Agent access</h2>
+      <p class="mcp-intro">Create an agent, copy its credential, and choose what it can access.</p>
+      <p id="mcp-error" role="status" aria-live="polite"></p>
+      <div id="mcp-controls"></div>
+    </section>
     <div class="status" id="settings-status">Saved</div>
   </main>
   <script src="settings.js"></script>

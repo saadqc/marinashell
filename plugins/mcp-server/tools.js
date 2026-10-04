@@ -142,7 +142,7 @@ tool(
       )
       .min(1)
       .max(32),
-    layout: z.enum(["1x1", "2x1", "1x2", "2x2"]).default("1x1"),
+    layout: z.enum(["1x1", "2x1", "1x2", "3-left", "2x2"]).default("1x1"),
     ...write,
   },
   true,
@@ -173,7 +173,7 @@ tool(
   "Set an open project to a supported split layout without changing focus.",
   {
     projectId: str,
-    layout: z.enum(["1x1", "2x1", "1x2", "2x2"]),
+    layout: z.enum(["1x1", "2x1", "1x2", "3-left", "2x2"]),
     ...expected,
     ...write,
   },

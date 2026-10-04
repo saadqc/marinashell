@@ -33,6 +33,7 @@ const routes = {
   'plugin:processes:list': () => ({ok:true,platform:'Fixture',sampledAt:Date.now()/1000,notes:[],processes:[{pid:1,name:'backend',user:'demo',cpuPercent:12,ramBytes:2048,readBytes:100,writeBytes:100,ports:[8080],identity:'one'},{pid:2,name:'worker',user:'demo',cpuPercent:5,ramBytes:4096,readBytes:null,writeBytes:null,ports:[9000],identity:'two'}]}),
   'plugin:processes:stop': payload => {processStops.push(payload);return {ok:true};},
   'logs:open': payload=>{logRequests.push(payload);return {ok:true};},
+  'files:is-file': payload => /(?:AGENTS\.md|app's log\.txt)$/.test(payload.path),
   'clipboard:read': () => '',
   'sftp:list': () => [{name:"app's log.txt",path:"/srv/app's log.txt",type:'-',size:20}], 'local:list': () => [{name:"app's log.txt",path:"/srv/app's log.txt",type:'-',size:20}],
   'plugins:list': () => [{ id: 'fixture', name: 'Navigation fixture', enabled: true, rendererEntry: pathToFileURL(fixture).href }, {id:'tunnels',name:'Tunnels',enabled:true,rendererEntry:pathToFileURL(path.resolve('plugins/tunnels/renderer.js')).href}, {id:'processes',name:'Processes',enabled:true,rendererEntry:pathToFileURL(path.resolve('plugins/processes/renderer.js')).href}],
@@ -50,7 +51,7 @@ app.whenReady().then(async () => {
   window.webContents.on('console-message', (_event, level, message) => { if (level >= 3) errors.push(message); });
   await window.loadFile(path.resolve('index.html'));
   const run = async source => { try { return await window.webContents.executeJavaScript(`(async () => { ${source} })()`, true); } catch(error) { console.error(source); console.error(errors); throw error; } };
-  await run(`window.waitFor = async fn => { for (let i=0; i<100; i++) { if(fn()) return; await new Promise(r=>setTimeout(r,25)); } throw new Error('Timed out: '+fn); }; await waitFor(()=>window.fixture);`);
+  await run(`window.testErrorStacks=[];window.addEventListener('error',event=>testErrorStacks.push(event.error?.stack));window.waitFor = async fn => { for (let i=0; i<100; i++) { if(fn()) return; await new Promise(r=>setTimeout(r,25)); } throw new Error('Timed out: '+fn); }; await waitFor(()=>window.fixture);`);
   assert.deepEqual(state.tabGroups, [], 'Startup removes groups without restored members');
   // New-session state explains the next action and remote tools are gated.
   assert.equal(await run(`return document.querySelector('[data-view="remote-only"]').disabled`), true);
@@ -121,6 +122,50 @@ app.whenReady().then(async () => {
   assert.equal(await run(`return fixture.state.appState.tabGroups.find(g=>g.savedGroupId==='saved-project').layout`),'2x2');
   await run(`document.querySelector('#open-project-btn').click(); await waitFor(()=>document.querySelector('.project-library .workspace-library-row')); [...document.querySelectorAll('.project-library button')].find(b=>b.textContent==='Open').click(); await waitFor(()=>!document.querySelector('.project-library'));`);
   assert.equal(await run(`return fixture.state.tabs.size`),5);
+  // Three panes fill top-left, right, bottom-left in top-tab order.
+  await run(`
+    window.layoutMembers = [...fixture.state.tabs.values()].filter(t => t.groupId);
+    fixture.sessions.setActiveSessionTab(layoutMembers[0].id);
+    document.querySelector('#project-options-btn').click();
+    const select = document.querySelector('select[aria-label="Project layout"]');
+    select.value = '3-left'; select.dispatchEvent(new Event('change'));
+    [...document.querySelectorAll('dialog button')].find(b => b.textContent === 'Done').click();
+    await waitFor(() => document.querySelectorAll('.terminal-pane.grid-visible').length === 3);
+    window.visualPaneIds = () => [...document.querySelectorAll('.terminal-pane.grid-visible')]
+      .map(el => ({id: el.dataset.tabId, rect: el.getBoundingClientRect()}))
+      .sort((a,b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left).map(p => p.id);
+  `);
+  assert.deepEqual(await run(`return visualPaneIds()`), await run(`return layoutMembers.slice(0,3).map(t => t.id)`));
+  assert.equal(await run(`
+    const ids=visualPaneIds(); const [left,right,bottom]=ids.map(id => document.querySelector('.terminal-pane[data-tab-id="'+id+'"]').getBoundingClientRect());
+    return left.left === bottom.left && left.top === right.top && right.left > left.left && bottom.top > left.top && right.height > left.height * 1.9;
+  `), true, 'Right pane spans both left rows');
+  await run(`
+    const source=document.querySelector('.session-tab[data-tab-id="'+layoutMembers[0].id+'"]');
+    const target=document.querySelector('.session-tab[data-tab-id="'+layoutMembers[2].id+'"]');
+    const transfer=new DataTransfer(); transfer.setData('text/marinashell-tab', source.dataset.tabId);
+    const rect=target.getBoundingClientRect();
+    target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer,clientX:rect.right-2}));
+    await waitFor(() => visualPaneIds()[0] === layoutMembers[1].id);
+  `);
+  const reordered = await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId).map(t=>t.id)`);
+  assert.deepEqual(await run(`return visualPaneIds()`), reordered.slice(0,3), 'Dragging tabs also moves terminals');
+  assert.deepEqual(state.tabs.filter(t=>t.groupId).map(t=>t.id),reordered, 'Reordered tabs persisted');
+  await run(`document.querySelector('#project-options-btn').click(); [...document.querySelectorAll('dialog button')].find(b => b.textContent==='Save current sessions and layout').click(); await waitFor(()=>!document.querySelector('.project-options'));`);
+  await new Promise(resolve=>setTimeout(resolve,150));
+  assert.equal(library[0].layout, '3-left');
+  const savedOrder=library[0].tabs.map(t=>t.manualTitle);
+  await run(`document.querySelector('#project-options-btn').click(); [...document.querySelectorAll('dialog button')].find(b=>b.textContent==='Close project').click(); await waitFor(()=>fixture.state.tabs.size===1); document.querySelector('#open-project-btn').click(); await waitFor(()=>document.querySelector('.project-library .workspace-library-row')); [...document.querySelectorAll('.project-library button')].find(b=>b.textContent==='Open').click(); await waitFor(()=>fixture.state.tabs.size===5 && [...fixture.state.tabs.values()].filter(t=>t.groupId).every(t=>t.connected) && !document.querySelector('.project-library'));`);
+  assert.deepEqual(await run(`return [...document.querySelectorAll('#session-tabs .session-tab-label')].map(t=>t.textContent)`), savedOrder);
+  assert.equal(await run(`return fixture.state.appState.tabGroups.find(g=>g.savedGroupId==='saved-project').layout`), '3-left');
+  await run(`await waitFor(()=>[...document.querySelectorAll('.terminal-pane.grid-visible')].every(el=>{const screen=el.querySelector('.xterm-screen').getBoundingClientRect();const bounds=el.getBoundingClientRect();return screen.width>0&&screen.right<=bounds.right+1&&screen.bottom<=bounds.bottom+1;}));`);
+  fs.mkdirSync(path.resolve('design/validation'), {recursive:true});
+  fs.writeFileSync(path.resolve('design/validation/three-pane-layout.png'),(await window.webContents.capturePage()).toPNG());
+  // The same order also drives ordinary four-pane grids; explicit spans reset.
+  await run(`fixture.sessions.setGroupLayout(fixture.state.appState.tabGroups.find(g=>g.savedGroupId==='saved-project').id,'2x2');`);
+  assert.equal(await run(`return [...document.querySelectorAll('.terminal-pane.grid-visible')].every(el=>!el.style.gridColumn&&!el.style.gridRow)`),true);
+  assert.deepEqual(await run(`return visualPaneIds()`),await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId).map(t=>t.id)`));
+  console.log('PASS: three-pane geometry, left-to-right tab drag order, four-pane reorder and saved project restoration');
   // Shortcuts follow the visible project strip and must be captured before xterm.
   const shortcutWrites = writes.length;
   await run(`
@@ -172,17 +217,87 @@ app.whenReady().then(async () => {
   assert.equal(await run(`return Boolean(document.querySelector('.command-palette'))`),true);
   assert.match(await run(`return document.querySelector('#command-search kbd').textContent`),/Shift P/);
   await run(`document.querySelector('.command-palette').dispatchEvent(new Event('cancel',{cancelable:true}));for(const tab of extraShortcutTabs)await fixture.sessions.closeTab(tab.id,{approved:true});`);
+  // Native context-menu clicks split only the clicked pane, keeping LR tab order.
+  const originalLibrary = structuredClone(library);
+  const beforeAdjacentActive = await run(`return fixture.state.activeTabId`);
+  const beforeAdjacent = await run(`return fixture.state.tabs.size`);
+  await run(`window.adjacentSource=fixture.sessions.createNewTab({host:'__local__',path:'/srv/adjacent',groupId:'',connect:true});await waitFor(()=>adjacentSource.connected);`);
+  async function contextClick(tabId, label) {
+    const position = await run(`const rect=fixture.state.tabs.get(${JSON.stringify(tabId)}).container.getBoundingClientRect();return {x:Math.round(rect.left+Math.min(rect.width/2,80)),y:Math.round(rect.top+Math.min(rect.height/2,80))};`);
+    window.webContents.sendInputEvent({type:'mouseDown',button:'right',clickCount:1,...position});
+    window.webContents.sendInputEvent({type:'mouseUp',button:'right',clickCount:1,...position});
+    const button = await run(`await waitFor(()=>[...document.querySelectorAll('.context-menu.open button')].some(b=>b.textContent===${JSON.stringify(label)}));const button=[...document.querySelectorAll('.context-menu.open button')].find(b=>b.textContent===${JSON.stringify(label)});const rect=button.getBoundingClientRect();return {x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)};`);
+    assert.equal(await run(`return document.elementFromPoint(${button.x},${button.y})?.textContent`),label,'Menu button is reachable');
+    window.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...button});
+    window.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...button});
+    await run(`await new Promise(resolve=>setTimeout(resolve,100));`);
+  }
+  const adjacentSourceId = await run(`return adjacentSource.id`);
+  await contextClick(adjacentSourceId, 'Create on right');
+  await run(`await waitFor(()=>fixture.state.tabs.size===${beforeAdjacent+2}); window.adjacentRight=fixture.state.tabs.get(fixture.state.activeTabId);await waitFor(()=>adjacentRight.connected);`);
+  const adjacentRightId=await run(`return adjacentRight.id`);
+  assert.equal(await run(`const [a,b]=[adjacentSource,adjacentRight].map(t=>t.container.getBoundingClientRect());return a.top===b.top&&a.left<b.left&&Math.abs(a.height-b.height)<1;`),true);
+  await contextClick(adjacentSourceId, 'Create below');
+  await run(`await waitFor(()=>fixture.state.tabs.size===${beforeAdjacent+3});window.adjacentBelow=fixture.state.tabs.get(fixture.state.activeTabId);await waitFor(()=>adjacentBelow.connected);`);
+  const adjacentBelowId=await run(`return adjacentBelow.id`);
+  assert.deepEqual(await run(`return visualPaneIds()`),[adjacentSourceId,adjacentRightId,adjacentBelowId]);
+  assert.equal(await run(`const [a,b,c]=[adjacentSource,adjacentRight,adjacentBelow].map(t=>t.container.getBoundingClientRect());return a.top===b.top&&a.left===c.left&&c.top>a.top&&b.height>a.height*1.9;`),true);
+  // Splitting the full-height right pane leaves both left panes in place.
+  await contextClick(adjacentRightId, 'Create below');
+  await run(`await waitFor(()=>fixture.state.tabs.size===${beforeAdjacent+4});window.adjacentFourth=fixture.state.tabs.get(fixture.state.activeTabId);await waitFor(()=>adjacentFourth.connected);`);
+  const adjacentFourthId=await run(`return adjacentFourth.id`);
+  assert.deepEqual(await run(`return visualPaneIds()`),[adjacentSourceId,adjacentRightId,adjacentBelowId,adjacentFourthId]);
+  assert.deepEqual(await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId===adjacentSource.groupId).map(t=>t.id)`),await run(`return visualPaneIds()`));
+  assert.equal(await run(`return [adjacentRight,adjacentBelow,adjacentFourth].every(t=>t.host==='__local__'&&t.currentPath==='/srv/adjacent')`),true);
+  await run(`const source=document.querySelector('.session-tab[data-tab-id="'+adjacentSource.id+'"]');const target=document.querySelector('.session-tab[data-tab-id="'+adjacentBelow.id+'"]');const transfer=new DataTransfer();transfer.setData('text/marinashell-tab',source.dataset.tabId);const rect=target.getBoundingClientRect();target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer,clientX:rect.right-2}));`);
+  assert.deepEqual(await run(`return visualPaneIds()`),[adjacentRightId,adjacentBelowId,adjacentSourceId,adjacentFourthId]);
+  const customLayout=await run(`return fixture.state.appState.tabGroups.find(g=>g.id===adjacentSource.groupId).terminalLayout`);
+  await run(`await fixture.sessions.savedGroups.save(adjacentSource.groupId,true);`);
+  assert.deepEqual(library[0].terminalLayout,customLayout);
+  const adjacentSaved={...structuredClone(library[0]),id:'adjacent-snapshot'};
+  await run(`await fixture.sessions.closeGroup(adjacentSource.groupId);window.restoredAdjacent=await fixture.sessions.savedGroups.restore(${JSON.stringify(adjacentSaved)});`);
+  assert.deepEqual(await run(`return fixture.state.appState.tabGroups.find(g=>g.id===restoredAdjacent.id).terminalLayout`),customLayout);
+  assert.deepEqual(await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId===restoredAdjacent.id).map(t=>t.id)`),await run(`return visualPaneIds()`));
+  // Explicit preset selection resets the custom rectangles and grid tracks.
+  await run(`fixture.sessions.setGroupLayout(restoredAdjacent.id,'3-left');`);
+  assert.equal(await run(`return !fixture.state.appState.tabGroups.find(g=>g.id===restoredAdjacent.id).terminalLayout&&!document.querySelector('#terminal-stack').style.gridTemplateColumns`),true);
+  // A context split also works on an existing three-pane preset with a hidden tab.
+  const presetSource=await run(`return visualPaneIds()[0]`);
+  await contextClick(presetSource,'Create on right');
+  await run(`await waitFor(()=>fixture.state.tabs.size===${beforeAdjacent+5});await waitFor(()=>fixture.state.tabs.get(fixture.state.activeTabId).connected);`);
+  assert.equal(await run(`return visualPaneIds().length`),4);
+  assert.deepEqual(await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId===restoredAdjacent.id).slice(0,4).map(t=>t.id)`),await run(`return visualPaneIds()`));
+  fs.writeFileSync(path.resolve('design/validation/adjacent-terminals.png'),(await window.webContents.capturePage()).toPNG());
+  await run(`await fixture.sessions.closeGroup(restoredAdjacent.id);`);
+  await run(`fixture.sessions.setActiveSessionTab(${JSON.stringify(beforeAdjacentActive)});`);
+  library=originalLibrary;
+  assert.equal(await run(`return fixture.state.tabs.size`),beforeAdjacent);
+  console.log('PASS: native Right/Below terminal creation, source host/path inheritance, LR tab ordering, custom drag order, saved split restoration and preset reset');
   // Exercise both auto-detected links and explicit OSC8 hyperlinks.
   const result = await run(`const tab=fixture.state.tabs.get(fixture.state.activeTabId); const provider=tab.term.testProvider; tab.term.reset(); await new Promise(resolve=>tab.term.write('https://example.com',resolve)); const links=await new Promise(resolve=>provider.provideLinks(1,resolve)); const modifier=navigator.platform.toLowerCase().includes('mac')?{metaKey:true}:{ctrlKey:true}; window.linkTest={tab,links,modifier}; links[0].activate(new MouseEvent('click',{button:0})); tab.term.options.linkHandler.activate(new MouseEvent('click',{button:0}),'https://example.org'); return links.length;`);
   assert.equal(result,1); await new Promise(r=>setTimeout(r,100)); assert.equal(externalLinks.length,0);
   await run(`linkTest.links[0].activate(new MouseEvent('click',{button:0,...linkTest.modifier})); linkTest.tab.term.options.linkHandler.activate(new MouseEvent('click',{button:0,...linkTest.modifier}),'https://example.org');`);
   await new Promise(r=>setTimeout(r,100)); assert.equal(externalLinks.length,2);
   assert.equal(await run(`return Boolean(document.querySelector('#saved-list') || document.querySelector('#recent-list') || document.querySelector('#tunnels-list'))`),false);
-  await run(`window.openedFile=null; window.addEventListener('marinashell:editor:open',event=>{window.openedFile=event.detail;}); const tab=fixture.state.tabs.get(fixture.state.activeTabId); tab.term.reset(); await new Promise(resolve=>tab.term.write('AGENTS.md',resolve)); tab.term.select(0,0,9); tab.container.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:300})); [...document.querySelectorAll('.open button')].find(button=>button.textContent==='Open in editor').click();`);
+  await run(`window.openedFile=null; window.addEventListener('marinashell:editor:open',event=>{window.openedFile=event.detail;}); const tab=fixture.state.tabs.get(fixture.state.activeTabId); tab.term.reset(); await new Promise(resolve=>tab.term.write('AGENTS.md',resolve)); tab.term.select(0,0,9);`);
+  await contextClick(await run(`return fixture.state.activeTabId`), 'Open in editor');
+  await run(`await waitFor(()=>window.openedFile);`);
   assert.match(await run(`return window.openedFile.path`),/AGENTS\.md$/);
+  await run(`window.openedFile=null;window.fileTab=fixture.state.tabs.get(fixture.state.activeTabId);window.openFileMenu=()=>fileTab.container.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:300}));window.fileButton=label=>[...document.querySelectorAll('.context-menu.open button')].find(b=>b.textContent===label);fileTab.term.clearSelection();fileTab.hoveredLink={type:'file',path:'/srv/AGENTS.md'};openFileMenu();`);
+  assert.equal(await run(`return fileButton('Open in editor').disabled&&fileButton('Tail last 500 lines').disabled`),true,'No selection disables both file actions even with a hovered file');
+  await run(`fileButton('Open in editor').click();fileButton('Tail last 500 lines').click();`);
+  assert.equal(await run(`return window.openedFile`),null);
+  await run(`fileTab.term.select(0,0,9);openFileMenu();fileTab.term.clearSelection();fileButton('Open in editor').click();`);
+  assert.equal(await run(`return window.openedFile`),null,'Cleared selection does nothing on click');
+  await run(`fileTab.term.reset();await new Promise(resolve=>fileTab.term.write('not-a-file',resolve));fileTab.term.select(0,0,10);openFileMenu();fileButton('Open in editor').click();await new Promise(resolve=>setTimeout(resolve,100));`);
+  assert.equal(await run(`return window.openedFile`),null,'Selected non-file is a no-op');
+  await run(`fileTab.term.reset();await new Promise(resolve=>fileTab.term.write("/srv/app's log.txt",resolve));fileTab.term.select(0,0,"/srv/app's log.txt".length);openFileMenu();fileButton('Tail last 500 lines').click();`);
+  await run(`await new Promise(resolve=>setTimeout(resolve,100));fileTab.term.clearSelection();fileTab.hoveredLink=null;`);
+  assert.equal(logRequests.length,1);
+  assert.equal(logRequests[0].path,"/srv/app's log.txt");
   const tabsBeforeTail=await run(`return fixture.state.tabs.size`);
   await run(`document.querySelector('.tree-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:150,clientY:250})); [...document.querySelectorAll('.open button')].find(button=>button.textContent==='Tail last 500 lines').click();`);
-  assert.equal(logRequests.length,1);assert.match(logRequests[0].path,/app's log.txt$/);
+  assert.equal(logRequests.length,2);assert.match(logRequests[1].path,/app's log.txt$/);
   assert.equal(await run(`return fixture.state.tabs.size`),tabsBeforeTail);
   await run(`document.querySelector('#command-search').click(); const search=document.querySelector('.command-palette input'); search.value='Show Process List'; search.dispatchEvent(new Event('input')); search.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); await waitFor(()=>document.querySelectorAll('.process-dialog tbody tr').length===2);`);
   assert.equal(await run(`return document.querySelector('.process-dialog tbody tr td').textContent`),'worker');
@@ -229,6 +344,7 @@ app.whenReady().then(async () => {
   assert(!state.tabGroups.some(group=>group.id==='live-a'), 'Closing last member persists group removal with restore disabled');
   const cleanAgain = await run(`return api.invoke('workspace:cleanup-groups')`);
   assert.deepEqual(cleanAgain,{removed:0,repaired:0});
+  if(errors.length) console.error(await run(`return testErrorStacks`));
   assert.deepEqual(errors, []);
   console.log('PASS: startup group cleanup, Settings cleanup with restore disabled, same-name active groups preserved, last-member removal persisted, configurable tab/search shortcuts, native keyboard dispatch, terminal focus, mixed-host project creation/reopen/split restoration, duplicate-open prevention, modifier-click links, tunnel profile UI, command search, focus restoration, settings/extensions, sidebar plugins, connection retry, retained tools, nested splits, responsive controls');
 }).catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {

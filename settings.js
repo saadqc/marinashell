@@ -1,5 +1,47 @@
 (() => {
   const api = window.api;
+  const tabs = [...document.querySelectorAll('.preferences-nav a')];
+  const panels = [...document.querySelectorAll('main > section[id]')];
+  const nav = document.querySelector('.preferences-nav');
+  nav.setAttribute('role', 'tablist');
+  function activateTab(hash = location.hash) {
+    const active = tabs.find(tab => tab.hash === hash) || tabs[0];
+    for (const tab of tabs) {
+      const selected = tab === active;
+      tab.setAttribute('role', 'tab');
+      tab.id = `tab-${tab.hash.slice(1)}`;
+      tab.setAttribute('aria-controls', tab.hash.slice(1));
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    }
+    for (const panel of panels) {
+      panel.setAttribute('role', 'tabpanel');
+      panel.setAttribute('aria-labelledby', `tab-${panel.id}`);
+      panel.hidden = `#${panel.id}` !== active.hash;
+    }
+    document.getElementById('settings-status').hidden = active.hash === '#preferences-mcp';
+    document.querySelector('main').scrollTop = 0;
+  }
+  for (const [index, tab] of tabs.entries()) {
+    tab.addEventListener('click', event => {
+      event.preventDefault();
+      history.replaceState(null, '', tab.hash);
+      activateTab(tab.hash);
+    });
+    tab.addEventListener('keydown', event => {
+      let next;
+      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+      if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === 'Home') next = 0;
+      if (event.key === 'End') next = tabs.length - 1;
+      if (next === undefined) return;
+      event.preventDefault();
+      tabs[next].click();
+      tabs[next].focus();
+    });
+  }
+  window.addEventListener('hashchange', () => activateTab());
+  activateTab();
   document.getElementById('cleanup-groups')?.addEventListener('click', async event => {
     const button = event.currentTarget;
     const status = document.getElementById('cleanup-groups-status');
@@ -27,6 +69,7 @@
   const autoConnect = document.getElementById('auto-connect');
   const autoStartTunnels = document.getElementById('auto-start-tunnels');
   const localShellCommand = document.getElementById('local-shell-command');
+  const localShellLogLevel = document.getElementById('local-shell-log-level');
   const localShellArgs = document.getElementById('local-shell-args');
   const localShellPathPrepend = document.getElementById('local-shell-path-prepend');
   const localShellMacPaths = document.getElementById('local-shell-mac-paths');
@@ -173,6 +216,10 @@
     }
     localShellCommand.addEventListener('input', () => {
       writeValue(['shell', 'local', 'command'], 'string', localShellCommand.value.trim());
+      scheduleSave();
+    });
+    localShellLogLevel.addEventListener('change', () => {
+      writeValue(['shell', 'local', 'logLevel'], 'string', localShellLogLevel.value);
       scheduleSave();
     });
     localShellArgs.addEventListener('input', () => {
@@ -423,6 +470,7 @@
         autoStartTunnels.checked = Boolean(readValue(['ui', 'connection', 'autoStartTunnels'], true));
       }
       localShellCommand.value = readValue(['shell', 'local', 'command'], '');
+      localShellLogLevel.value = readValue(['shell', 'local', 'logLevel'], 'errors');
       localShellArgs.value = readValue(['shell', 'local', 'args'], '');
       localShellPathPrepend.value = readValue(['shell', 'local', 'pathPrepend'], '');
       localShellMacPaths.checked = Boolean(readValue(['shell', 'local', 'injectMacPaths'], true));

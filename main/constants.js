@@ -66,7 +66,8 @@ const DEFAULT_SETTINGS = {
       command: { type: 'string', value: '' },
       args: { type: 'string', value: '' },
       pathPrepend: { type: 'string', value: '' },
-      injectMacPaths: { type: 'boolean', value: true }
+      injectMacPaths: { type: 'boolean', value: true },
+      logLevel: { type: 'string', value: 'errors' }
     }
   },
   plugins: {

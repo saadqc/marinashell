@@ -54,6 +54,15 @@ function createStore({ root, secureStorage }) {
       return data;
     },
     publicState,
+    getCredential(id) {
+      const client = data.clients.find((c) => c.id === id);
+      if (!client) throw new Error("Agent not found");
+      try {
+        return secureStorage.decryptString(Buffer.from(client.secret, "base64"));
+      } catch {
+        throw new Error("Unable to read this credential. Unlock your keychain or rotate the token.");
+      }
+    },
     update(patch) {
       if (
         patch.port !== undefined &&
@@ -78,6 +87,7 @@ function createStore({ root, secureStorage }) {
         id: crypto.randomUUID(),
         name: String(name).trim(),
         secret: credential.secret,
+        credentialType: useFixed ? "password" : "token",
         version: 1,
         tools: {},
         scope: {
@@ -96,6 +106,7 @@ function createStore({ root, secureStorage }) {
       const client = data.clients.find((c) => c.id === id);
       if (!client) throw new Error("Agent not found");
       client.secret = credential(validatePassword(password)).secret;
+      client.credentialType = "password";
       client.version++;
       save();
       return { id: client.id };
@@ -105,6 +116,7 @@ function createStore({ root, secureStorage }) {
       if (!client) throw new Error("Agent not found");
       const credential = token();
       client.secret = credential.secret;
+      client.credentialType = "token";
       client.version++;
       save();
       return { token: credential.value };

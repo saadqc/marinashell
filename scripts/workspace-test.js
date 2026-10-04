@@ -228,6 +228,7 @@ app.whenReady().then(async () => {
     assert.equal(await preferences.webContents.executeJavaScript("document.querySelectorAll('section.card section.card').length"), 0);
     await preferences.webContents.executeJavaScript(`(async () => {
       for (let i=0; i<100 && !document.querySelector('#session-tab-title-template').value; i++) await new Promise(r=>setTimeout(r,50));
+      const logs = document.querySelector('#local-shell-log-level'); logs.value='debug'; logs.dispatchEvent(new Event('change'));
       const select = document.querySelector('#session-tab-overflow');
       select.value = 'wrap'; select.dispatchEvent(new Event('change', {bubbles:true}));
       const shortcut=document.querySelector('#shortcut-search');shortcut.value='mod+shift+p';shortcut.dispatchEvent(new Event('input'));
@@ -236,6 +237,7 @@ app.whenReady().then(async () => {
     })()`);
     for (let i=0; i<100 && settings.ui.session.tabOverflow.value !== 'wrap'; i++) await new Promise(r=>setTimeout(r,50));
     assert.equal(settings.ui.session.tabOverflow.value, 'wrap');
+    assert.equal(settings.shell.local.logLevel.value, 'debug');
     assert.equal(settings.ui.shortcuts.search.value,'mod+shift+p');
     assert.equal(settings.ui.shortcuts.tab9.value,'');
     assert.equal(JSON.parse(fs.readFileSync(path.join(root,'settings.json'))).ui.shortcuts.nextTab.value,'ctrl+tab');
@@ -243,6 +245,7 @@ app.whenReady().then(async () => {
     await new Promise(resolve => { preferences.webContents.once('did-finish-load', resolve); preferences.reload(); });
     assert.equal(await preferences.webContents.executeJavaScript(`new Promise(resolve => setTimeout(() => resolve(document.querySelector('#session-tab-overflow').value), 200))`), 'wrap');
     assert.equal(await preferences.webContents.executeJavaScript("document.querySelector('#shortcut-search').value"),'mod+shift+p');
+    assert.equal(await preferences.webContents.executeJavaScript("document.querySelector('#local-shell-log-level').value"),'debug');
     assert.equal(await preferences.webContents.executeJavaScript("document.querySelector('#shortcut-tab9').value"),'');
   } finally { preferences.destroy(); }
   await evaluate(`window.dispatchEvent(new Event('focus')); testWait(()=>document.querySelector('#session-tabs').dataset.overflow === 'wrap');`);

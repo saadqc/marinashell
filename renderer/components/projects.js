@@ -1,5 +1,6 @@
 import { modal, button, confirmAction, showError } from './dialog.js';
 import { getActiveTab } from '../state.js';
+import { GROUP_LAYOUTS } from '../constants.js';
 
 function hostOptions(state, select, selected = '') {
   select.add(new Option('Local shell', '__local__'));
@@ -82,8 +83,9 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     const view = modal(snapshot ? 'Edit project' : 'New project', { wide: true }); view.dialog.classList.add('project-editor');
     const name = input(snapshot?.name, 'Project name'); name.id = 'project-name';
     const layout = document.createElement('select'); layout.id = 'project-layout';
-    for (const [value, title] of [['1x1','One terminal at a time'],['2x1','Two columns'],['1x2','Two rows'],['2x2','Four panes']]) layout.add(new Option(title, value));
-    layout.value = snapshot?.layout || '1x1';
+    for (const { id, title } of GROUP_LAYOUTS) layout.add(new Option(title, id));
+    if (snapshot?.terminalLayout) layout.add(new Option('Custom layout (keep current splits)', 'custom'));
+    layout.value = snapshot?.terminalLayout ? 'custom' : snapshot?.layout || '1x1';
     const hint = document.createElement('p'); hint.className = 'form-hint';
     hint.textContent = snapshot ? 'The saved layout applies to the open project immediately; directories and connections are used when it next opens.' : 'Each directory opens as a session. Connections can be local or on different SSH hosts.';
     const list = document.createElement('div'); list.className = 'project-entries';
@@ -106,13 +108,13 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
       if (tabs.some(tab => !tab.manualTitle || !/^(\/|[A-Za-z]:[\\/])/.test(tab.currentPath) || /[\r\n\0]/.test(tab.currentPath))) { error.textContent = 'Every directory needs a name, connection, and absolute path.'; return; }
       view.footer.querySelectorAll('button').forEach(el => { el.disabled = true; });
       try {
-        const saved = await state.api.invoke('groups:save', { ...snapshot, kind: 'project', name: name.value.trim(), layout: layout.value, tabs });
+        const saved = await state.api.invoke('groups:save', { ...snapshot, kind: 'project', name: name.value.trim(), layout: layout.value === 'custom' ? snapshot.layout : layout.value, terminalLayout: layout.value === 'custom' ? snapshot.terminalLayout : undefined, tabs });
         if (!saved?.id) throw new Error(saved?.error || 'The project could not be saved.');
         // A layout chosen for a project that is already open applies immediately;
         // directories and connections are used when it next opens.
         const liveGroup = (state.appState?.tabGroups || []).find(group => group.savedGroupId === saved.id
           && [...state.tabs.values()].some(tab => tab.groupId === group.id));
-        if (liveGroup && liveGroup.layout !== layout.value) sessionTabs.setGroupLayout(liveGroup.id, layout.value);
+        if (liveGroup && layout.value !== 'custom' && (liveGroup.layout !== layout.value || liveGroup.terminalLayout)) sessionTabs.setGroupLayout(liveGroup.id, layout.value);
         view.close(); emit();
         if (andOpen) { await sessionTabs.savedGroups.restore(saved); showTerminal(); }
       } catch (err) { error.textContent = err.message; view.footer.querySelectorAll('button').forEach(el => { el.disabled = false; }); }
@@ -164,8 +166,10 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     const view = modal(group.name); view.dialog.classList.add('project-options');
     const controls = document.createElement('div'); controls.className = 'project-option-actions';
     const layout = document.createElement('select'); layout.setAttribute('aria-label', 'Project layout');
-    for (const [value, name] of [['1x1','One terminal'],['2x1','Two columns'],['1x2','Two rows'],['2x2','Four panes']]) layout.add(new Option(name, value));
-    layout.value = group.layout || '1x1'; layout.addEventListener('change', () => sessionTabs.setGroupLayout(group.id, layout.value));
+    for (const { id, title } of GROUP_LAYOUTS) layout.add(new Option(title, id));
+    if (group.terminalLayout) layout.add(new Option('Custom layout', 'custom'));
+    layout.value = group.terminalLayout ? 'custom' : group.layout || '1x1';
+    layout.addEventListener('change', () => { if (layout.value !== 'custom') { sessionTabs.setGroupLayout(group.id, layout.value); layout.querySelector('option[value="custom"]')?.remove(); } });
     view.body.append(field('Layout', layout));
     controls.append(button('Save current sessions and layout', async () => { view.close(); await sessionTabs.savedGroups.save(group.id, true); }), button('Edit saved setup', async () => {
       view.close(); try { const library = await state.api.invoke('groups:list'); const saved = library.find(item => item.id === group.savedGroupId);

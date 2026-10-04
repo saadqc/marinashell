@@ -138,6 +138,7 @@ module.exports = ({
     return current();
   });
   ipc("pair", ({ name, password }) => ({ ok: true, ...store.add(name, password) }));
+  ipc("credential", ({ id }) => ({ ok: true, token: store.getCredential(id) }));
   ipc("password", ({ id, password }) => {
     store.setPassword(id, password);
     broker.cancel();

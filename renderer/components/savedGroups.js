@@ -16,6 +16,7 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
       const members = [...state.tabs.values()].filter(tab => tab.groupId === groupId);
       const snapshot = {
         id: linked?.id || existing?.id, kind: 'project', name, layout: group.layout,
+        terminalLayout: group.terminalLayout,
         configurationIds: [...(group.configurationIds || [])],
         activeIndex: Math.max(0, members.findIndex(tab => tab.id === state.activeTabId)),
         tabs: members.map(tab => ({
@@ -39,6 +40,7 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
       return existing;
     }
     const group = { id: crypto.randomUUID(), name: snapshot.name, layout: snapshot.layout,
+      terminalLayout: snapshot.terminalLayout,
       savedGroupId: snapshot.id, configurationIds: [...(snapshot.configurationIds || [])] };
     state.appState.tabGroups.push(group);
     const restored = snapshot.tabs.map(initial => tabs.createTabState({ ...initial, groupId: group.id }));
@@ -85,7 +87,7 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
           const info = document.createElement('div');
           const name = document.createElement('span'); name.textContent = group.name;
           const detail = document.createElement('small');
-          const describe = () => { detail.textContent = `${group.tabs.length} ${group.tabs.length === 1 ? 'tab' : 'tabs'} · ${group.layout || '1x1'}`; };
+          const describe = () => { detail.textContent = `${group.tabs.length} ${group.tabs.length === 1 ? 'tab' : 'tabs'} · ${group.terminalLayout ? 'Custom layout' : group.layout || '1x1'}`; };
           describe(); info.append(name, detail);
           if (versions.length > 1) {
             const selector = document.createElement('select'); selector.className = 'saved-group-versions'; selector.setAttribute('aria-label', `Saved versions of ${group.name}`);

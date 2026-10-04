@@ -180,8 +180,10 @@ function createSettingsWindow() {
   }
 
   settingsWindow = new BrowserWindow({
-    width: 640,
-    height: 720,
+    width: 960,
+    height: 760,
+    minWidth: 560,
+    minHeight: 480,
     backgroundColor: '#0b0e14',
     icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
     webPreferences: {
@@ -521,6 +523,8 @@ app.whenReady().then(() => {
       } catch (err) { }
     }
   });
+
+  ipcMain.handle('files:is-file', (_event, payload) => sessionManager.isFile(payload?.tabId, payload?.path));
 
   ipcMain.handle('files:rename', async (_event, payload) => {
     const tabId = payload && payload.tabId ? payload.tabId : null;

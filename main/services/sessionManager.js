@@ -7,6 +7,7 @@ const SftpClient = require('ssh2-sftp-client');
 require('ssh2');
 const tunnelService = require('./tunnelService');
 const { Client: SshClient } = require('ssh2');
+const { prepareLocalShell } = require('./shellIntegration');
 
 const OSC7_PREFIX = '\u001b]7;file://';
 const OSC7_BEL = '\u0007';
@@ -428,6 +429,8 @@ function buildLocalEnv(shellPath, settings) {
   if (shellPath) {
     env.SHELL = shellPath;
   }
+  const prepend = getLocalPathPrependEntries(settings);
+  if (prepend.length) env.PATH = mergePathEntries(prepend, String(env.PATH || '').split(path.delimiter)).join(path.delimiter);
   return env;
 }
 
@@ -1133,15 +1136,27 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     const env = buildLocalEnv(shell, settings);
     session.hostConfig = { alias: 'local', type: 'local' };
     session.sessionType = 'local';
-    session.ptyProcess = pty.spawn(shell, args, {
-      name: 'xterm-color',
-      cols: 80,
-      rows: 24,
-      cwd: os.homedir(),
-      env
-    });
+    const level = readSetting(settings, 'shell', 'local', 'logLevel', 'errors');
+    let startup;
+    try {
+      startup = prepareLocalShell(shell, args, env, buildLocalBootstrapScript(settings), level);
+      session.shellStartup = startup;
+      session.ptyProcess = pty.spawn(shell, startup.args, {
+        name: 'xterm-color',
+        cols: 80,
+        rows: 24,
+        cwd: os.homedir(),
+        env: startup.env
+      });
+    } catch (error) {
+      startup?.cleanup();
+      session.shellStartup = null;
+      throw error;
+    }
+    if (startup.notice) send('ssh:data', { tabId, data: startup.notice });
 
     session.ptyProcess.onData((data) => {
+      data = startup.filter(data);
       const cwdUpdates = consumeOsc7Sequences(session, data);
       for (const cwd of cwdUpdates) {
         if (cwd) {
@@ -1164,10 +1179,10 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     });
 
     session.ptyProcess.onExit(() => {
+      startup.cleanup();
+      if (session.shellStartup === startup) session.shellStartup = null;
       send('ssh:exit', { tabId });
     });
-
-    setTimeout(() => injectPromptTracking(session, settings), 300);
   }
 
   async function disconnect(tabId) {
@@ -1181,6 +1196,8 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     session.disconnecting = true;
     try {
       stopMetrics(tabId);
+      session.shellStartup?.cleanup();
+      session.shellStartup = null;
       if (session.ptyProcess) {
         try {
           session.ptyProcess.kill();
@@ -1233,6 +1250,8 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     session.disconnecting = true;
     try {
       stopMetrics(tabId);
+      session.shellStartup?.cleanup();
+      session.shellStartup = null;
       if (session.ptyProcess) {
         try {
           session.ptyProcess.kill('SIGKILL');
@@ -1276,6 +1295,17 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     } finally {
       session.disconnecting = false;
     }
+  }
+
+  async function isFile(tabId, filePath) {
+    if (typeof filePath !== 'string' || /[\x00-\x1f\x7f]/.test(filePath) || !/^(\/|[A-Za-z]:[\\/])/.test(filePath)) return false;
+    const session = sessions.get(tabId);
+    if (!session) return false;
+    try {
+      if (session.sessionType === 'local' && session.ptyProcess) return (await fs.promises.stat(filePath)).isFile();
+      if (session.sessionType === 'ssh' && session.sftpClient) return (await session.sftpClient.stat(filePath)).isFile === true;
+    } catch { /* Missing, disconnected and inaccessible paths are not files. */ }
+    return false;
   }
 
   function ensureSftpReady(tabId) {
@@ -1674,6 +1704,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     resize,
     list,
     listLocal,
+    isFile,
     download,
     renamePath,
     upload,

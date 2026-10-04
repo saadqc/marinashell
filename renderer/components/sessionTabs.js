@@ -1,17 +1,12 @@
 import { fileAction, terminalFileAt } from '../services/fileActions.js';
+import { layoutRectangles, rectangleGrid, readingOrder } from '../services/terminalLayout.js';
 import { createSavedGroups } from './savedGroups.js';
 import { showError } from './dialog.js';
 import { getActiveTab, getTab } from '../state.js';
 import { buildRemoteCdCommand, findTerminalLinks, formatRemotePath, getPathLabel, interpolateTabTitle } from '../utils.js';
-import { LOCAL_HOST_VALUE, LOCAL_HOST_LABEL } from '../constants.js';
+import { LOCAL_HOST_VALUE, LOCAL_HOST_LABEL, GROUP_LAYOUTS } from '../constants.js';
 
 const DEFAULT_TAB_TITLE_TEMPLATE = '<ssh_machine>:<current_folder_name[:15]>';
-const GROUP_LAYOUTS = [
-  { id: '1x1', label: '1 × 1', columns: 1, rows: 1 },
-  { id: '2x1', label: '2 × 1', columns: 2, rows: 1 },
-  { id: '1x2', label: '1 × 2', columns: 1, rows: 2 },
-  { id: '2x2', label: '2 × 2', columns: 2, rows: 2 }
-];
 const TAB_COLORS = [
   { id: 'default', label: 'Default' },
   { id: 'blue', label: 'Blue' },
@@ -293,6 +288,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const group = getTabGroup(groupId);
     if (!group || !GROUP_LAYOUTS.some((layout) => layout.id === layoutId)) return;
     group.layout = layoutId;
+    delete group.terminalLayout;
     renderSessionTabs();
     updateTerminalGrid();
     persistGroups();
@@ -372,7 +368,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       addMenuButton(tabContextMenu, layout.label, () => {
         setGroupLayout(groupId, layout.id);
         hideTabContextMenu();
-      }, { checked: (group.layout || '1x1') === layout.id });
+      }, { checked: !group.terminalLayout && (group.layout || '1x1') === layout.id });
     }
     addMenuLabel(tabContextMenu, 'Group');
     addMenuButton(tabContextMenu, 'Save group…', () => { hideTabContextMenu(); savedGroups.save(groupId); });
@@ -394,11 +390,22 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const tab = state.tabs.get(tabId);
     if (!tab) return;
 
-    const file = terminalFileAt(tab, x, y);
-    if (file) {
-      addMenuLabel(terminalContextMenu, 'File');
-      addMenuButton(terminalContextMenu, 'Open in editor', () => { fileAction(tab, file.path, 'editor', file.line); hideTerminalContextMenu(); });
-      addMenuButton(terminalContextMenu, 'Tail last 500 lines', () => { fileAction(tab, file.path, 'tail'); hideTerminalContextMenu(); });
+    const file = terminalFileAt(tab);
+    addMenuLabel(terminalContextMenu, 'File');
+    for (const [label, action] of [['Open in editor', 'editor'], ['Tail last 500 lines', 'tail']]) {
+      const button = addMenuButton(terminalContextMenu, label, async () => {
+        hideTerminalContextMenu();
+        // Recheck on click and after the async stat: stale selections never act.
+        if (!file || terminalFileAt(tab)?.selection !== file.selection || !tab.connected) return;
+        try {
+          if (await state.api.invoke('files:is-file', { tabId, path: file.path })
+            && state.tabs.get(tabId) === tab && tab.connected && terminalFileAt(tab)?.selection === file.selection) {
+            fileAction(tab, file.path, action, action === 'editor' ? file.line : null);
+          }
+        } catch { /* A missing or inaccessible file is a no-op. */ }
+      });
+      button.disabled = !file || !tab.connected;
+      button.title = button.disabled ? 'Select a file path in a connected terminal' : 'Use the selected file';
     }
     const contextLink = tab.hoveredLink && tab.hoveredLink.uri ? { ...tab.hoveredLink } : null;
     if (contextLink) {
@@ -444,6 +451,16 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       tab.term.selectAll();
       hideTerminalContextMenu();
     });
+
+    addMenuLabel(terminalContextMenu, 'New terminal');
+    for (const [label, direction] of [['Create on right', 'right'], ['Create below', 'below']]) {
+      const button = addMenuButton(terminalContextMenu, label, () => {
+        hideTerminalContextMenu();
+        createAdjacentTerminal(tabId, direction);
+      });
+      button.disabled = Boolean(tab.groupId && [...state.tabs.values()].filter(item => item.groupId === tab.groupId).length >= 32);
+      if (button.disabled) button.title = 'A group can contain up to 32 terminals';
+    }
 
     const killButton = addMenuButton(terminalContextMenu, 'Kill terminal', () => {
       if (state.api && typeof state.api.kill === 'function') {
@@ -713,7 +730,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     layoutButton.type = 'button';
     layoutButton.className = 'session-group-layout';
     layoutButton.title = 'Choose grid layout';
-    layoutButton.innerHTML = `<i data-icon="grid-2x2"></i><span>${(GROUP_LAYOUTS.find((item) => item.id === group.layout) || GROUP_LAYOUTS[0]).label}</span>`;
+    layoutButton.innerHTML = `<i data-icon="grid-2x2"></i><span>${group.terminalLayout ? 'Custom layout' : (GROUP_LAYOUTS.find((item) => item.id === group.layout) || GROUP_LAYOUTS[0]).label}</span>`;
     layoutButton.addEventListener('click', (event) => {
       event.stopPropagation();
       const rect = layoutButton.getBoundingClientRect();
@@ -844,7 +861,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     if (group) {
       layout = GROUP_LAYOUTS.find((item) => item.id === group.layout) || GROUP_LAYOUTS[0];
       const groupTabs = Array.from(state.tabs.values()).filter((tab) => tab.groupId === group.id);
-      const capacity = layout.columns * layout.rows;
+      const capacity = group.terminalLayout?.length || layout.capacity || layout.columns * layout.rows;
       visible = groupTabs.slice(0, capacity);
       if (active && !visible.includes(active) && capacity > 0) {
         visible[capacity - 1] = active;
@@ -854,8 +871,17 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     terminalStack.classList.toggle('terminal-grid', useGrid);
     terminalStack.style.setProperty('--terminal-grid-columns', String(layout.columns));
     terminalStack.style.setProperty('--terminal-grid-rows', String(layout.rows));
+    const customGrid = group?.terminalLayout ? rectangleGrid(group.terminalLayout) : null;
+    terminalStack.style.gridTemplateColumns = customGrid?.columns || '';
+    terminalStack.style.gridTemplateRows = customGrid?.rows || '';
     const visibleIds = new Set(visible.map((tab) => tab.id));
     state.tabs.forEach((tab) => {
+      // The tab Map changes on drag/drop; terminal DOM creation order does not.
+      // Explicit order keeps every grid in the same left-to-right tab order.
+      const index = visible.indexOf(tab);
+      tab.container.style.order = String(index);
+      tab.container.style.gridColumn = (customGrid || layout).slots?.[index]?.column || '';
+      tab.container.style.gridRow = (customGrid || layout).slots?.[index]?.row || '';
       tab.container.classList.toggle('grid-visible', visibleIds.has(tab.id));
       tab.container.classList.toggle('active', tab.id === state.activeTabId);
       if (tab.gridLabel) tab.gridLabel.textContent = getSessionTabLabel(tab);
@@ -942,7 +968,12 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     terminalResizeObserver.unobserve(tab.container);
     tab.container.remove();
     // Let xterm finish its already queued viewport refresh before disposal.
-    requestAnimationFrame(() => tab.term.dispose());
+    requestAnimationFrame(() => {
+      // xterm 5.3 leaves its paused resize task queued after disposal clears the
+      // renderer. Drain it while the renderer is still alive before disposing.
+      tab.term._core?._renderService?._pausedResizeTask?.flush();
+      tab.term.dispose();
+    });
     state.tabs.delete(tabId);
     if (tab.groupId && !Array.from(state.tabs.values()).some((item) => item.groupId === tab.groupId)) {
       state.appState.tabGroups = getTabGroups().filter((group) => group.id !== tab.groupId);
@@ -1116,6 +1147,50 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
 
     state.tabs.set(id, tabState);
     return tabState;
+  }
+
+  function createAdjacentTerminal(tabId, direction) {
+    const source = state.tabs.get(tabId);
+    if (!source || !['right', 'below'].includes(direction)) return;
+    let group = getTabGroup(source.groupId);
+    if (!group) {
+      group = { id: crypto.randomUUID(), name: getPathLabel(source.currentPath, source.remotePathStyle) || 'Terminals', layout: '1x1' };
+      getTabGroups().push(group);
+      source.groupId = group.id;
+    }
+    const members = [...state.tabs.values()].filter(tab => tab.groupId === group.id);
+    if (members.length >= 32) return;
+    const preset = GROUP_LAYOUTS.find(item => item.id === group.layout) || GROUP_LAYOUTS[0];
+    const rectangles = group.terminalLayout || layoutRectangles(preset);
+    const visible = members.slice(0, rectangles.length);
+    const active = getActiveTab(state);
+    if (active?.groupId === group.id && !visible.includes(active)) visible[rectangles.length - 1] = active;
+    if (!visible.includes(source)) return;
+    const index = visible.indexOf(source);
+    const original = rectangles[index];
+    const sibling = { ...original };
+    const current = { ...original };
+    if (direction === 'right') { current.width /= 2; sibling.width /= 2; sibling.x += current.width; }
+    else { current.height /= 2; sibling.height /= 2; sibling.y += current.height; }
+    const created = createNewTab({ host: source.host, path: source.currentPath || '/', groupId: group.id, tabColor: source.tabColor, connect: source.connected });
+    const panes = rectangles.map((rect, i) => ({ ...rect, tab: visible[i] }));
+    panes[index] = { ...current, tab: source };
+    panes.push({ ...sibling, tab: created });
+    panes.sort(readingOrder);
+    // Only occupied preset slots participate in tab order.
+    const occupied = panes.filter(pane => pane.tab);
+    group.terminalLayout = occupied.map(({ tab, ...rect }) => rect);
+    const ordered = [...occupied.map(pane => pane.tab), ...members.filter(tab => !visible.includes(tab))];
+    const reordered = new Map();
+    let inserted = false;
+    for (const tab of state.tabs.values()) {
+      if (tab.groupId === group.id) {
+        if (!inserted) { ordered.forEach(member => reordered.set(member.id, member)); inserted = true; }
+      } else reordered.set(tab.id, tab);
+    }
+    state.tabs = reordered;
+    renderSessionTabs(); updateTerminalGrid(); persistGroups();
+    return created;
   }
 
   function createNewTab(options = {}) {

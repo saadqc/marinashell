@@ -130,32 +130,10 @@
   border-radius: 5px;
   font-size: 12px;
 }
-#preferences-mcp details {
-  margin-top: 12px;
-}
-#preferences-mcp summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-#mcp-guide a {
-  display: inline-block;
-  margin-left: 12px;
-  color: var(--accent);
-}
 #mcp-error,
 .mcp-error {
   color: #efb277;
   font-size: 12px;
-}
-#mcp-token:empty {
-  display: none;
-}
-#mcp-token {
-  border-left: 2px solid var(--accent);
-  padding: 0 12px;
-}
-#mcp-token input {
-  font-family: monospace;
 }
 @media (max-width: 560px) {
   .mcp-permissions,
@@ -182,4 +160,51 @@
 .mcp-policy {
   display: grid;
   gap: 12px;
+}
+
+/* Agent management is split into small panels beneath a shared server bar. */
+#preferences-mcp .mcp-intro { color: var(--text-muted); margin: -8px 0 16px; }
+#mcp-error:empty { display: none; }
+#mcp-error { color: var(--accent); margin: 0 0 14px; line-height: 1.5; }
+#mcp-error.mcp-error { color: #efb277; }
+.mcp-server-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-sidebar); }
+.mcp-server-bar strong { font-size: 12px; }
+.mcp-server-bar code { flex: 1; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.mcp-running { color: var(--accent); }
+.mcp-tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border); }
+#preferences-mcp .mcp-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--text-muted); padding: 10px 2px; }
+#preferences-mcp .mcp-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.mcp-panel { min-width: 0; }
+#preferences-mcp .mcp-panel h3 { font-size: 13px; margin: 0 0 16px; }
+#preferences-mcp .mcp-panel .hint { margin: 10px 0 18px; font-size: 12px; }
+#preferences-mcp .mcp-field { display: flex; flex-direction: column; gap: 7px; margin: 0; color: var(--text); font-size: 12px; }
+#preferences-mcp .mcp-field input, #preferences-mcp .mcp-field select { margin: 0; min-width: 0; }
+.mcp-create-form { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(200px, 1.3fr) auto; gap: 12px; align-items: end; }
+#preferences-mcp .mcp-primary { color: var(--surface-canvas); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+#preferences-mcp button:hover { filter: brightness(1.12); }
+#preferences-mcp button:active { transform: translateY(1px); }
+#preferences-mcp .mcp-danger { color: #efb277; }
+.mcp-table-wrap { overflow: auto; }
+.mcp-agent-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.mcp-agent-table caption { text-align: left; color: var(--text); font-size: 13px; font-weight: 600; padding: 8px 0 14px; }
+.mcp-agent-table th, .mcp-agent-table td { padding: 12px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.mcp-agent-table thead th { color: var(--text-muted); font-weight: normal; padding-top: 8px; padding-bottom: 8px; }
+.mcp-agent-table tbody th { font-weight: 600; overflow-wrap: anywhere; min-width: 110px; max-width: 180px; }
+.mcp-agent-table small { display: block; font-size: 11px; color: var(--text-muted); margin-top: 5px; }
+.mcp-agent-actions { display: flex; flex-wrap: wrap; gap: 5px; min-width: 210px; }
+#preferences-mcp .mcp-agent-actions button { padding: 5px 7px; font-size: 11px; }
+.mcp-credential { display: flex; align-items: center; gap: 10px; }
+.mcp-credential code { color: var(--text-muted); white-space: nowrap; letter-spacing: 1px; }
+.mcp-password-form { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; }
+.mcp-password-form .mcp-field { flex: 1; min-width: 180px; }
+.mcp-empty { text-align: center; color: var(--text-muted); padding: 32px 12px !important; }
+#preferences-mcp .mcp-refresh { justify-self: start; color: var(--text-muted); font-size: 12px; }
+#preferences-mcp .mcp-row .mcp-field input[type=number] { width: 100px; }
+#preferences-mcp #mcp-panel-permissions > .mcp-field { max-width: 320px; margin-bottom: 18px; }
+#preferences-mcp .mcp-permissions h3 { margin: 18px 0 0; }
+@media (max-width: 680px) {
+  .mcp-create-form { grid-template-columns: 1fr; }
+  .mcp-create-form button { justify-self: start; }
+  .mcp-server-bar code { flex-basis: calc(100% - 150px); }
+  .mcp-tabs { gap: 16px; }
 }

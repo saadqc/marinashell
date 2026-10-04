@@ -193,6 +193,11 @@ const { createLibraryStore } = require("../main/services/libraryStore");
   assert.throws(() => store.add("Bad", "has a space inside"), /printable/);
   assert.throws(() => store.setPassword("missing-id", "longenough1"), /Agent not found/);
   const shared = store.add("Fixed password agent", "clang-wrench-42!");
+  assert.equal(store.getCredential(shared.id), "clang-wrench-42!");
+  assert.equal(store.getCredential(another.id), another.token);
+  assert.throws(() => store.getCredential("missing-id"), /Agent not found/);
+  assert(!JSON.stringify(store.publicState()).includes(another.token));
+  assert(!("secret" in store.publicState().clients[0]));
   assert.equal(shared.fixed, true);
   assert.equal(shared.token, "clang-wrench-42!");
   store.policy(shared.id, { "terminals.list": "allow" }, scope, engine.names);
@@ -260,10 +265,20 @@ const { createLibraryStore } = require("../main/services/libraryStore");
     root,
     secureStorage: {
       isEncryptionAvailable: () => true,
+      encryptString: (s) => Buffer.from(s),
       decryptString: (b) => b.toString(),
     },
   });
   assert.equal(persisted.data.clients.length, 2);
+  assert.equal(persisted.getCredential(shared.id), "hot-pipe-7777");
+  const previous = persisted.getCredential(shared.id);
+  const replacement = persisted.rotate(shared.id);
+  assert.notEqual(replacement.token, previous);
+  assert.equal(persisted.authenticate(previous), null);
+  assert.equal(persisted.getCredential(shared.id), replacement.token);
+  assert.equal(persisted.publicState().clients.find(c => c.id === shared.id).credentialType, "token");
+  persisted.revoke(shared.id);
+  assert.throws(() => persisted.getCredential(shared.id), /Agent not found/);
   assert.equal(persisted.receipt(`${pair.id}:once`).status, "completed");
   fs.rmSync(root, { recursive: true, force: true });
   console.log(

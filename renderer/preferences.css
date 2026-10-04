@@ -15,6 +15,22 @@ body input[type=checkbox] { accent-color: var(--accent); }
 .preferences-nav a:hover, .preferences-nav a:focus-visible { color: var(--accent); background: var(--accent-wash); }
 .card[id] { scroll-margin-top: 115px; }
 
+/* Settings keeps its navigation fixed; only the active panel scrolls. */
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; overflow: hidden; }
+body header { flex: 0 0 auto; }
+body main { flex: 1; min-height: 0; width: 100%; overflow: auto; display: block; }
+[hidden] { display: none !important; }
+body .card { border: 0; padding-bottom: 12px; }
+.preferences-nav { gap: 4px; margin-bottom: -8px; }
+.preferences-nav a { padding: 9px 12px; font-size: 13px; border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; }
+.preferences-nav a[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); background: var(--accent-wash); }
+@media (max-width: 640px) {
+  body header { padding: 16px; }
+  body main { padding: 20px 16px; }
+  .preferences-nav a { padding: 8px; }
+}
+
 /* Keep per-position shortcut editing compact in the settings window. */
 #navigation-shortcuts { display:grid; grid-template-columns:minmax(0,1fr) minmax(130px,200px); align-items:center; gap:8px 16px; margin:18px 0; }
 #navigation-shortcuts label, #navigation-shortcuts input { margin:0; }

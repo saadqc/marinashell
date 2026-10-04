@@ -9,7 +9,12 @@ const service = require('../main/services/tunnelService');
 (async () => {
   assert.throws(()=>normalizeProject({name:'Bad',tabs:[{manualTitle:'Bad',host:'host',currentPath:'relative'}]}));
   const project=normalizeProject({name:'Mixed',layout:'2x2',tabs:['a','b','__local__','c'].map(host=>({host,manualTitle:host,currentPath:'/srv/app'}))});
+  assert.equal(normalizeProject({...project,layout:'3-left'}).layout,'3-left');
   assert.equal(project.layout,'2x2'); assert.equal(project.tabs.length,4);
+  const split = [{x:0,y:0,width:0.5,height:0.5},{x:0.5,y:0,width:0.5,height:1},{x:0,y:0.5,width:0.5,height:0.5}];
+  assert.deepEqual(normalizeProject({...project,terminalLayout:split}).terminalLayout,split);
+  assert.throws(()=>normalizeProject({...project,terminalLayout:[split[0],split[0]]}),/overlap/);
+  assert.throws(()=>normalizeProject({...project,terminalLayout:[{x:0,y:0,width:2,height:1}]}),/bounds/);
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'marina-tunnels-'));
   const calls=[], live=new Map(); let fail=false;
   const sessions={ connectControl:async(id,host)=>{calls.push(['connect',id,host]); await new Promise(r=>setTimeout(r,15));}, createTunnel:async(id,type,config)=>{calls.push(['create',id,type,config]); if(fail) throw new Error('Port busy'); live.set(id,{status:'active'}); return {id};}, disconnect:async id=>{calls.push(['disconnect',id]); live.delete(id);} };

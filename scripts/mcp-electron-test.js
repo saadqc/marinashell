@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, clipboard } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -23,6 +23,26 @@ const invoke = (name, args) =>
   settings.webContents.executeJavaScript(
     `window.api.invoke(${JSON.stringify(`plugin:mcp-server:${name}`)},${JSON.stringify(args || {})})`,
   );
+async function uiWait(expression, description) {
+  for (let i = 0; i < 100; i++) {
+    if (await settings.webContents.executeJavaScript(expression)) return;
+    await pause(50);
+  }
+  throw new Error(`Settings UI timed out: ${description}`);
+}
+async function clickSettings(selector) {
+  const rect = await settings.webContents.executeJavaScript(`(() => {
+    const target = document.querySelector(${JSON.stringify(selector)});
+    if (!target || target.disabled) return null;
+    target.scrollIntoView({block: 'center', inline: 'nearest'});
+    const r = target.getBoundingClientRect();
+    return r.width && r.height ? {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)} : null;
+  })()`);
+  assert(rect, `Missing or hidden pointer target: ${selector}`);
+  settings.webContents.sendInputEvent({type: 'mouseDown', button: 'left', clickCount: 1, ...rect});
+  settings.webContents.sendInputEvent({type: 'mouseUp', button: 'left', clickCount: 1, ...rect});
+  await pause(80);
+}
 async function call(name, args = {}) {
   const result = await client.callTool({ name, arguments: args });
   assert(!result.isError, `${name}: ${result.content[0].text}`);
@@ -50,20 +70,11 @@ app
       await pause(50);
     }
     await pause(300);
-    assert.equal(
-      await settings.webContents.executeJavaScript(
-        'Boolean(document.querySelector("#mcp-guide details"))',
-      ),
-      true,
-      await settings.webContents.executeJavaScript(
-        'document.querySelector("#mcp-error")?.textContent',
-      ),
-    );
     await settings.webContents.executeJavaScript(`document.querySelector('a[href="#preferences-mcp"]').click()`);
     assert(settings.webContents.getURL().endsWith('#preferences-mcp'));
     let mcpReloads=0;main.webContents.on("did-start-loading",()=>mcpReloads++);
     await settings.webContents.executeJavaScript(
-      `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Enable MCP extension').click()`,
+      `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Enable agent access').click()`,
     );
     await pause(650);
     const status = await invoke("status");
@@ -78,6 +89,65 @@ app
     const port = socket.address().port;
     await new Promise((r) => socket.close(r));
     assert((await invoke("settings", { port, restore: true })).ok);
+    // Exercise the public UI with native pointer clicks, including credentials
+    // copied after reopening Settings, rather than only invoking the IPC API.
+    await uiWait("Boolean(document.querySelector('.mcp-create-form'))", "creation form");
+    await clickSettings('.mcp-create-form button');
+    assert.equal((await invoke("status")).settings.clients.length, 0, "Empty names must not create agents");
+    await settings.webContents.executeJavaScript(`document.querySelector('.mcp-create-form input[type=text]').value = 'UI agent'`);
+    await clickSettings('.mcp-create-form button');
+    await uiWait("Boolean(document.querySelector('.mcp-agent-table tr[data-agent-id]'))", "created agent row");
+    let uiAgent = (await invoke("status")).settings.clients.find(c => c.name === "UI agent");
+    assert(uiAgent);
+    let uiToken = (await invoke("credential", {id: uiAgent.id})).token;
+    const deniedCopy = await main.webContents.executeJavaScript(`window.api.invoke('plugin:mcp-server:credential', {id:${JSON.stringify(uiAgent.id)}})`);
+    assert.equal(deniedCopy.ok, false, "Credential retrieval is Settings-only");
+    const agentRow = `.mcp-agent-table tr[data-agent-id="${uiAgent.id}"]`;
+    await clickSettings(`${agentRow} .mcp-credential button`);
+    await uiWait("document.querySelector('#mcp-error').textContent.includes('Credential copied')", "copy feedback");
+    assert.equal(clipboard.readText(), uiToken);
+    assert.equal(await settings.webContents.executeJavaScript(`document.body.textContent.includes(${JSON.stringify(uiToken)})`), false);
+    await clickSettings(`${agentRow} .mcp-agent-actions button:nth-child(2)`);
+    await uiWait("document.querySelector('#mcp-error').textContent.includes('Token rotated')", "rotation");
+    let newToken = (await invoke("credential", {id: uiAgent.id})).token;
+    assert.notEqual(uiToken, newToken);
+    await clickSettings(`${agentRow} .mcp-credential button`);
+    await uiWait("document.querySelector('#mcp-error').textContent.includes('Credential copied')", "rotated token copy");
+    assert.equal(clipboard.readText(), newToken);
+    await clickSettings(`${agentRow} .mcp-agent-actions button:nth-child(3)`);
+    await settings.webContents.executeJavaScript(`document.querySelector('.mcp-password-form input').value = 'short'`);
+    await clickSettings('.mcp-password-form .mcp-primary');
+    assert.equal((await invoke("credential", {id: uiAgent.id})).token, newToken, "Invalid passwords must preserve the token");
+    await settings.webContents.executeJavaScript(`document.querySelector('.mcp-password-form input').value = 'ui-password-123!'`);
+    await clickSettings('.mcp-password-form .mcp-primary');
+    await uiWait("document.querySelector('#mcp-error').textContent.includes('Password updated')", "manual password");
+    assert.equal((await invoke("credential", {id: uiAgent.id})).token, "ui-password-123!");
+    assert(!fs.readFileSync(path.join(root, ".marinashell", "mcp-settings.json"), "utf8").includes("ui-password-123!"));
+    await new Promise(resolve => { settings.webContents.once('did-finish-load', resolve); settings.reload(); });
+    await uiWait("Boolean(document.querySelector('.mcp-agent-table tr[data-agent-id]'))", "agents after reopening");
+    assert.equal(await settings.webContents.executeJavaScript("document.querySelectorAll('main > section:not([hidden])').length"), 1);
+    await clickSettings(`${agentRow} .mcp-credential button`);
+    await uiWait("document.querySelector('#mcp-error').textContent.includes('Credential copied')", "saved password copy");
+    assert.equal(clipboard.readText(), "ui-password-123!");
+    await clickSettings(`${agentRow} .mcp-agent-actions button:first-child`);
+    assert.equal(await settings.webContents.executeJavaScript("document.querySelector('#mcp-tab-permissions').getAttribute('aria-selected')"), 'true');
+    await clickSettings('#mcp-tab-connection');
+    assert.equal(await settings.webContents.executeJavaScript("document.querySelectorAll('#mcp-controls > [role=tabpanel]:not([hidden])').length"), 1);
+    await clickSettings('#mcp-tab-agents');
+    // Creating with a manual password uses the same table and Copy action.
+    await settings.webContents.executeJavaScript(`document.querySelector('.mcp-create-form input[type=text]').value = 'Manual UI agent'; document.querySelector('.mcp-create-form input[type=password]').value = 'manual-ui-123!'`);
+    await clickSettings('.mcp-create-form button');
+    await uiWait("document.querySelector('.mcp-agent-table').textContent.includes('Manual UI agent')", "manual agent creation");
+    const manualUi = (await invoke("status")).settings.clients.find(c => c.name === "Manual UI agent");
+    assert.equal((await invoke("credential", {id: manualUi.id})).token, "manual-ui-123!");
+    await invoke("revoke", {id: manualUi.id});
+    await clickSettings(`${agentRow} .mcp-agent-actions button:nth-child(4)`);
+    await clickSettings(`${agentRow} + tr .mcp-danger`);
+    await uiWait("!document.querySelector('.mcp-agent-table tr[data-agent-id]')", "revoked rows removed");
+    assert.equal((await invoke("credential", {id: uiAgent.id})).ok, false);
+    await clickSettings('a[href="#preferences-workspace"]');
+    assert.equal(await settings.webContents.executeJavaScript("document.querySelectorAll('main > section:not([hidden])').length"), 1);
+    await clickSettings('a[href="#preferences-mcp"]');
     const pair = await invoke("pair", { name: "Integration test" });
     assert(pair.ok, pair.error);
     const persisted = fs.readFileSync(
@@ -182,7 +252,8 @@ app
     await pause(300);
     const treeView = await settings.webContents.executeJavaScript(
       `(() => {
-        const select = document.querySelector('#mcp-controls select[aria-label="Paired agent"]');
+        document.querySelector('#mcp-tab-permissions').click();
+        const select = document.querySelector('#mcp-controls select[aria-label="Agent permissions"]');
         const option = Array.from(select.options).find(o => o.textContent === 'Fixed password agent');
         if (!option) return { tree: false, missing: 'agent option' };
         select.value = option.value;
@@ -229,6 +300,14 @@ app
       (await call("layout.get", { projectId: opened.id })).layout,
       "2x2",
     );
+    const fourPaneLayout = await call("layout.get", { projectId: opened.id });
+    await call("layout.set", {
+      projectId: opened.id,
+      layout: "3-left",
+      expectedRevision: fourPaneLayout.revision,
+      requestId: "layout-three-panes",
+    });
+    assert.equal((await call("layout.get", { projectId: opened.id })).layout, "3-left");
     const terminals = await call("terminals.list");
     assert.equal(
       terminals.items.filter((t) => t.projectId === opened.id).length,
@@ -288,7 +367,8 @@ app
     await pause(300);
     const treeFlow = await settings.webContents.executeJavaScript(
       `(() => {
-        const select = document.querySelector('#mcp-controls select[aria-label="Paired agent"]');
+        document.querySelector('#mcp-tab-permissions').click();
+        const select = document.querySelector('#mcp-controls select[aria-label="Agent permissions"]');
         const option = Array.from(select.options).find(o => o.textContent === 'Fixed password agent');
         select.value = option.value;
         select.dispatchEvent(new Event('change'));
@@ -465,16 +545,36 @@ app
     settings.show();
     settings.focus();
     await pause(250);
+    await clickSettings('.mcp-refresh');
+    await uiWait("document.querySelector('.mcp-server-bar strong').textContent === 'Server stopped'", "final server state");
+    await clickSettings('#mcp-tab-agents');
+    await clickSettings('a[href="#preferences-editor"]');
+    settings.webContents.sendInputEvent({type: 'keyDown', keyCode: 'Right'});
+    settings.webContents.sendInputEvent({type: 'keyUp', keyCode: 'Right'});
+    await uiWait("document.querySelector('a[href=\"#preferences-workspace\"]').getAttribute('aria-selected') === 'true'", "keyboard tabs");
+    await clickSettings('a[href="#preferences-mcp"]');
     await settings.webContents.executeJavaScript(
-      "document.querySelector('#preferences-mcp').scrollIntoView()",
+      "document.querySelector('#mcp-tab-agents').click(); document.querySelector('main').scrollTop = 0",
     );
     await pause(500);
     fs.writeFileSync(
       path.join(__dirname, "../design/validation/mcp-settings.png"),
       (await settings.webContents.capturePage()).toPNG(),
     );
+    settings.setSize(560, 720);
+    await pause(200);
+    const compact = await settings.webContents.executeJavaScript(`({
+      bodyOverflow: document.body.scrollWidth > window.innerWidth,
+      mainOverflow: document.querySelector('main').scrollWidth > document.querySelector('main').clientWidth,
+      visiblePanels: document.querySelectorAll('main > section:not([hidden])').length,
+      visibleAgentPanels: document.querySelectorAll('#mcp-controls > [role=tabpanel]:not([hidden])').length
+    })`);
+    assert(!compact.bodyOverflow && !compact.mainOverflow, `Settings overflow: ${JSON.stringify(compact)}`);
+    assert.equal(compact.visiblePanels, 1);
+    assert.equal(compact.visibleAgentPanels, 1);
+    fs.writeFileSync(path.join(__dirname, "../design/validation/mcp-settings-compact.png"), (await settings.webContents.capturePage()).toPNG());
     console.log(
-      "PASS MCP Electron: encrypted pairing and fixed passwords, Settings-only controls, real SDK project restore/layout/read, shared run launch/output/stop, approval dialog, rotation, disable/re-enable and saved state",
+      "PASS MCP Electron: pointer-driven agent creation/copy/rotation/manual passwords/revocation, persisted copy, keyboard tabs and compact layout, encrypted credentials, Settings-only controls, real SDK project restore/layout/read, shared run launch/output/stop, approval dialog, rotation, disable/re-enable and saved state",
     );
   })
   .catch((e) => {

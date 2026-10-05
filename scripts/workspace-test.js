@@ -61,33 +61,20 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`return Boolean(document.querySelector('#commands') || document.querySelector('#upload-file'))`), false);
   assert.equal(await evaluate(`return document.querySelector('#run-toolbar').parentElement.id`), 'sidebar');
   assert.equal(await evaluate(`return document.querySelector('#session-bar').getBoundingClientRect().height`), 0);
-  assert.equal(await evaluate(`return Boolean(document.querySelector('.dock-leaf-header .layout-menu'))`), true);
+  assert.equal(await evaluate(`return Boolean(document.querySelector('.dock-leaf-header .layout-menu'))`), false);
   const clickAt = async selector => {
     const point = await evaluate(`const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };`);
     window.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
     window.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
     await new Promise(resolve => setTimeout(resolve, 100));
   };
-  await clickAt('.dock-leaf-header .layout-menu summary');
-  assert.equal(await evaluate(`return document.querySelector('.dock-leaf-header .layout-menu').open`), true, 'Layout opens with a real pointer click');
-  assert.equal(await evaluate(`const button = document.querySelector('.dock-leaf-header .layout-menu-items button'); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));`), true, 'Layout actions are visible and clickable above the terminal');
-  await clickAt('.dock-leaf-header .layout-menu-items button[title="Split Right"]');
-  assert.equal(await evaluate(`return document.querySelectorAll('.dock-leaf').length`), 2);
-  await clickAt('.dock-leaf-header .layout-menu summary');
-  await clickAt('.dock-leaf-header .layout-menu-items button[title="Split Down"]');
-  assert.equal(await evaluate(`return document.querySelectorAll('.dock-leaf').length`), 3);
-  await clickAt('.dock-leaf-header .layout-menu summary');
-  await clickAt('.dock-leaf-header .layout-menu-items button[title="Close Active Pane"]');
-  assert.equal(await evaluate(`return document.querySelectorAll('.dock-leaf').length`), 2);
-  await clickAt('.dock-leaf-header .layout-menu summary');
-  await clickAt('.dock-leaf-header .layout-menu-items button[title="Reset to single pane"]');
-  assert.equal(await evaluate(`return document.querySelectorAll('.dock-leaf').length`), 1);
-  console.log('PASS: Layout dropdown opens by pointer and all four pane actions work');
+  console.log('PASS: obsolete Layout dropdown removed; native docking covered by docking-test');
   // Saved projects survive closing and reopen their ordered sessions and splits.
   await evaluate(`document.querySelector('#project-options-btn').click(); testClick('Save current sessions and layout');`);
   for (let i=0;i<30 && !groups.read().length;i++) await new Promise(r=>setTimeout(r,50));
   assert.equal(groups.read()[0].tabs[0].manualTitle, 'Frontend'); assert.equal(groups.read()[0].tabs[1].manualTitle, 'Backend');
   await evaluate(`document.querySelector('#project-options-btn').click(); testClick('Close project'); testWait(()=>!document.querySelector('.project-switch[data-project-id="project"]')); document.querySelector('#open-project-btn').click(); testWait(()=>document.querySelector('.workspace-library-row')); testClick('Open'); testWait(()=>document.querySelectorAll('#session-tabs .session-tab').length===2);`);
+  for (let i=0;i<100 && !state.tabGroups.some(g=>g.name==='Workspace' && g.layout==='2x1');i++) await new Promise(r=>setTimeout(r,30));
   assert.equal(groups.read().length,1); assert(state.tabGroups.some(g=>g.name==='Workspace' && g.layout==='2x1'));
   await evaluate(`document.querySelector('#project-options-btn').click(); testClick('Save current sessions and layout');`);
   await new Promise(r=>setTimeout(r,200)); assert.equal(groups.read().length,1);
@@ -137,7 +124,7 @@ app.whenReady().then(async () => {
   await evaluate(`testWait(()=>document.querySelectorAll('.running-configuration').length === 1); document.querySelector('.running-configuration .run-chip').click();`);
   await evaluate(`testWait(()=>document.querySelector('.run-output-bar')?.textContent.includes('Running'))`);
   assert.equal(manager.list().length, 1);
-  assert.equal(await evaluate(`const pane=document.querySelector('.terminal-pane.run-output');return Boolean(document.querySelector('#session-tabs .session-tab[data-tab-id="'+pane.dataset.tabId+'"]'));`), true, 'Run output must have a visible tab in the top strip');
+  assert.equal(await evaluate(`return document.querySelector('#session-tabs-row').hidden && !document.querySelector('#session-tabs .session-tab[data-tab-id^="output-"]')`), true, 'Output belongs to its separate configuration workspace');
   for (const id of shellTabIds)
     assert.equal(await evaluate(`return Boolean(document.querySelector('.terminal-pane[data-tab-id="${id}"]:not(.run-output)'));`), true, 'Opening running output must preserve shell tabs');
   // The rendered terminal must fit between the run toolbar and pane bottom,
@@ -158,14 +145,13 @@ app.whenReady().then(async () => {
   assert.equal(writes, writesBeforeReadonly, 'Readonly run forwarded terminal input');
   await new Promise(r=>setTimeout(r,350));
   fs.writeFileSync(path.resolve('design/validation/run-output.png'), (await window.webContents.capturePage()).toPNG());
-  await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'w',metaKey:true,bubbles:true}));`);
-  await evaluate(`testWait(()=>[...document.querySelectorAll('dialog h2')].some(e=>e.textContent==='Stop running configurations?')); testClick('Cancel');`);
-  assert.equal(manager.list().filter(r=>r.status==='running').length, 1);
-  await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'w',metaKey:true,bubbles:true}));`);
-  await evaluate(`testWait(()=>[...document.querySelectorAll('dialog h2')].some(e=>e.textContent==='Stop running configurations?')); testClick('Stop and close');`);
-  await evaluate(`testWait(()=>!document.querySelector('.run-output-bar'))`);
-  assert.equal(manager.list().length, 0);
-  assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 0);
+  await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'w',metaKey:true,bubbles:true}));testWait(()=>!document.querySelector('.run-output-bar'));`);
+  assert.equal(manager.list().filter(r=>r.status==='running').length,1,'Closing output only hides its view');
+  assert.equal(await evaluate(`return document.querySelector('.run-pane-visibility').getAttribute('aria-pressed')`),'false');
+  await clickAt('.running-configuration .run-chip');
+  await evaluate(`document.querySelector('#run-toolbar [aria-label="Stop"]').click();testWait(()=>document.querySelector('.running-configuration.ended'));window.dispatchEvent(new KeyboardEvent('keydown',{key:'w',metaKey:true,bubbles:true}));testWait(()=>!document.querySelector('.run-output-bar'));document.querySelector('.running-configuration.ended .run-dismiss').click();`);
+  assert.equal(manager.list().length,1,'Stopping/hiding retains the run record');
+  assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`),0);
   // The launcher offers only the selected workspace's configurations, never
   // the whole library.
   assert.deepEqual(await evaluate(`return [...document.querySelector('#run-toolbar select').options].map(o => o.textContent)`), ['Development server — Workspace']);
@@ -177,31 +163,31 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`return document.querySelector('.running-configuration').classList.contains('ended')`), false);
   assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration')[1].classList.contains('ended')`), true);
   // Opening an ended run and a newer active run keeps separate output tabs.
-  const endedRunId = manager.list().find(r=>r.status==='exited').id;
+  const endedRunId = manager.list().filter(r=>r.status==='exited').at(-1).id;
   const liveRunId = manager.list().find(r=>r.status==='running').id;
   await clickAt(`.running-configuration[data-run-id="${endedRunId}"] .run-chip`);
   await evaluate(`testWait(()=>document.querySelectorAll('.terminal-pane.run-output').length === 1)`);
-  const endedTabId = await evaluate(`return document.querySelector('.terminal-pane.run-output').dataset.tabId;`);
+  const endedTabId = await evaluate(`return document.querySelector('.terminal-pane.run-output').dataset.runId;`);
   await clickAt(`.running-configuration[data-run-id="${liveRunId}"] .run-chip`);
   await evaluate(`testWait(()=>document.querySelectorAll('.terminal-pane.run-output').length === 2)`);
-  assert.equal(await evaluate(`return Boolean(document.querySelector('.terminal-pane.run-output[data-tab-id="${endedTabId}"]'));`), true);
+  assert.equal(await evaluate(`return Boolean(document.querySelector('.terminal-pane.run-output[data-run-id="${endedTabId}"]'));`), true);
   await clickAt(`.running-configuration[data-run-id="${liveRunId}"] .run-chip`);
   assert.equal(await evaluate(`return document.querySelectorAll('.terminal-pane.run-output').length;`), 2, 'Reopening the same run focuses its own tab');
   // Dismissing removes only the indicator row; stored run records survive.
   await evaluate(`document.querySelector('.running-configuration.ended .run-dismiss').click();`);
   assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 1);
-  assert.equal(manager.list().length, 2);
+  assert.equal(manager.list().length, 3);
   await evaluate(`document.querySelector('#run-toolbar [aria-label="Stop"]').click(); testWait(()=>document.querySelector('.running-configuration.ended .run-dismiss'));`);
-  const outputIds = await evaluate(`return [...document.querySelectorAll('.terminal-pane.run-output')].map(p=>p.dataset.tabId);`);
+  const outputIds = await evaluate(`return [...document.querySelectorAll('.terminal-pane.run-output')].map(p=>p.dataset.runId);`);
   for (const id of outputIds) {
-    await evaluate(`document.querySelector('.session-tab[data-tab-id="${id}"] .close-btn').click(); testWait(()=>!document.querySelector('.terminal-pane[data-tab-id="${id}"]'));`);
+    await evaluate(`document.querySelector('.configuration-docking .docking-member[data-member-id="${id}"] .close-btn').click(); testWait(()=>!document.querySelector('.configuration-output[data-run-id="${id}"]'));`);
   }
   // Selecting the other workspace scopes the dropdown and the indicator to it.
-  await evaluate(`document.querySelector('.session-tab.active .close-btn').click();`);
+  await evaluate(`document.querySelector('[data-workspace-mode="terminal"]').click();document.querySelector('.session-tab.active .close-btn').click();`);
   await evaluate(`document.querySelector('.session-tab.active .close-btn').click(); testWait(()=>[...document.querySelector('#run-toolbar select').options].some(o => o.textContent === 'Other job — Other workspace'));`);
   assert.deepEqual(await evaluate(`return [...document.querySelector('#run-toolbar select').options].map(o => o.textContent)`), ['Other job — Other workspace']);
   assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 0);
-  assert.equal(manager.list().length, 0);
+  assert.equal(manager.list().length, 3);
   // Exercise xterm's real keydown/keyup listeners: one shortcut must write once
   // and cancel Chromium's default paste action.
   await evaluate(`if(document.querySelector('#disconnect-session-btn').disabled) { document.querySelector('.terminal-pane.active .welcome-connect').click(); } testWait(()=>!document.querySelector('#disconnect-session-btn').disabled);`);

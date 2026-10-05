@@ -6,7 +6,7 @@ const { createLibraryStore } = require('../../main/services/libraryStore');
 const { createRunManager } = require('./manager');
 const { normalize, normalizeDefaults, quote, pathExpression } = require('./configuration');
 
-module.exports = function activate({ sessionManager, registerIpc, getPlugins, getMainWindow, registerShutdown, registerService }) {
+module.exports = function activate({ sessionManager, registerIpc, getPlugins, getMainWindow, registerShutdown, registerService, getService }) {
   const connections = new Map();
   const tmuxAvailable = () => getPlugins().some(plugin => plugin.id === 'tmux' && plugin.enabled && plugin.loaded && !plugin.error);
   function resolved(host) {
@@ -30,7 +30,20 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
     execute, tmuxAvailable,
     hostIdentity: async host => host === '__local__' ? `local:${os.hostname()}:${os.userInfo().username}` : JSON.stringify(resolved(host))
   });
-  registerService?.('runs', { manager, normalize, changed: () => getMainWindow()?.webContents.send('run-configurations:changed') });
+  registerService?.('runs', {
+    manager, normalize, changed: () => getMainWindow()?.webContents.send('run-configurations:changed'),
+    async openDebugTransport(host, port) {
+      await execute(host, 'true');
+      return sessionManager.openForwardStream(`run-control:${host}`, port);
+    },
+    async sourceContext(host) {
+      if (host === '__local__') return { tabId: '__local__', host };
+      await execute(host, 'true');
+      const tabId = `run-control:${host}`;
+      await sessionManager.enableControlFiles(tabId);
+      return { tabId, host };
+    }
+  });
   // Per-group defaults let the configurations of a project (a tab group) share
   // interpreter, working directory, and environment sources. They live in
   // shelldock's own library — never inside the project directory.
@@ -51,8 +64,8 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
   ipc('start', async ({ id, groupId, groupName }) => ({ run: await manager.start(id, groupId, groupName) }));
   ipc('poll', async ({ id, offset = 0, generation = 0 }) => manager.poll(id, offset, generation));
   ipc('status', async ({ id }) => ({ run: await manager.status(id) }));
-  ipc('stop', async ({ id, force }) => ({ run: await manager.stop(id, force) }));
-  ipc('restart', async ({ id }) => ({ run: await manager.restart(id) }));
+  ipc('stop', async ({ id, force }) => ({ run: await (getService?.('pydebug')?.hasRun(id) ? getService('pydebug').stopRun(id, force) : manager.stop(id, force)) }));
+  ipc('restart', async ({ id }) => ({ run: await (getService?.('pydebug')?.hasRun(id) ? getService('pydebug').restartRun(id) : manager.restart(id)) }));
   ipc('close', async ({ id }) => { await manager.close(id); return {}; });
   ipc('browse', async ({ host = '__local__', directory = '~', kind = 'file' }) => {
     if (host === '__local__') {

@@ -87,6 +87,10 @@
 .running-configurations:empty { display:none; }
 .running-configuration { display:flex; align-items:center; gap:2px; width:100%; padding:7px 4px; border-radius:4px; font-size:11px; }
 .running-configuration:hover { background:var(--surface-hover); }
+.running-configuration .run-pane-visibility { flex-shrink:0; width:23px; height:23px; padding:3px; color:var(--text-muted); background:transparent; border:1px solid transparent; }
+.running-configuration .run-pane-visibility.shown { color:var(--accent); }
+.running-configuration .run-pane-visibility.focused { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent); }
+.configuration-output .run-output-terminal > .xterm { height:100%; padding:8px 12px; }
 .running-configuration .run-chip { flex:1; min-width:0; display:flex; align-items:center; gap:8px; padding:0; border:0; background:transparent; color:inherit; font:inherit; text-align:left; }
 .running-configuration .run-chip > span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .running-configuration.ended .run-chip { color:var(--text-muted); }

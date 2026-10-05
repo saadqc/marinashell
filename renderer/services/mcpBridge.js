@@ -1,4 +1,6 @@
 import { modal, button } from "../components/dialog.js";
+import { GROUP_LAYOUTS } from "../constants.js";
+import { layoutRectangles } from "./terminalLayout.js";
 
 // Only the main-process broker can send these fixed operations. No eval or channel forwarding.
 export function installMcpBridge({
@@ -8,6 +10,14 @@ export function installMcpBridge({
   persistenceService,
 }) {
   const cancellations = new Map();
+  const layoutName = group => {
+    if (!group.dockLayout) return group.layout || "1x1";
+    const M = globalThis.MarinaDocking;
+    const preset = GROUP_LAYOUTS.find(item => item.id === group.layout) || GROUP_LAYOUTS[0];
+    const expected = M.migrate('terminal', M.order(group.dockLayout), layoutRectangles(preset));
+    const shape = model => JSON.stringify({ standalone: model.standaloneIds, panes: M.geometry(model).panes.map(p => [p.x,p.y,p.width,p.height,p.pane.memberIds]) });
+    return shape(expected) === shape(group.dockLayout) ? preset.id : "custom";
+  };
   const metadata = (tab) => ({
     id: tab.id,
     projectId: tab.groupId || "",
@@ -23,7 +33,9 @@ export function installMcpBridge({
       id: group.id,
       savedGroupId: group.savedGroupId || "",
       name: group.name,
-      layout: group.layout || "1x1",
+      layout: layoutName(group),
+      layoutPreset: group.layout || "1x1",
+      dockLayout: group.dockLayout || null,
       configurationIds: [...(group.configurationIds || [])],
       terminalIds: [...state.tabs.values()]
         .filter((t) => t.groupId === group.id)

@@ -1,6 +1,9 @@
 import { getActiveTab } from '../state.js';
 
 export function createPersistenceService(state, settingsService) {
+  let saving = Promise.resolve();
+  let saveRevision = 0;
+  const notifySave = detail => window.dispatchEvent(new CustomEvent('marinashell:layout-save-state', { detail }));
   function getHostState(map, host) {
     if (!map || !host) {
       return [];
@@ -42,13 +45,10 @@ export function createPersistenceService(state, settingsService) {
     }
     if (state.workspaceReady) reconcileGroups();
     const tabGroups = Array.isArray(state.appState.tabGroups) ? state.appState.tabGroups : [];
-    const restoreTabs = settingsService.shouldRestoreTabs();
-    if (!restoreTabs || options.forceClear) {
-      state.appState = { ...state.appState, tabs: [], activeTabId: '', tabGroups };
-      return state.api.updateState({ tabs: [], activeTabId: '', tabGroups });
-    }
-    const serialized = Array.from(state.tabs.values()).map((tab) => ({
+    const restoreTabs = settingsService.shouldRestoreTabs() && !options.forceClear;
+    const serialized = (restoreTabs ? Array.from(state.tabs.values()).filter(tab => !tab.readOnly) : []).map((tab) => ({
       id: tab.id,
+      sessionKey: tab.sessionKey,
       host: tab.host || '',
       currentPath: tab.currentPath || '/',
       treeRootPath: tab.treeRootPath || '/',
@@ -60,9 +60,29 @@ export function createPersistenceService(state, settingsService) {
       configurationId: tab.configurationId || '',
       runId: tab.runId || ''
     }));
-    const activeId = state.activeTabId || (serialized[0] && serialized[0].id) || '';
-    state.appState = { ...state.appState, tabs: serialized, activeTabId: activeId, tabGroups };
-    return state.api.updateState({ tabs: serialized, activeTabId: activeId, tabGroups });
+    const activeId = serialized.some(tab => tab.id === state.activeTabId) ? state.activeTabId : serialized[0]?.id || '';
+    const projectLayouts = { ...(state.appState.projectLayouts || {}) };
+    for (const group of tabGroups) {
+      // Settings may clear launch tabs before sessions exist. Keep saved layouts.
+      if (!state.workspaceReady) continue;
+      if (state.closingProjects?.has(group.id)) continue;
+      if (!group.dockLayout) continue;
+      const keys = [...state.tabs.values()].filter(tab => !tab.readOnly && tab.groupId === group.id).map(tab => tab.sessionKey);
+      group.dockLayout = globalThis.MarinaDocking.reconcile(group.dockLayout, keys);
+      projectLayouts[group.savedGroupId || group.id] = { dockLayout: structuredClone(group.dockLayout), activeSessionKey: state.tabs.get(group.lastActiveTabId)?.sessionKey || '', updatedAt: new Date().toISOString() };
+    }
+    const patch = structuredClone({ tabs: serialized, activeTabId: activeId, tabGroups, projectLayouts, scratchDockLayout: state.appState.scratchDockLayout });
+    state.appState = { ...state.appState, ...patch };
+    const revision = ++saveRevision;
+    notifySave({ status: 'saving' });
+    saving = saving.catch(() => {}).then(() => state.api.updateState(patch)).then(() => {
+      if (revision === saveRevision) notifySave({ status: 'saved' });
+      return true;
+    }).catch(error => {
+      if (revision === saveRevision) notifySave({ status: 'error', error: error.message });
+      return false;
+    });
+    return saving;
   }
 
   function getDefaultHost(hostConfigs, hostSelect, lastHost) {

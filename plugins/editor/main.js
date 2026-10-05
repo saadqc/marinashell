@@ -7,7 +7,7 @@ const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 
 function normalizeStat(stat) {
   if (!stat) return null;
-  const modified = Number(stat.mtimeMs || (stat.modifyTime ? stat.modifyTime * 1000 : 0));
+  const modified = Number(stat.mtimeMs || stat.modifyTime || 0);
   return {
     size: Number(stat.size || 0),
     mtimeMs: Number.isFinite(modified) ? Math.round(modified) : 0,
@@ -53,7 +53,7 @@ module.exports = function activate({ sessionManager, registerIpc }) {
     // Local files go straight to disk; no terminal session is required.
     if (payload.host === '__local__') return { sessionType: 'local' };
     const session = payload.tabId ? sessionManager.getSession(payload.tabId) : null;
-    if (!session || !session.ptyProcess) throw new Error('Session is not connected');
+    if (!session || (!session.ptyProcess && !session.tunnelClient)) throw new Error('Session is not connected');
     if (session.sessionType !== 'local' && !session.sftpClient) throw new Error('SFTP is not connected');
     return session;
   }

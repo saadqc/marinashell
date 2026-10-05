@@ -5,6 +5,10 @@ contextBridge.exposeInMainWorld('api', {
   respondCleanupGroups: payload => ipcRenderer.send('workspace:cleanup-groups-response', payload),
   onOpenMenu: handler => ipcRenderer.on('workspace:open', (_event, action) => handler(action)),
   onRunConfigurationsChanged: handler => ipcRenderer.on('run-configurations:changed', () => handler()),
+  onPyDebugChanged: handler => {
+    const listener = () => handler(); ipcRenderer.on('pydebug:changed', listener);
+    return () => ipcRenderer.removeListener('pydebug:changed', listener);
+  },
   onMcpRequest: handler => ipcRenderer.on('mcp:request', (_event, payload) => handler(payload)),
   onMcpCancel: handler => ipcRenderer.on('mcp:cancel', (_event, payload) => handler(payload)),
   respondMcpRequest: payload => ipcRenderer.send('mcp:response', payload),

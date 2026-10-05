@@ -246,3 +246,16 @@
   .mse-toolbar { gap: 8px; }
   .mse-conflict { align-items: flex-start; flex-direction: column; }
 }
+
+.mse-debug-companion { display:none; min-width:260px; width:340px; max-width:55%; overflow:auto; resize:horizontal; border-left:1px solid var(--mse-border); background:var(--mse-bg); }
+.mse-stage.with-debug { display:flex; }
+.mse-stage.with-debug .mse-editor-host { position:relative; flex:1; min-width:0; }
+.mse-stage.with-debug .mse-debug-companion { display:block; }
+.mse-stage.with-debug .mse-empty { right:340px; }
+.mse-breakpoint { display:inline-block; width:18px; text-align:center; color:#ef706a; opacity:0.35; cursor:pointer; }
+.mse-breakpoint.present { opacity:1; }
+.mse-breakpoint.disabled { color:#89939e; }
+.mse-breakpoint.conditional { color:#e8b44c; }
+.mse-breakpoint.unverified { opacity:0.5; }
+.mse-debug-line { background:rgba(232,180,76,0.16); box-shadow:inset 3px 0 #e8b44c; }
+@media (max-width:700px) { .mse-stage.with-debug { flex-direction:column; } .mse-debug-companion { width:100%; max-width:100%; min-width:0; max-height:45%; resize:vertical; border-left:0; border-top:1px solid var(--mse-border); } .mse-stage.with-debug .mse-empty { right:0; bottom:45%; } }

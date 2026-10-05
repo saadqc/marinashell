@@ -189,22 +189,30 @@ window.addEventListener('keydown', (event) => {
     const view = matches('selectEditor') ? 'editor' : 'terminal';
     const control = document.querySelector(`#tool-navigation [data-view="${view}"]`);
     if (!control || control.disabled) return;
-    action = () => { control.click(); if(view === 'terminal') state.tabs.get(state.activeTabId)?.term.focus(); };
+    action = () => { control.click(); if(view === 'terminal') { sessionTabs.setWorkspaceMode('terminal'); sessionTabs.focusWorkspace(); } };
   }
   else if (matches('closeTab')) action = () => sessionTabs.closeActiveTab();
   else {
-    // Match the tab strip's order and current project, including run-output tabs.
-    const ids = [...document.querySelectorAll('#session-tabs .session-tab')].map(el => el.dataset.tabId).filter(id => state.tabs.has(id));
+    // Navigate only the current workspace; configuration focus never selects a shell.
+    const configuration = state.workspaceMode === 'configuration';
+    const members = configuration ? [...document.querySelectorAll('.configuration-docking .docking-member')].sort((a,b) => {
+      const ar=a.closest('.docking-pane').getBoundingClientRect(), br=b.closest('.docking-pane').getBoundingClientRect();
+      return ar.top-br.top || ar.left-br.left;
+    }) : [];
+    const ids = configuration ? members.map(el=>el.dataset.memberId)
+      : [...document.querySelectorAll('#session-tabs .session-tab')].map(el => el.dataset.tabId).filter(id => state.tabs.has(id));
+    const activeId = configuration ? document.querySelector('.configuration-docking .docking-pane.focused .docking-member.active')?.dataset.memberId : state.activeTabId;
     let target;
     const position = Array.from({ length: 9 }, (_, i) => i).find(i => matches(`tab${i + 1}`));
     if (position !== undefined) target = ids[position];
     else if (ids.length && (matches('nextTab') || matches('nextTabMac') || matches('previousTab') || matches('previousTabMac'))) {
       const direction = matches('previousTab') || matches('previousTabMac') ? -1 : 1;
-      const index = ids.indexOf(state.activeTabId);
+      const index = ids.indexOf(activeId);
       target = ids[(Math.max(0, index) + direction + ids.length) % ids.length];
     } else return;
     action = () => {
       if (!target) return;
+      if (configuration) { members.find(el=>el.dataset.memberId===target)?.click(); sessionTabs.focusWorkspace(); return; }
       sessionTabs.setActiveSessionTab(target);
       state.tabs.get(target)?.term.focus();
     };
@@ -245,6 +253,7 @@ window.addEventListener('marinashell:open-terminal-tab', async (event) => {
 window.addEventListener('marinashell:focus-terminal', () => {
   try { dockLayout.mountViewInActive('terminal'); } catch (err) { }
   try { sessionTabs.fitActiveTerminal(); } catch (err) { }
+  try { sessionTabs.focusWorkspace(); } catch (err) { }
 });
 
 window.addEventListener('marinashell:detach-terminal', () => {
@@ -310,7 +319,8 @@ window.addEventListener('marinashell:detach-terminal', () => {
     statusBar.bind();
 
     const restore = settingsService.shouldRestoreTabs();
-    const savedTabs = restore && Array.isArray(state.appState.tabs) ? state.appState.tabs : [];
+    // Configuration output is a temporary workspace, never a restored shell.
+    const savedTabs = restore && Array.isArray(state.appState.tabs) ? state.appState.tabs.filter(tab => !tab.readOnly) : [];
     const reconnectQueue = [];
 
     if (savedTabs.length) {

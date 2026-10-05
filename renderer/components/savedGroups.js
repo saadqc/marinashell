@@ -13,20 +13,24 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
       const existing = library.filter(item => groupKey(item.name) === groupKey(name))
         .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0];
       const linked = library.find(item => item.id === group.savedGroupId && groupKey(item.name) === groupKey(name));
-      const members = [...state.tabs.values()].filter(tab => tab.groupId === groupId);
+      const dockLayout = tabs.getDockLayout(groupId);
+      const members = [...state.tabs.values()].filter(tab => !tab.readOnly && tab.groupId === groupId);
       const snapshot = {
         id: linked?.id || existing?.id, kind: 'project', name, layout: group.layout,
         terminalLayout: group.terminalLayout,
+        dockLayout: structuredClone(dockLayout),
         configurationIds: [...(group.configurationIds || [])],
         activeIndex: Math.max(0, members.findIndex(tab => tab.id === state.activeTabId)),
         tabs: members.map(tab => ({
+          sessionKey: tab.sessionKey,
           host: tab.host, currentPath: tab.currentPath, treeRootPath: tab.treeRootPath,
           manualTitle: tab.manualTitle || getLabel(tab), tabColor: tab.tabColor,
           connected: !tab.readOnly, configurationId: tab.configurationId || '', readOnly: Boolean(tab.readOnly)
         }))
       };
       const saved = await state.api.invoke('groups:save', snapshot);
-      group.savedGroupId = saved.id;
+      const current = state.appState.tabGroups.find(item => item.id === groupId);
+      if (current) current.savedGroupId = saved.id;
       await state.api.updateState({ tabGroups: state.appState.tabGroups });
       window.dispatchEvent(new Event('marinashell:groups-changed'));
     } catch (error) { showError(error); }
@@ -39,14 +43,19 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
       if (focus) tabs.setActiveSessionTab(member.id);
       return existing;
     }
+    const definitions = snapshot.tabs.map((tab, index) => ({ ...tab, sessionKey: tab.sessionKey || `${snapshot.id}:session:${index}` })).filter(tab => !tab.readOnly);
+    if (!definitions.length) throw new Error('This project has no saved shell sessions. Open configuration output from Run configurations.');
+    const latest = state.appState.projectLayouts?.[snapshot.id];
     const group = { id: crypto.randomUUID(), name: snapshot.name, layout: snapshot.layout,
       terminalLayout: snapshot.terminalLayout,
+      dockLayout: structuredClone(latest?.dockLayout || snapshot.dockLayout),
       savedGroupId: snapshot.id, configurationIds: [...(snapshot.configurationIds || [])] };
     state.appState.tabGroups.push(group);
-    const restored = snapshot.tabs.map(initial => tabs.createTabState({ ...initial, groupId: group.id }));
-    if (focus && restored.length) tabs.setActiveSessionTab(restored[snapshot.activeIndex]?.id || restored[0].id);
+    const restored = definitions.map(initial => tabs.createTabState({ ...initial, groupId: group.id }));
+    const desired = restored.find(tab => tab.sessionKey === latest?.activeSessionKey) || restored[snapshot.activeIndex] || restored[0];
+    if (focus && desired) tabs.setActiveSessionTab(desired.id);
     const results = await Promise.allSettled(restored.map(async (tab, index) => {
-      const initial = snapshot.tabs[index];
+      const initial = definitions[index];
       if (initial.readOnly) {
         tab.statusMessage = 'Configuration ready — press Run to start';
         tab.term.writeln(tab.statusMessage);

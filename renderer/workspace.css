@@ -128,6 +128,43 @@ kbd { font: 10px var(--font-ui); color: var(--text-subtle); white-space: nowrap;
 .dock-resizer { background: var(--border); }
 .dock-resizer:hover { background: var(--accent); }
 .terminal-pane { background: var(--surface-canvas); }
+.docking-workspace { display: flex; flex-direction: column; min-height: 0; }
+#session-tabs-row[hidden] { display: none; }
+.terminal-workspace-switch { display: flex; align-items: center; gap: 4px; padding: 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.terminal-workspace-switch button { font-size: 11px; padding: 4px 9px; background: transparent; border: 0; color: var(--text-muted); border-radius: 4px; }
+.terminal-workspace-switch button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.terminal-workspace-switch .layout-save-state { margin-left: auto; color: var(--accent); }
+.pane-dock-surface { flex: 1; position: relative; min-height: 0; min-width: 0; overflow: hidden; }
+.docking-workspace [hidden], .docking-pane [hidden], .docking-overlay[hidden] { display: none !important; }
+.docking-pane { position: absolute; display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--border); overflow: hidden; }
+.docking-pane.focused { border-color: var(--accent); }
+.docking-pane-tabs { display: flex; flex-shrink: 0; height: 27px; overflow-x: auto; background: var(--surface-raised); scrollbar-width: thin; }
+.docking-member { display: inline-flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 0; padding: 4px 10px; font-size: 11px; border: 0; border-radius: 0; color: var(--text-muted); background: transparent; cursor: grab; }
+.docking-member.active { color: var(--text); box-shadow: inset 0 -2px var(--accent); }
+.docking-member .close-btn { font-size: 15px; padding: 0 2px; opacity: .6; cursor: pointer; }
+.docking-member .close-btn:hover { opacity: 1; }
+.docking-pane-body { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.docking-pane-body > .terminal-pane { position: absolute; inset: 0; display: block; overflow: hidden; }
+.docking-pane-body .terminal-grid-label { display: none !important; }
+.pane-dock-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-muted); font-size: 13px; }
+.pane-divider { position: absolute; z-index: 5; touch-action: none; background: transparent; }
+.pane-divider[data-axis="row"] { width: 6px !important; transform: translateX(-3px); cursor: col-resize; }
+.pane-divider[data-axis="column"] { height: 6px !important; transform: translateY(-3px); cursor: row-resize; }
+.pane-divider:hover, .pane-divider:focus-visible { background: var(--accent); }
+.docking-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 15; }
+.docking-preview { position: absolute; background: color-mix(in srgb, var(--accent) 18%, transparent); border: 2px solid var(--accent); box-sizing: border-box; }
+.docking-anchors { position: absolute; width: 114px; height: 114px; transform: translate(-50%, -50%); }
+.docking-anchors span { position: absolute; width: 32px; height: 32px; display: grid; place-items: center; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; background: var(--surface-raised); font-size: 21px; }
+.docking-anchors [data-anchor="centre"] { left: 41px; top: 41px; }
+.docking-anchors [data-anchor="above"] { left: 41px; top: 1px; }
+.docking-anchors [data-anchor="below"] { left: 41px; top: 81px; }
+.docking-anchors [data-anchor="left"] { left: 1px; top: 41px; }
+.docking-anchors [data-anchor="right"] { left: 81px; top: 41px; }
+.docking-anchors span.selected { color: var(--surface-canvas); background: var(--accent); }
+.docking-hint { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--surface-raised); border: 1px solid var(--accent); border-radius: 5px; padding: 5px 12px; font-size: 12px; color: var(--accent); white-space: nowrap; }
+.docking-overlay.invalid .docking-preview { opacity: .35; }
+.docking-dragging { user-select: none; cursor: grabbing; }
+.docking-drag-source { opacity: .55; }
 .terminal-pane > .xterm { padding: 10px 14px; }
 #terminal-stack.terminal-grid { background: var(--surface-canvas); gap: 1px; padding: 0; }
 #terminal-stack.terminal-grid .terminal-pane { border-radius: 0; border-color: var(--border); }

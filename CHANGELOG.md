@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.18 — 2026-10-05
+
+- Added optional PyDebug for local and SSH Python configurations: Debug beside Run, CodeMirror breakpoints and conditions, a central breakpoint manager, automatic paused-source activation/highlighting, variables, call stacks, watches, console, stepping, and uncaught-exception stops.
+- Debug sessions use OS-allocated execution-host loopback ports and internal SSH forwarding. Stop/Restart Debug manage owned processes; restarting saves edited Python buffers and follows remapped breakpoints. Different configurations can debug concurrently, with one active instance per configuration.
+- Requires Python 3.9+ and debugpy 1.8.x (tested: 1.8.17), with Editor and Run Configurations enabled. Uvicorn Debug disables reload transiently and requires one worker; saved Run arguments remain intact. tmux, subprocess, and native Windows debug targets are outside this version.
+- Drag terminal tabs onto pane centres/edges to group or split sessions. Resizable arrangements, member order, standalone tabs, and focus save automatically and restore with projects; failed saves offer Retry.
+- Configuration output uses a separate Configurations workspace with temporary docking. Hiding an output keeps its run alive; project closure checks owned processes.
+- Removed Create on right / Create below from terminal context menus; arrange newly created sessions with drag docking.
+- Fixed SSH editor timestamps to preserve conflict checks when debugger source navigation switches SFTP connections.
+
 ## v0.2.17 — 2026-10-05
 
 - Agent permissions show expandable projects with their configurations, a separate future-configuration checkbox, and Check All / Uncheck All controls. Removed the two global project/configuration entries and the Unassigned pseudo-project.

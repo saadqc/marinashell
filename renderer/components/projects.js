@@ -84,8 +84,8 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     const name = input(snapshot?.name, 'Project name'); name.id = 'project-name';
     const layout = document.createElement('select'); layout.id = 'project-layout';
     for (const { id, title } of GROUP_LAYOUTS) layout.add(new Option(title, id));
-    if (snapshot?.terminalLayout) layout.add(new Option('Custom layout (keep current splits)', 'custom'));
-    layout.value = snapshot?.terminalLayout ? 'custom' : snapshot?.layout || '1x1';
+    if (snapshot?.terminalLayout || snapshot?.dockLayout) layout.add(new Option('Keep current docking', 'custom'));
+    layout.value = snapshot?.terminalLayout || snapshot?.dockLayout ? 'custom' : snapshot?.layout || '1x1';
     const hint = document.createElement('p'); hint.className = 'form-hint';
     hint.textContent = snapshot ? 'The saved layout applies to the open project immediately; directories and connections are used when it next opens.' : 'Each directory opens as a session. Connections can be local or on different SSH hosts.';
     const list = document.createElement('div'); list.className = 'project-entries';
@@ -104,12 +104,22 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     view.body.append(identity, hint, list, button('Add directory', () => add(), 'ghost-btn'), error);
     async function save(andOpen) {
       if (!name.value.trim() || !rows.length) { error.textContent = 'Enter a project name and add at least one directory.'; return; }
-      const tabs = rows.map(({ title, host, directory, initial }) => ({ ...initial, manualTitle: title.value.trim(), host: host.value, currentPath: directory.value.trim(), treeRootPath: directory.value.trim(), connected: !initial.readOnly }));
+      const tabs = rows.map(({ title, host, directory, initial }) => ({ ...initial, sessionKey: initial.sessionKey || crypto.randomUUID(), manualTitle: title.value.trim(), host: host.value, currentPath: directory.value.trim(), treeRootPath: directory.value.trim(), connected: !initial.readOnly }));
       if (tabs.some(tab => !tab.manualTitle || !/^(\/|[A-Za-z]:[\\/])/.test(tab.currentPath) || /[\r\n\0]/.test(tab.currentPath))) { error.textContent = 'Every directory needs a name, connection, and absolute path.'; return; }
       view.footer.querySelectorAll('button').forEach(el => { el.disabled = true; });
       try {
-        const saved = await state.api.invoke('groups:save', { ...snapshot, kind: 'project', name: name.value.trim(), layout: layout.value === 'custom' ? snapshot.layout : layout.value, terminalLayout: layout.value === 'custom' ? snapshot.terminalLayout : undefined, tabs });
+        const currentDock = state.appState.projectLayouts?.[snapshot?.id]?.dockLayout || snapshot?.dockLayout;
+        const dockLayout = layout.value === 'custom' && currentDock
+          ? globalThis.MarinaDocking.reconcile(currentDock, tabs.filter(tab=>!tab.readOnly).map(tab=>tab.sessionKey)) : undefined;
+        const saved = await state.api.invoke('groups:save', { ...snapshot, kind: 'project', name: name.value.trim(), layout: layout.value === 'custom' ? snapshot.layout : layout.value, terminalLayout: layout.value === 'custom' ? snapshot.terminalLayout : undefined, dockLayout, tabs });
         if (!saved?.id) throw new Error(saved?.error || 'The project could not be saved.');
+        if (snapshot) {
+          const projectLayouts = { ...(state.appState.projectLayouts || {}) };
+          if (dockLayout) projectLayouts[saved.id] = { ...projectLayouts[saved.id], dockLayout };
+          else delete projectLayouts[saved.id];
+          state.appState.projectLayouts = projectLayouts;
+          await state.api.updateState({ projectLayouts });
+        }
         // A layout chosen for a project that is already open applies immediately;
         // directories and connections are used when it next opens.
         const liveGroup = (state.appState?.tabGroups || []).find(group => group.savedGroupId === saved.id
@@ -165,12 +175,9 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     }
     const view = modal(group.name); view.dialog.classList.add('project-options');
     const controls = document.createElement('div'); controls.className = 'project-option-actions';
-    const layout = document.createElement('select'); layout.setAttribute('aria-label', 'Project layout');
-    for (const { id, title } of GROUP_LAYOUTS) layout.add(new Option(title, id));
-    if (group.terminalLayout) layout.add(new Option('Custom layout', 'custom'));
-    layout.value = group.terminalLayout ? 'custom' : group.layout || '1x1';
-    layout.addEventListener('change', () => { if (layout.value !== 'custom') { sessionTabs.setGroupLayout(group.id, layout.value); layout.querySelector('option[value="custom"]')?.remove(); } });
-    view.body.append(field('Layout', layout));
+    const layoutHint = document.createElement('p'); layoutHint.className = 'form-hint';
+    layoutHint.textContent = 'Drag terminal tabs onto a pane to group or split them. Terminal arrangements save automatically. Use Move Out to give a docked session its own tab.';
+    view.body.append(layoutHint);
     controls.append(button('Save current sessions and layout', async () => { view.close(); await sessionTabs.savedGroups.save(group.id, true); }), button('Edit saved setup', async () => {
       view.close(); try { const library = await state.api.invoke('groups:list'); const saved = library.find(item => item.id === group.savedGroupId);
       if (saved) editProject(saved); else editProject({ name: group.name, layout: group.layout, tabs: [...state.tabs.values()].filter(tab => tab.groupId === group.id).map(tab => ({ host: tab.host, currentPath: tab.currentPath, manualTitle: tab.manualTitle || 'Terminal' })) }); } catch (error) { showError(error); }

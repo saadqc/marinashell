@@ -297,6 +297,20 @@ app
       requestId: "layout-three-panes",
     });
     assert.equal((await call("layout.get", { projectId: opened.id })).layout, "3-left");
+    const beforeMove = await call("layout.get", { projectId: opened.id });
+    await main.webContents.executeJavaScript(`
+      document.querySelector('[data-project-id="${opened.id}"]').click();
+      const pane=document.querySelector('.terminal-pane.grid-visible');
+      pane.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:500,clientY:300}));
+      [...document.querySelectorAll('.context-menu.open button')].find(b=>b.textContent==='Move Out').click();
+    `);
+    await pause(250);
+    const custom = await call("layout.get", { projectId: opened.id });
+    assert.equal(custom.layout, "custom");
+    assert.equal(custom.dockLayout.kind, "terminal");
+    assert.equal(custom.dockLayout.standaloneIds.length, 1);
+    assert.notEqual(custom.revision, beforeMove.revision);
+    await call("layout.set", { projectId: opened.id, layout: "3-left", expectedRevision: custom.revision, requestId: "layout-redock" });
     const terminals = await call("terminals.list");
     assert.equal(
       terminals.items.filter((t) => t.projectId === opened.id).length,

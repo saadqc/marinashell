@@ -11,17 +11,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
   const toolbarViewsEl = document.getElementById('tool-navigation') || document.createElement('div');
   const contextEl = document.createElement('div');
   contextEl.className = 'workspace-context';
-  const layoutMenu = document.createElement('details');
-  layoutMenu.className = 'layout-menu';
-  layoutMenu.innerHTML = '<summary><i data-icon="panels-top-left"></i>Layout<i data-icon="chevron-down"></i></summary><div class="layout-menu-items"></div>';
-  const toolbarActionsEl = layoutMenu.querySelector('.layout-menu-items');
-  if (toolbarEl) toolbarEl.replaceChildren(contextEl, layoutMenu);
-  document.addEventListener('click', event => {
-    if (!layoutMenu.contains(event.target)) layoutMenu.open = false;
-  });
-  layoutMenu.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { layoutMenu.open = false; layoutMenu.querySelector('summary').focus(); }
-  });
+  if (toolbarEl) toolbarEl.replaceChildren(contextEl);
 
   function renderLucide(root) {
     const lucide = window.lucide;
@@ -471,11 +461,6 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
     path.textContent = activeTab?.currentPath ? ` / ${activeTab.currentPath}` : '';
     path.title = activeTab?.currentPath || '';
     contextEl.append(name, path);
-    if (leaf) {
-      const actionsEl = leaf.headerEl.querySelector('.dock-leaf-actions');
-      // Moving the summary during pointerdown cancels its native click activation.
-      if (layoutMenu.parentElement !== actionsEl) actionsEl.prepend(layoutMenu);
-    }
     const sessionType = activeTab && activeTab.sessionType ? String(activeTab.sessionType) : '';
     const normalizedType = sessionType === 'local' ? 'local' : (sessionType === 'ssh' ? 'ssh' : sessionType);
     toolbarViewsEl.querySelectorAll('[data-view]').forEach((btn) => {
@@ -631,38 +616,6 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
   window.addEventListener('marinashell:session-state-changed', () => {
     syncToolbarActiveState();
   });
-
-  // Add split controls to toolbar (optional, but useful).
-  if (toolbarActionsEl) {
-    const splitV = createEl('button', 'tool-btn');
-    splitV.title = 'Split Right';
-    splitV.innerHTML = `<i data-icon="columns-2"></i><span>Split right</span>`;
-    splitV.addEventListener('click', () => api.splitVertical());
-    toolbarActionsEl.appendChild(splitV);
-
-    const splitH = createEl('button', 'tool-btn');
-    splitH.title = 'Split Down';
-    splitH.innerHTML = `<i data-icon="rows-2"></i><span>Split down</span>`;
-    splitH.addEventListener('click', () => api.splitHorizontal());
-    toolbarActionsEl.appendChild(splitH);
-
-    const close = createEl('button', 'tool-btn');
-    close.title = 'Close Active Pane';
-    close.innerHTML = `<i data-icon="x"></i><span>Close active pane</span>`;
-    close.addEventListener('click', () => api.closeActive());
-    toolbarActionsEl.appendChild(close);
-
-    const reset = createEl('button', 'tool-btn');
-    reset.title = 'Reset to single pane';
-    reset.innerHTML = `<i data-icon="square"></i><span>Single pane</span>`;
-    reset.addEventListener('click', () => api.resetLayout());
-    toolbarActionsEl.appendChild(reset);
-
-    toolbarActionsEl.addEventListener('click', event => {
-      if (event.target.closest('button')) layoutMenu.open = false;
-    });
-    renderLucide(layoutMenu);
-  }
 
   return api;
 }

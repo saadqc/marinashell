@@ -1,0 +1,26 @@
+.pd-panel { padding:12px; box-sizing:border-box; color:var(--text-primary,#dedede); font:12px/1.45 system-ui,sans-serif; overflow:auto; height:100%; }
+.pd-panel > strong { display:block; font-size:14px; margin-bottom:8px; }
+.pd-panel button { border:1px solid var(--border,#414349); border-radius:4px; background:var(--surface-raised,#292b30); color:inherit; padding:4px 7px; cursor:pointer; font:inherit; }
+.pd-panel button:disabled { opacity:.4; cursor:default; }
+.pd-panel button:hover:not(:disabled) { border-color:#c9a258; }
+.pd-panel input,.pd-panel select,.pd-field input,.pd-field select { box-sizing:border-box; max-width:100%; background:#202226; border:1px solid #414349; border-radius:4px; color:#dedede; padding:5px; font:inherit; }
+.pd-panel > select { width:100%; }
+.pd-state { margin:8px 0; }
+.pd-error { color:#ed8c83; white-space:pre-wrap; overflow-wrap:anywhere; }
+.pd-error:empty { display:none; }
+.pd-muted { color:#9ca1aa; display:block; overflow-wrap:anywhere; }
+.pd-actions { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0; }
+.pd-tabs { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid #414349; padding-bottom:8px; margin:10px 0; }
+.pd-tabs .active,.pd-frame.active { border-color:#c9a258; color:#e8bd6c; }
+.pd-content { min-width:0; }
+.pd-content h4 { margin:12px 0 6px; font-size:12px; }
+.pd-frame { display:block; width:100%; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:3px 0; }
+.pd-variable { padding:4px 0 4px 10px; font-family:ui-monospace,monospace; overflow-wrap:anywhere; }
+.pd-variable summary { cursor:pointer; }
+.pd-breakpoint { display:flex; align-items:center; flex-wrap:wrap; gap:5px; padding:8px 0; border-bottom:1px solid #35383d; }
+.pd-condition { flex-basis:100%; color:#e8bd6c; overflow-wrap:anywhere; }
+.pd-watch { display:grid; gap:4px; padding:8px 0; border-bottom:1px solid #35383d; overflow-wrap:anywhere; }
+.pd-console { white-space:pre-wrap; overflow-wrap:anywhere; max-height:260px; overflow:auto; }
+.pd-field { display:grid; gap:4px; margin:8px 0; }
+.pd-exceptions { display:flex; gap:6px; align-items:center; padding-top:12px; }
+.icon-bug { background-color:var(--accent); -webkit-mask-image:url('./bug.svg'); mask-image:url('./bug.svg'); }

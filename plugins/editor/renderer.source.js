@@ -13,6 +13,8 @@ import { markdown } from '@codemirror/lang-markdown';
 import { python } from '@codemirror/lang-python';
 import { yaml, yamlLanguage } from '@codemirror/lang-yaml';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { debugProvider, subscribeDebugViews } from '../../renderer/services/debugIntegration.js';
+import { debuggingExtension, debugMarkers } from './debugging.js';
 
 const documents = new Map();
 let pendingLine = null;
@@ -29,6 +31,9 @@ function fileName(file) {
 }
 
 function ensureDocument(file) {
+  const reusable = [...documents.values()].find(doc => doc.host === file.host && doc.projectId === (file.projectId || '') &&
+    (doc.path === file.path || debugProvider()?.sameFile?.(doc.path, file.path)));
+  if (reusable) { reusable.tabId = String(file.tabId); return reusable; }
   const key = documentKey(file);
   if (!documents.has(key)) {
     documents.set(key, {
@@ -37,6 +42,7 @@ function ensureDocument(file) {
       path: String(file.path),
       name: fileName(file),
       host: file.host || '',
+      projectId: file.projectId || '',
       sessionType: file.sessionType || 'ssh',
       content: '',
       savedContent: '',
@@ -238,6 +244,27 @@ function createWorkspace(container, options, api) {
   let view = null;
   let disposed = false;
   let indentationCompartment = null;
+  let debugCompartment = null;
+  let mountedDebugProvider = null;
+  let disposeDebugPanel = null;
+  const debugPanel = document.createElement('aside'); debugPanel.className = 'mse-debug-companion';
+  stage.append(debugPanel);
+  function refreshDebug() {
+    const provider = debugProvider();
+    if (provider !== mountedDebugProvider) {
+      disposeDebugPanel?.(); debugPanel.replaceChildren(); mountedDebugProvider = provider;
+      disposeDebugPanel = provider?.mountPanel(debugPanel);
+      stage.classList.toggle('with-debug', Boolean(provider)); debugPanel.hidden = !provider;
+      if (view && debugCompartment) view.dispatch({ effects: debugCompartment.reconfigure(provider && /\.pyw?$/i.test(activeDocument()?.path || '') ? debuggingExtension(activeDocument(), provider) : []) });
+    }
+    const doc = activeDocument();
+    if (view && provider && /\.pyw?$/i.test(doc?.path || '')) {
+      const markers = provider.markers(doc);
+      view.dispatch({ effects: debugMarkers.of(markers) });
+      provider.document?.(doc);
+    }
+  }
+  const unsubscribeDebug = subscribeDebugViews(refreshDebug);
 
   function activeDocument() {
     return activeKey ? documents.get(activeKey) || null : null;
@@ -478,6 +505,8 @@ function createWorkspace(container, options, api) {
     empty.innerHTML = '';
     const language = languageFor(doc.name);
     indentationCompartment = new Compartment();
+    debugCompartment = new Compartment();
+    const provider = debugProvider();
     const saveKeymap = keymap.of([
       indentWithTab,
       { key: 'Mod-s', preventDefault: true, run: () => { saveActive(false); return true; } }
@@ -490,6 +519,7 @@ function createWorkspace(container, options, api) {
           oneDark,
           language.extension,
           indentationCompartment.of(indentationExtension(doc)),
+          debugCompartment.of(provider && /\.pyw?$/i.test(doc.path) ? debuggingExtension(doc, provider) : []),
           saveKeymap,
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
@@ -510,6 +540,11 @@ function createWorkspace(container, options, api) {
       parent: editorHost
     });
     requestAnimationFrame(() => view && view.focus());
+    refreshDebug();
+    if (pendingLine && view) {
+      const line = view.state.doc.line(Math.min(Math.max(1, pendingLine), view.state.doc.lines));
+      view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true }); pendingLine = null;
+    }
     renderChrome();
   }
 
@@ -587,6 +622,7 @@ function createWorkspace(container, options, api) {
       doc.savedEol = savingEol;
       doc.stat = result.stat || doc.stat;
       updateDirty(doc);
+      window.dispatchEvent(new CustomEvent('marinashell:editor:saved', { detail: { path: doc.path, host: doc.host, projectId: doc.projectId } }));
     } catch (err) {
       doc.error = err && err.message ? err.message : 'Save failed';
     } finally {
@@ -690,6 +726,7 @@ function createWorkspace(container, options, api) {
 
   return () => {
     disposed = true;
+    unsubscribeDebug(); disposeDebugPanel?.();
     document.removeEventListener('pointerdown', dismissContextMenu, true);
     window.removeEventListener('blur', hideContextMenu);
     destroyView();
@@ -699,6 +736,17 @@ function createWorkspace(container, options, api) {
 export default function activate(context) {
   installStyles();
   const { api, openView, registerEditorMode, registerView } = context;
+  window.marinashellEditorDocuments = {
+    async saveForDebug(host, projectId) {
+      for (const doc of documents.values()) {
+        if (!doc.dirty || !/\.pyw?$/i.test(doc.path) || doc.host !== host || (doc.projectId && doc.projectId !== projectId)) continue;
+        const result = await api.invoke('plugin:editor:save', { tabId: doc.tabId, host: doc.host, path: doc.path, content: serializeLineEndings(doc.content, doc.eol), expectedStat: doc.stat, force: false });
+        if (!result?.ok) throw new Error(result?.conflict ? `Resolve the save conflict in ${doc.name} before debugging` : result?.error || 'Save failed');
+        doc.savedContent = doc.content; doc.savedEol = doc.eol; doc.stat = result.stat; updateDirty(doc);
+      }
+    },
+    list: () => [...documents.values()].map(doc => ({ host: doc.host, projectId: doc.projectId, path: doc.path, dirty: doc.dirty }))
+  };
   if (typeof registerView !== 'function' || typeof registerEditorMode !== 'function' || typeof openView !== 'function') {
     console.error('[Editor plugin] MarinaShell editor plugin API is unavailable');
     return;
@@ -732,6 +780,7 @@ export default function activate(context) {
     pendingLine = Number(detail.line) || null;
     openView('editor', {
       file: {
+        projectId: String(detail.projectId || ''),
         tabId: String(detail.tabId || '') || host,
         path: filePath,
         name: String(filePath).split(/[\\/]/).pop(),
@@ -747,7 +796,8 @@ export default function activate(context) {
         tabId: tab.id,
         path: fileContext.path,
         name: fileInfo.name || fileContext.name,
-        host: fileContext.host || tab.host,
+        host: tab.sessionType === 'local' ? '__local__' : tab.host,
+        projectId: tab.groupId || '',
         sessionType: tab.sessionType || 'ssh'
       }
     });

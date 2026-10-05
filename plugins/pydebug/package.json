@@ -1,0 +1,8 @@
+{
+  "name": "pydebug",
+  "version": "1.0.0",
+  "description": "PyDebug: Python breakpoints, variables, call stacks and stepping for local and SSH run configurations. Requires Editor and Run Configurations.",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "marinashell": { "defaultEnabled": false }
+}

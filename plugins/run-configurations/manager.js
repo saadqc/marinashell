@@ -3,7 +3,7 @@ const path = require('path');
 const { randomUUID, createHash } = require('crypto');
 const { StringDecoder } = require('string_decoder');
 const { createLibraryStore } = require('../../main/services/libraryStore');
-const { normalize, quote, pathExpression, buildCommand, parseEnv } = require('./configuration');
+const { normalize, quote, pathExpression, buildCommand, parseEnv, parseArguments } = require('./configuration');
 const runner = fs.readFileSync(path.join(__dirname, 'runner.sh'), 'utf8');
 const ended = run => ['exited', 'blocked', 'failed'].includes(run.status);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -142,27 +142,34 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
     }
     return null;
   }
-  async function start(id, groupId = '', groupName = '') {
+  async function start(id, groupId = '', groupName = '', options = {}) {
     if (launching.has(id)) {
       const pending = launching.get(id);
       const c = configs.read().find(item => item.id === id);
-      if (!c?.multiInstance) return pending;
-      await pending; return start(id, groupId, groupName);
+      if (!options.debug && !c?.multiInstance) {
+        const result = await pending;
+        if (result.executionMode === 'debug') throw new Error('Stop the debug session before starting a normal run');
+        return result;
+      }
+      await pending; return start(id, groupId, groupName, options);
     }
     const operation = (async () => {
       const stored = configs.read().find(item => item.id === id);
       if (!stored) throw new Error('Save the configuration before running it');
       const config = normalize(stored);
-      if (!config.multiInstance) {
-        const existing = await findExisting(config);
-        if (existing) return { ...existing, reused: true };
+      const existing = await findExisting(config);
+      if (existing && (options.debug || existing.executionMode === 'debug')) throw new Error('Stop this configuration’s active run before changing execution mode');
+      if (!config.multiInstance && existing) return { ...existing, reused: true };
+      if (options.debug) {
+        if (config.type !== 'python' || config.tmux) throw new Error('PyDebug requires a Python script/module without tmux');
+        config.multiInstance = false;
       }
-      return launch(config, groupId, groupName);
+      return launch(config, groupId, groupName, options);
     })();
     launching.set(id, operation);
     try { return await operation; } finally { launching.delete(id); }
   }
-  async function launch(config, groupId, groupName) {
+  async function launch(config, groupId, groupName, options = {}) {
     const c = normalize(config);
     if (c.host === '__local__' && process.platform === 'win32') throw new Error('Native Windows execution is not supported; select a macOS/Linux SSH host with Bash.');
     if (c.tmux && !tmuxAvailable()) throw new Error('Install and enable the tmux plugin before using tmux execution');
@@ -182,12 +189,45 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       scriptEnv = { ...scriptEnv, ...applied.values };
       scriptMeta.push(applied.meta);
     }
+    const debugNotes = [];
+    if (options.debug) {
+      if (c.mode === 'module' && c.target === 'uvicorn') {
+        const args = parseArguments(c.args); const effective = [];
+        for (let i = 0; i < args.length; i++) {
+          const name = args[i].split('=')[0];
+          if (name === '--reload') { debugNotes.push('Reload disabled for this debug session'); continue; }
+          if (['--reload-dir', '--reload-include', '--reload-exclude', '--reload-delay'].includes(name)) { if (!args[i].includes('=')) i++; continue; }
+          if (name === '--workers') {
+            const count = args[i].includes('=') ? args[i].split('=')[1] : args[++i];
+            if (Number(count) !== 1) throw new Error('PyDebug supports one Uvicorn worker; set --workers 1');
+            continue;
+          }
+          effective.push(args[i]);
+        }
+        c.args = effective.map(quote).join(' ');
+      }
+      // Uses the same prepared environment. Setup scripts above are not replayed.
+      const uvicorn = c.mode === 'module' && c.target === 'uvicorn';
+      const probe = 'import sys, os, json; print("PYDEBUG_INTERPRETER:" + sys.executable, flush=True); import debugpy; ' +
+        'assert sys.version_info >= (3, 9), "PyDebug requires Python 3.9 or newer"; ' +
+        'assert tuple(int(v) for v in debugpy.__version__.split(".")[:2]) == (1, 8), "PyDebug requires debugpy 1.8.x (tested with 1.8.17)"; ' +
+        (uvicorn ? 'assert int(os.environ.get("UVICORN_WORKERS", os.environ.get("WEB_CONCURRENCY", "1"))) == 1, "PyDebug requires one Uvicorn worker"; ' : '') +
+        'print("PYDEBUG_READY:" + json.dumps({"interpreter": sys.executable, "cwd": os.getcwd()}))';
+      let result;
+      try { result = await execute(c.host, buildCommand({ ...c, killPortOnLaunch: false }, fileEnv, scriptEnv, scriptMeta, { pythonCode: probe }), { timeoutMs: 30000 }); }
+      catch (_) { result = { exitCode: 1, stdout: '' }; }
+      const resolved = result.stdout?.split('\n').find(line => line.startsWith('PYDEBUG_INTERPRETER:'))?.slice('PYDEBUG_INTERPRETER:'.length) || c.interpreter;
+      if (result.exitCode !== 0 || !result.stdout?.split('\n').some(line => line.startsWith('PYDEBUG_READY:'))) {
+        throw new Error(`PyDebug preflight failed for ${resolved}. Use Python 3.9+ with debugpy 1.8.x in this configuration's environment (tested: ${quote(resolved)} -m pip install debugpy==1.8.17), and one Uvicorn worker.`);
+      }
+    }
     const run = {
       id: randomUUID(), configurationId: c.id, name: c.name, host: c.host, cwd: c.cwd,
       hostIdentity: await hostIdentity(c.host), home, groupId, groupName,
       tmux: c.tmux, multiInstance: c.multiInstance, tmuxSession: c.tmuxSession || `marina-${c.id.slice(0, 12)}`,
       startedAt: new Date().toISOString(), status: 'starting', exitCode: null, closed: false,
-      instance: 1 + [...runs.values()].filter(item => item.configurationId === c.id).length
+      instance: 1 + [...runs.values()].filter(item => item.configurationId === c.id).length,
+      executionMode: options.debug ? 'debug' : 'run', debugNotes
     };
     const dir = runPath(run);
     const locks = `${home}/.marinashell/run-locks`;
@@ -203,7 +243,9 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
         else throw new Error('This configuration already has a remote run. Reconnect to its existing output tab before starting another instance.');
       }
     }
-    await command(c.host, `umask 077; mkdir -p ${quote(dir)} ${quote(locks)} && printf '%s' ${quote(runner)} > ${quote(dir + '/runner.sh')} && printf '%s' ${quote(buildCommand(c, fileEnv, scriptEnv, scriptMeta))} > ${quote(dir + '/command.sh')}`);
+    const debugLaunch = options.debug ? { debugBootstrap: dir + '/debug-bootstrap.py', endpointFile: dir + '/debug-endpoint.json' } : {};
+    await command(c.host, `umask 077; mkdir -p ${quote(dir)} ${quote(locks)} && printf '%s' ${quote(runner)} > ${quote(dir + '/runner.sh')} && printf '%s' ${quote(buildCommand(c, fileEnv, scriptEnv, scriptMeta, debugLaunch))} > ${quote(dir + '/command.sh')}`);
+    if (options.debug) await command(c.host, `printf '%s' ${quote(options.debug.bootstrap)} > ${quote(dir + '/debug-bootstrap.py')}`);
     runs.set(run.id, run); saveRuns();
     const launchCommand = `bash ${quote(dir + '/runner.sh')} run ${quote(dir)} ${quote(lock)}`;
     try {
@@ -242,6 +284,7 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
   }
   async function restart(id, options = {}) {
     const run = runs.get(id); if (!run) throw new Error('Run not found');
+    if (run.executionMode === 'debug') throw new Error('Use Restart Debug to preserve this run’s debugger');
     await stop(id, false, options);
     for (let i = 0; i < 40; i++) {
       await delay(200); await refresh(run);
@@ -266,6 +309,6 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       } catch (_) { /* Unknown records remain available on next launch. */ }
     }));
   }
-  return { configs, list: () => [...runs.values()].filter(run => !run.closed), start, poll, status, stop, restart, close, shutdown, command };
+  return { configs, list: () => [...runs.values()].filter(run => !run.closed), start, poll, status, stop, restart, close, shutdown, command, verifyHost };
 }
 module.exports = { createRunManager, ended };

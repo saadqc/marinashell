@@ -1,6 +1,6 @@
 {
   "name": "marinashell",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "description": "macOS-first SSH client with xterm.js",
   "author": "Saad Abdullah <saadqc@users.noreply.github.com>",
   "main": "main.js",
@@ -19,8 +19,11 @@
     "test:runs": "node scripts/run-configurations-test.js",
     "test:workspace": "env -u ELECTRON_RUN_AS_NODE electron scripts/workspace-test.js",
     "test:runs:ssh": "node scripts/run-ssh-test.js",
+    "test:pydebug": "node scripts/pydebug-test.js && node scripts/pydebug-uvicorn-test.js",
+    "test:pydebug:ui": "npm run build:plugins && env -u ELECTRON_RUN_AS_NODE electron scripts/pydebug-electron-test.js",
     "test:plugin-activation": "env -u ELECTRON_RUN_AS_NODE electron scripts/plugin-activation-test.js",
     "test:navigation": "env -u ELECTRON_RUN_AS_NODE electron scripts/navigation-test.js",
+    "test:docking": "node scripts/docking-model-test.js && env -u ELECTRON_RUN_AS_NODE electron scripts/docking-test.js",
     "test:projects": "node scripts/projects-tunnels-test.js",
     "test:processes": "node scripts/processes-test.mjs",
     "test:mcp": "node scripts/mcp-permissions-test.js && node scripts/mcp-server-test.js && env -u ELECTRON_RUN_AS_NODE electron scripts/mcp-electron-test.js"

@@ -1668,6 +1668,42 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
 
   const manager = {
     connectControl,
+    async openForwardStream(tabId, port) {
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid debugger port');
+      const session = getSession(tabId);
+      if (!session.hostConfig) throw new Error('SSH control connection is unavailable');
+      if (!session.tunnelClient) await ensureTunnelConnection(tabId, session.hostConfig);
+      return new Promise((resolve, reject) => session.tunnelClient.forwardOut('127.0.0.1', 0, '127.0.0.1', port,
+        (error, stream) => error ? reject(error) : resolve(stream)));
+    },
+    async enableControlFiles(tabId) {
+      const session = getSession(tabId);
+      if (!session.tunnelClient) throw new Error('SSH control connection is unavailable');
+      if (session.sftpClient) return;
+      if (session.controlFilesPromise) return session.controlFilesPromise;
+      session.controlFilesPromise = (async () => {
+        const raw = await new Promise((resolve, reject) => session.tunnelClient.sftp((error, sftp) => error ? reject(error) : resolve(sftp)));
+        const call = (name, ...args) => new Promise((resolve, reject) => raw[name](...args, (error, value) => error ? reject(error) : resolve(value)));
+        const adapter = {
+          end: () => raw.end(),
+          stat: async file => { const stat = await call('stat', file); return { ...stat, modifyTime: stat.mtime * 1000, isFile: stat.isFile(), isDirectory: stat.isDirectory() }; },
+          lstat: file => call('lstat', file), chmod: (file, mode) => call('chmod', file, mode),
+          posixRename: (from, to) => call('ext_openssh_rename', from, to), delete: file => call('unlink', file),
+          get: file => new Promise((resolve, reject) => {
+            const parts = []; let size = 0; const stream = raw.createReadStream(file);
+            stream.on('data', data => { size += data.length; if (size > 5 * 1024 * 1024) { stream.destroy(); reject(new Error('Inline editor limit is 5 MB')); } else parts.push(data); });
+            stream.on('error', reject); stream.on('end', () => resolve(Buffer.concat(parts)));
+          }),
+          put: (buffer, file, options = {}) => new Promise((resolve, reject) => {
+            const stream = raw.createWriteStream(file, options.writeStreamOptions || {});
+            stream.on('error', reject); stream.on('close', resolve); stream.end(buffer);
+          })
+        };
+        session.sftpClient = adapter;
+        raw.on('close', () => { if (session.sftpClient === adapter) session.sftpClient = null; });
+      })();
+      try { await session.controlFilesPromise; } finally { session.controlFilesPromise = null; }
+    },
     streamCommand,
     createSession: (tabId, hostConfig) => connect(tabId, hostConfig),
     createTunnel: async (tabId, type, config) => {

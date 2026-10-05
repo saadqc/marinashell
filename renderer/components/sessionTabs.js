@@ -1,5 +1,5 @@
 import { fileAction, terminalFileAt } from '../services/fileActions.js';
-import { layoutRectangles, rectangleGrid, readingOrder } from '../services/terminalLayout.js';
+import { createTerminalDocking } from './terminalDocking.js';
 import { createSavedGroups } from './savedGroups.js';
 import { showError } from './dialog.js';
 import { getActiveTab, getTab } from '../state.js';
@@ -287,8 +287,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   function setGroupLayout(groupId, layoutId) {
     const group = getTabGroup(groupId);
     if (!group || !GROUP_LAYOUTS.some((layout) => layout.id === layoutId)) return;
-    group.layout = layoutId;
-    delete group.terminalLayout;
+    dockWorkspace.setPreset(groupId, layoutId);
     renderSessionTabs();
     updateTerminalGrid();
     persistGroups();
@@ -319,6 +318,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
         persistenceService.persistTabs();
       });
     }
+    const moveOutButton = addMenuButton(tabContextMenu, 'Move Out', () => { hideTabContextMenu(); dockWorkspace.moveOut(tabId); });
+    moveOutButton.disabled = !dockWorkspace.isDocked(tabId);
     addMenuButton(tabContextMenu, 'Duplicate tab', () => {
       duplicateTab(tabId);
       hideTabContextMenu();
@@ -352,11 +353,18 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   }
 
   async function closeGroup(groupId) {
+    if (state.runController?.beforeCloseProject && !await state.runController.beforeCloseProject(groupId)) return;
     const members = [...state.tabs.values()].filter(tab => tab.groupId === groupId);
     const runs = members.filter(tab => tab.runId);
     if (runs.length && !state.runController) { showError(new Error('Enable Run Configurations to stop and close these runs.')); return; }
     if (runs.length && state.runController && !await state.runController.beforeClose(runs)) return;
-    for (const tab of members) await closeTab(tab.id, { approved: true });
+    // Closing a project must retain its complete last arrangement for reopening.
+    await persistenceService.persistTabs();
+    state.closingProjects ||= new Set();
+    state.closingProjects.add(groupId);
+    try { for (const tab of members) await closeTab(tab.id, { approved: true }); }
+    finally { state.closingProjects.delete(groupId); }
+    await state.runController?.closedProject?.(groupId);
   }
 
   function showGroupContextMenu(x, y, groupId) {
@@ -452,15 +460,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       hideTerminalContextMenu();
     });
 
-    addMenuLabel(terminalContextMenu, 'New terminal');
-    for (const [label, direction] of [['Create on right', 'right'], ['Create below', 'below']]) {
-      const button = addMenuButton(terminalContextMenu, label, () => {
-        hideTerminalContextMenu();
-        createAdjacentTerminal(tabId, direction);
-      });
-      button.disabled = Boolean(tab.groupId && [...state.tabs.values()].filter(item => item.groupId === tab.groupId).length >= 32);
-      if (button.disabled) button.title = 'A group can contain up to 32 terminals';
-    }
+    const moveOutButton = addMenuButton(terminalContextMenu, 'Move Out', () => { hideTerminalContextMenu(); dockWorkspace.moveOut(tabId); });
+    moveOutButton.disabled = !dockWorkspace.isDocked(tabId);
 
     const killButton = addMenuButton(terminalContextMenu, 'Kill terminal', () => {
       if (state.api && typeof state.api.kill === 'function') {
@@ -623,24 +624,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   }
 
   function reorderTab(sourceId, targetId, placeAfter = false) {
-    if (!sourceId || !targetId || sourceId === targetId) return;
-    const source = state.tabs.get(sourceId);
-    const target = state.tabs.get(targetId);
-    if (!source || !target) return;
-    const previousGroupId = source.groupId || '';
-    source.groupId = target.groupId || '';
-    const entries = Array.from(state.tabs.entries()).filter(([id]) => id !== sourceId);
-    let targetIndex = entries.findIndex(([id]) => id === targetId);
-    if (targetIndex < 0) return;
-    if (placeAfter) targetIndex += 1;
-    entries.splice(targetIndex, 0, [sourceId, source]);
-    state.tabs = new Map(entries);
-    if (previousGroupId && previousGroupId !== source.groupId && !Array.from(state.tabs.values()).some((tab) => tab.groupId === previousGroupId)) {
-      state.appState.tabGroups = getTabGroups().filter((group) => group.id !== previousGroupId);
-    }
+    dockWorkspace.reorderTab(sourceId, targetId, placeAfter);
     renderSessionTabs();
-    updateTerminalGrid();
-    persistenceService.persistTabs();
   }
 
   function buildTabButton(tab) {
@@ -711,6 +696,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
         const rect = button.getBoundingClientRect();
         reorderTab(sourceId, tab.id, event.clientX > rect.left + rect.width / 2);
       });
+      dockWorkspace.bind(button, tab);
       return button;
   }
 
@@ -775,7 +761,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     sessionTabs.dataset.overflow = settingsService.readSettingValue('ui', 'session', 'tabOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll';
     sessionTabs.innerHTML = '';
     const activeGroupId = getActiveTab(state)?.groupId || '';
-    const tabs = Array.from(state.tabs.values()).filter(tab => (tab.groupId || '') === activeGroupId);
+    dockWorkspace.sortTabs();
+    const tabs = Array.from(state.tabs.values()).filter(tab => !tab.readOnly && (tab.groupId || '') === activeGroupId);
     // Projects live in the outer rail; this strip contains only their sessions.
     tabs.forEach(tab => sessionTabs.appendChild(buildTabButton(tab)));
     renderLucide(sessionTabs);
@@ -827,6 +814,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       return;
     }
     state.activeTabId = tabId;
+    dockWorkspace.select(state.tabs.get(tabId));
     const project = getTabGroup(state.tabs.get(tabId).groupId);
     if (project) project.lastActiveTabId = tabId;
     updateTerminalGrid();
@@ -843,7 +831,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   }
 
   function fitActiveTerminal() {
-    const visible = Array.from(state.tabs.values()).filter((tab) => tab.container.classList.contains('grid-visible') || tab.id === state.activeTabId);
+    const visible = Array.from(state.tabs.values()).filter(tab => !tab.readOnly && tab.container.classList.contains('grid-visible') && tab.container.getBoundingClientRect().height > 0);
     for (const tab of visible) {
       try {
         tab.fitAddon.fit();
@@ -853,40 +841,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   }
 
   function updateTerminalGrid() {
-    if (!terminalStack) return;
-    const active = getActiveTab(state);
-    let visible = active ? [active] : [];
-    let layout = GROUP_LAYOUTS[0];
-    const group = active && active.groupId ? getTabGroup(active.groupId) : null;
-    if (group) {
-      layout = GROUP_LAYOUTS.find((item) => item.id === group.layout) || GROUP_LAYOUTS[0];
-      const groupTabs = Array.from(state.tabs.values()).filter((tab) => tab.groupId === group.id);
-      const capacity = group.terminalLayout?.length || layout.capacity || layout.columns * layout.rows;
-      visible = groupTabs.slice(0, capacity);
-      if (active && !visible.includes(active) && capacity > 0) {
-        visible[capacity - 1] = active;
-      }
-    }
-    const useGrid = visible.length > 1 || layout.id !== '1x1';
-    terminalStack.classList.toggle('terminal-grid', useGrid);
-    terminalStack.style.setProperty('--terminal-grid-columns', String(layout.columns));
-    terminalStack.style.setProperty('--terminal-grid-rows', String(layout.rows));
-    const customGrid = group?.terminalLayout ? rectangleGrid(group.terminalLayout) : null;
-    terminalStack.style.gridTemplateColumns = customGrid?.columns || '';
-    terminalStack.style.gridTemplateRows = customGrid?.rows || '';
-    const visibleIds = new Set(visible.map((tab) => tab.id));
-    state.tabs.forEach((tab) => {
-      // The tab Map changes on drag/drop; terminal DOM creation order does not.
-      // Explicit order keeps every grid in the same left-to-right tab order.
-      const index = visible.indexOf(tab);
-      tab.container.style.order = String(index);
-      tab.container.style.gridColumn = (customGrid || layout).slots?.[index]?.column || '';
-      tab.container.style.gridRow = (customGrid || layout).slots?.[index]?.row || '';
-      tab.container.classList.toggle('grid-visible', visibleIds.has(tab.id));
-      tab.container.classList.toggle('active', tab.id === state.activeTabId);
-      if (tab.gridLabel) tab.gridLabel.textContent = getSessionTabLabel(tab);
-    });
-    requestAnimationFrame(() => fitActiveTerminal());
+    dockWorkspace.render();
   }
 
   function updateConnectUi(tab) {
@@ -974,6 +929,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       tab.term._core?._renderService?._pausedResizeTask?.flush();
       tab.term.dispose();
     });
+    dockWorkspace.remove(tab);
     state.tabs.delete(tabId);
     if (tab.groupId && !Array.from(state.tabs.values()).some((item) => item.groupId === tab.groupId)) {
       state.appState.tabGroups = getTabGroups().filter((group) => group.id !== tab.groupId);
@@ -996,6 +952,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
   }
 
   function closeActiveTab() {
+    if (state.workspaceMode === 'configuration') { dockWorkspace.closeActiveConfiguration(); return; }
     const tab = getActiveTab(state);
     if (!tab) return;
     closeTab(tab.id);
@@ -1047,8 +1004,10 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
 
     const initialPath = initial.currentPath || '/';
     const inferredStyle = /^\/[A-Za-z]:/.test(initialPath) ? 'windows' : 'posix';
+    container.dataset.memberKey = initial.sessionKey || id;
     const tabState = {
       id,
+      sessionKey: initial.sessionKey || id,
       host: initial.host || '',
       sessionType: initial.sessionType || (initial.host === LOCAL_HOST_VALUE ? 'local' : 'ssh'),
       connected: false,
@@ -1151,45 +1110,15 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
 
   function createAdjacentTerminal(tabId, direction) {
     const source = state.tabs.get(tabId);
-    if (!source || !['right', 'below'].includes(direction)) return;
-    let group = getTabGroup(source.groupId);
-    if (!group) {
-      group = { id: crypto.randomUUID(), name: getPathLabel(source.currentPath, source.remotePathStyle) || 'Terminals', layout: '1x1' };
-      getTabGroups().push(group);
-      source.groupId = group.id;
+    if (!source || source.readOnly || !['right', 'below'].includes(direction)) return;
+    if ([...state.tabs.values()].filter(tab => !tab.readOnly && tab.groupId === source.groupId).length >= 32) return;
+    if (!source.groupId) {
+      const group = { id: crypto.randomUUID(), name: getPathLabel(source.currentPath, source.remotePathStyle) || 'Terminals', layout: '1x1' };
+      getTabGroups().push(group); source.groupId = group.id;
     }
-    const members = [...state.tabs.values()].filter(tab => tab.groupId === group.id);
-    if (members.length >= 32) return;
-    const preset = GROUP_LAYOUTS.find(item => item.id === group.layout) || GROUP_LAYOUTS[0];
-    const rectangles = group.terminalLayout || layoutRectangles(preset);
-    const visible = members.slice(0, rectangles.length);
-    const active = getActiveTab(state);
-    if (active?.groupId === group.id && !visible.includes(active)) visible[rectangles.length - 1] = active;
-    if (!visible.includes(source)) return;
-    const index = visible.indexOf(source);
-    const original = rectangles[index];
-    const sibling = { ...original };
-    const current = { ...original };
-    if (direction === 'right') { current.width /= 2; sibling.width /= 2; sibling.x += current.width; }
-    else { current.height /= 2; sibling.height /= 2; sibling.y += current.height; }
-    const created = createNewTab({ host: source.host, path: source.currentPath || '/', groupId: group.id, tabColor: source.tabColor, connect: source.connected });
-    const panes = rectangles.map((rect, i) => ({ ...rect, tab: visible[i] }));
-    panes[index] = { ...current, tab: source };
-    panes.push({ ...sibling, tab: created });
-    panes.sort(readingOrder);
-    // Only occupied preset slots participate in tab order.
-    const occupied = panes.filter(pane => pane.tab);
-    group.terminalLayout = occupied.map(({ tab, ...rect }) => rect);
-    const ordered = [...occupied.map(pane => pane.tab), ...members.filter(tab => !visible.includes(tab))];
-    const reordered = new Map();
-    let inserted = false;
-    for (const tab of state.tabs.values()) {
-      if (tab.groupId === group.id) {
-        if (!inserted) { ordered.forEach(member => reordered.set(member.id, member)); inserted = true; }
-      } else reordered.set(tab.id, tab);
-    }
-    state.tabs = reordered;
-    renderSessionTabs(); updateTerminalGrid(); persistGroups();
+    const created = createNewTab({ host: source.host, path: source.currentPath || '/', groupId: source.groupId, tabColor: source.tabColor, connect: source.connected });
+    dockWorkspace.dockTab(created.id, source.id, direction === 'right' ? 'right' : 'below');
+    renderSessionTabs(); updateTerminalGrid();
     return created;
   }
 
@@ -1580,7 +1509,13 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     try { await state.api.invoke('logs:open', {path, host}); }
     catch(error) { persistenceService.setStatus(error.message, true); }
   });
-  const savedGroups = createSavedGroups(state, { createTabState, connectTab, setActiveSessionTab, renderSessionTabs, updateTerminalGrid }, askForText, getSessionTabLabel);
+  const dockWorkspace = createTerminalDocking({
+    state, terminalStack, strip: sessionTabs, newTabButton, getLabel: getSessionTabLabel, getGroup: getTabGroup,
+    activateTab: setActiveSessionTab, closeTab, fit: fitActiveTerminal, persistence: persistenceService,
+    contextMenu: (event, tabId) => showTabContextMenu(event.clientX, event.clientY, tabId)
+  });
+  window.addEventListener('marinashell:render-terminal-tabs', renderSessionTabs);
+  const savedGroups = createSavedGroups(state, { createTabState, connectTab, setActiveSessionTab, renderSessionTabs, updateTerminalGrid, getDockLayout: dockWorkspace.model }, askForText, getSessionTabLabel);
   bindEvents();
 
   window.addEventListener('marinashell:tab-path-changed', () => {
@@ -1594,6 +1529,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     createTabState,
     setActiveSessionTab,
     fitActiveTerminal,
+    focusWorkspace: () => state.workspaceMode === 'configuration'
+      ? dockWorkspace.focusActiveConfiguration() : getActiveTab(state)?.term.focus(),
     connectTab,
     disconnectTab,
     renderSessionTabs,
@@ -1607,6 +1544,13 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     duplicateTab,
     updateTerminalGrid,
     createGroup,
+    moveOut: dockWorkspace.moveOut,
+    dockTab: dockWorkspace.dockTab,
+    getDockLayout: dockWorkspace.model,
+    setWorkspaceMode: dockWorkspace.setMode,
+    configurationRoot: dockWorkspace.configurationRoot,
+    registerConfigurationWorkspace: dockWorkspace.registerConfigurationWorkspace,
+    createAdjacentTerminal,
     setSidebarTab
   };
 }

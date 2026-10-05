@@ -98,7 +98,7 @@ function normalize(input) {
   parseArguments(config.args);
   return config;
 }
-function buildCommand(config, fileEnv = {}, scriptEnv = {}, scriptMeta = []) {
+function buildCommand(config, fileEnv = {}, scriptEnv = {}, scriptMeta = [], launch = {}) {
   const c = normalize(config);
   const log = text => `printf '%s\\n' ${quote(text)}`;
   const lines = ['#!/usr/bin/env bash', 'set -e', log(`Working directory: ${c.cwd}`), `cd -- ${pathExpression(c.cwd)}`, 'printf \'Working directory (resolved): %s\\n\' "$(pwd -P)"'];
@@ -135,6 +135,12 @@ function buildCommand(config, fileEnv = {}, scriptEnv = {}, scriptMeta = []) {
   const args = parseArguments(c.args).map(quote);
   let command;
   if (c.type === 'python') command = [executable, '-u', ...(c.mode === 'module' ? ['-m', quote(c.target)] : [pathExpression(c.target)]), ...args].join(' ');
+  if (c.type === 'python' && launch.pythonCode) command = [executable, '-u', '-c', quote(launch.pythonCode)].join(' ');
+  if (c.type === 'python' && launch.debugBootstrap) {
+    command = [executable, '-u', pathExpression(launch.debugBootstrap), pathExpression(launch.endpointFile), quote(c.mode),
+      c.mode === 'script' ? pathExpression(c.target) : quote(c.target), ...args].join(' ');
+    if (c.mode === 'module' && c.target === 'uvicorn') lines.push('unset UVICORN_RELOAD WEB_CONCURRENCY', 'export UVICORN_WORKERS=1');
+  }
   if (c.type === 'javascript') {
     if (c.mode === 'npm') {
       // Run npm with the selected Node runtime, including an explicit node path.

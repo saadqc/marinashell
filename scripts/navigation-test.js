@@ -126,10 +126,7 @@ app.whenReady().then(async () => {
   await run(`
     window.layoutMembers = [...fixture.state.tabs.values()].filter(t => t.groupId);
     fixture.sessions.setActiveSessionTab(layoutMembers[0].id);
-    document.querySelector('#project-options-btn').click();
-    const select = document.querySelector('select[aria-label="Project layout"]');
-    select.value = '3-left'; select.dispatchEvent(new Event('change'));
-    [...document.querySelectorAll('dialog button')].find(b => b.textContent === 'Done').click();
+    fixture.sessions.setGroupLayout(layoutMembers[0].groupId,'3-left');
     await waitFor(() => document.querySelectorAll('.terminal-pane.grid-visible').length === 3);
     window.visualPaneIds = () => [...document.querySelectorAll('.terminal-pane.grid-visible')]
       .map(el => ({id: el.dataset.tabId, rect: el.getBoundingClientRect()}))
@@ -146,10 +143,10 @@ app.whenReady().then(async () => {
     const transfer=new DataTransfer(); transfer.setData('text/marinashell-tab', source.dataset.tabId);
     const rect=target.getBoundingClientRect();
     target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer,clientX:rect.right-2}));
-    await waitFor(() => visualPaneIds()[0] === layoutMembers[1].id);
+    await waitFor(() => visualPaneIds().length === 2);
   `);
   const reordered = await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId).map(t=>t.id)`);
-  assert.deepEqual(await run(`return visualPaneIds()`), reordered.slice(0,3), 'Dragging tabs also moves terminals');
+  assert.equal(await run(`return MarinaDocking.find(fixture.sessions.getDockLayout(layoutMembers[0].groupId),layoutMembers[0].sessionKey).memberIds.includes(layoutMembers[2].sessionKey)`),true,'Cross-pane strip reorder groups the source with the target');
   assert.deepEqual(state.tabs.filter(t=>t.groupId).map(t=>t.id),reordered, 'Reordered tabs persisted');
   await run(`document.querySelector('#project-options-btn').click(); [...document.querySelectorAll('dialog button')].find(b => b.textContent==='Save current sessions and layout').click(); await waitFor(()=>!document.querySelector('.project-options'));`);
   await new Promise(resolve=>setTimeout(resolve,150));
@@ -217,7 +214,7 @@ app.whenReady().then(async () => {
   assert.equal(await run(`return Boolean(document.querySelector('.command-palette'))`),true);
   assert.match(await run(`return document.querySelector('#command-search kbd').textContent`),/Shift P/);
   await run(`document.querySelector('.command-palette').dispatchEvent(new Event('cancel',{cancelable:true}));for(const tab of extraShortcutTabs)await fixture.sessions.closeTab(tab.id,{approved:true});`);
-  // Native context-menu clicks split only the clicked pane, keeping LR tab order.
+  // Adjacent creation API splits only the requested pane, keeping LR tab order.
   const originalLibrary = structuredClone(library);
   const beforeAdjacentActive = await run(`return fixture.state.activeTabId`);
   const beforeAdjacent = await run(`return fixture.state.tabs.size`);
@@ -233,46 +230,46 @@ app.whenReady().then(async () => {
     await run(`await new Promise(resolve=>setTimeout(resolve,100));`);
   }
   const adjacentSourceId = await run(`return adjacentSource.id`);
-  await contextClick(adjacentSourceId, 'Create on right');
+  await run(`fixture.sessions.createAdjacentTerminal(${JSON.stringify(adjacentSourceId)},'right');`);
   await run(`await waitFor(()=>fixture.state.tabs.size===${beforeAdjacent+2}); window.adjacentRight=fixture.state.tabs.get(fixture.state.activeTabId);await waitFor(()=>adjacentRight.connected);`);
   const adjacentRightId=await run(`return adjacentRight.id`);
   assert.equal(await run(`const [a,b]=[adjacentSource,adjacentRight].map(t=>t.container.getBoundingClientRect());return a.top===b.top&&a.left<b.left&&Math.abs(a.height-b.height)<1;`),true);
-  await contextClick(adjacentSourceId, 'Create below');
+  await run(`fixture.sessions.createAdjacentTerminal(${JSON.stringify(adjacentSourceId)},'below');`);
   await run(`await waitFor(()=>fixture.state.tabs.size===${beforeAdjacent+3});window.adjacentBelow=fixture.state.tabs.get(fixture.state.activeTabId);await waitFor(()=>adjacentBelow.connected);`);
   const adjacentBelowId=await run(`return adjacentBelow.id`);
   assert.deepEqual(await run(`return visualPaneIds()`),[adjacentSourceId,adjacentRightId,adjacentBelowId]);
   assert.equal(await run(`const [a,b,c]=[adjacentSource,adjacentRight,adjacentBelow].map(t=>t.container.getBoundingClientRect());return a.top===b.top&&a.left===c.left&&c.top>a.top&&b.height>a.height*1.9;`),true);
   // Splitting the full-height right pane leaves both left panes in place.
-  await contextClick(adjacentRightId, 'Create below');
+  await run(`fixture.sessions.createAdjacentTerminal(${JSON.stringify(adjacentRightId)},'below');`);
   await run(`await waitFor(()=>fixture.state.tabs.size===${beforeAdjacent+4});window.adjacentFourth=fixture.state.tabs.get(fixture.state.activeTabId);await waitFor(()=>adjacentFourth.connected);`);
   const adjacentFourthId=await run(`return adjacentFourth.id`);
   assert.deepEqual(await run(`return visualPaneIds()`),[adjacentSourceId,adjacentRightId,adjacentBelowId,adjacentFourthId]);
   assert.deepEqual(await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId===adjacentSource.groupId).map(t=>t.id)`),await run(`return visualPaneIds()`));
   assert.equal(await run(`return [adjacentRight,adjacentBelow,adjacentFourth].every(t=>t.host==='__local__'&&t.currentPath==='/srv/adjacent')`),true);
   await run(`const source=document.querySelector('.session-tab[data-tab-id="'+adjacentSource.id+'"]');const target=document.querySelector('.session-tab[data-tab-id="'+adjacentBelow.id+'"]');const transfer=new DataTransfer();transfer.setData('text/marinashell-tab',source.dataset.tabId);const rect=target.getBoundingClientRect();target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer,clientX:rect.right-2}));`);
-  assert.deepEqual(await run(`return visualPaneIds()`),[adjacentRightId,adjacentBelowId,adjacentSourceId,adjacentFourthId]);
-  const customLayout=await run(`return fixture.state.appState.tabGroups.find(g=>g.id===adjacentSource.groupId).terminalLayout`);
+  assert.deepEqual(await run(`return visualPaneIds()`),[adjacentSourceId,adjacentRightId,adjacentFourthId]);
+  const customLayout=await run(`return fixture.state.appState.tabGroups.find(g=>g.id===adjacentSource.groupId).dockLayout`);
   await run(`await fixture.sessions.savedGroups.save(adjacentSource.groupId,true);`);
-  assert.deepEqual(library[0].terminalLayout,customLayout);
+  assert.deepEqual(library[0].dockLayout,customLayout);
   const adjacentSaved={...structuredClone(library[0]),id:'adjacent-snapshot'};
   await run(`await fixture.sessions.closeGroup(adjacentSource.groupId);window.restoredAdjacent=await fixture.sessions.savedGroups.restore(${JSON.stringify(adjacentSaved)});`);
-  assert.deepEqual(await run(`return fixture.state.appState.tabGroups.find(g=>g.id===restoredAdjacent.id).terminalLayout`),customLayout);
-  assert.deepEqual(await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId===restoredAdjacent.id).map(t=>t.id)`),await run(`return visualPaneIds()`));
+  assert.deepEqual(await run(`return fixture.state.appState.tabGroups.find(g=>g.id===restoredAdjacent.id).dockLayout`),customLayout);
+  assert.deepEqual(await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId===restoredAdjacent.id).map(t=>t.sessionKey)`),await run(`return MarinaDocking.order(fixture.sessions.getDockLayout(restoredAdjacent.id))`));
   // Explicit preset selection resets the custom rectangles and grid tracks.
   await run(`fixture.sessions.setGroupLayout(restoredAdjacent.id,'3-left');`);
   assert.equal(await run(`return !fixture.state.appState.tabGroups.find(g=>g.id===restoredAdjacent.id).terminalLayout&&!document.querySelector('#terminal-stack').style.gridTemplateColumns`),true);
-  // A context split also works on an existing three-pane preset with a hidden tab.
+  // An API split also works on an existing three-pane preset with a hidden tab.
   const presetSource=await run(`return visualPaneIds()[0]`);
-  await contextClick(presetSource,'Create on right');
+  await run(`fixture.sessions.createAdjacentTerminal(${JSON.stringify(presetSource)},'right');`);
   await run(`await waitFor(()=>fixture.state.tabs.size===${beforeAdjacent+5});await waitFor(()=>fixture.state.tabs.get(fixture.state.activeTabId).connected);`);
   assert.equal(await run(`return visualPaneIds().length`),4);
-  assert.deepEqual(await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId===restoredAdjacent.id).slice(0,4).map(t=>t.id)`),await run(`return visualPaneIds()`));
+  assert.deepEqual(await run(`return MarinaDocking.geometry(fixture.sessions.getDockLayout(restoredAdjacent.id)).panes.map(p=>[...fixture.state.tabs.values()].find(t=>t.sessionKey===p.pane.activeId).id)`),await run(`return visualPaneIds()`));
   fs.writeFileSync(path.resolve('design/validation/adjacent-terminals.png'),(await window.webContents.capturePage()).toPNG());
   await run(`await fixture.sessions.closeGroup(restoredAdjacent.id);`);
   await run(`fixture.sessions.setActiveSessionTab(${JSON.stringify(beforeAdjacentActive)});`);
   library=originalLibrary;
   assert.equal(await run(`return fixture.state.tabs.size`),beforeAdjacent);
-  console.log('PASS: native Right/Below terminal creation, source host/path inheritance, LR tab ordering, custom drag order, saved split restoration and preset reset');
+  console.log('PASS: adjacent terminal API, source host/path inheritance, LR tab ordering, custom drag order, saved split restoration and preset reset');
   // Exercise both auto-detected links and explicit OSC8 hyperlinks.
   const result = await run(`const tab=fixture.state.tabs.get(fixture.state.activeTabId); const provider=tab.term.testProvider; tab.term.reset(); await new Promise(resolve=>tab.term.write('https://example.com',resolve)); const links=await new Promise(resolve=>provider.provideLinks(1,resolve)); const modifier=navigator.platform.toLowerCase().includes('mac')?{metaKey:true}:{ctrlKey:true}; window.linkTest={tab,links,modifier}; links[0].activate(new MouseEvent('click',{button:0})); tab.term.options.linkHandler.activate(new MouseEvent('click',{button:0}),'https://example.org'); return links.length;`);
   assert.equal(result,1); await new Promise(r=>setTimeout(r,100)); assert.equal(externalLinks.length,0);

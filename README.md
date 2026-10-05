@@ -37,7 +37,7 @@ Regenerate it with `env -u ELECTRON_RUN_AS_NODE npx electron scripts/capture-dem
 - **File context menus**: Open in editor and Tail last 500 lines are available for terminal filenames/selected paths and explorer files. Tail opens a separate terminal on the same host.
 - **Port cleanup**: configurations can optionally kill TCP listeners on a specified port before launch or restart. This is disabled by default, requires `lsof` on the execution host, and does not use sudo.
 - **Configuration editor**: compact Run, Environment, Before launch, and Projects tabs, an independent configuration list, and an always-visible save footer.
-- **Run sidebar**: configuration dropdown and launch controls beneath Files; active runs appear as a compact list with green dots. Terminal and Layout share one header.
+- **Run sidebar**: configuration dropdown and launch controls beneath Files; active runs appear as a compact list with green dots. The pane button beside each run shows or hides its output in the separate Configurations workspace.
 - **Process list**: search for Show Process List to inspect local or SSH processes. Sort by CPU, RAM, disk throughput or cumulative disk I/O; filter by name/user/PID or exact local port. Requires Python 3 on macOS/Linux hosts; `lsof` supplies port information. Restricted counters display —.
 - **Workspace navigation**:
   - Charcoal surfaces with an amber active-state accent
@@ -59,7 +59,7 @@ Regenerate it with `env -u ELECTRON_RUN_AS_NODE npx electron scripts/capture-dem
   - Optional “restore tabs on launch”
 - **Connections**: Open → Connect to… opens the local/SSH connection picker. Bookmarks and recent-location lists are removed from the interface.
 - **Quality-of-life**:
-  - Collapsible Files sidebar, persistent tool rail, and a Layout menu
+  - Collapsible Files sidebar, persistent tool rail, and drag-to-dock terminal panes
   - Right-click tree context menu: copy remote path
   - Drag & drop local files into the tree to upload (SFTP)
   - Terminal links require Command+click on macOS or Ctrl+click elsewhere
@@ -186,13 +186,25 @@ This project is **not code-signed** by default. For distribution outside your ma
 No license specified.
 
 
+## Terminal docking
+
+Drag a top session tab or a pane's member tab over another terminal. Amber centre/left/right/above/below anchors preview the placement. Centre groups the sessions in one pane; an edge splits the hovered pane. Drag the dividers to resize. The top strip follows pane order from top to bottom and left to right.
+
+Right-click a terminal and choose **Move Out** to give that live session a standalone top-level tab. Drag it back onto a pane to dock it again. Moving sessions preserves their connections and output.
+
+Terminal arrangements save automatically, including grouped members, standalone tabs, proportions, and focus. Failed writes show **Unsaved · Retry**. Saved projects reopen their latest arrangement even when **Restore tabs** is off; that setting controls automatic launch restoration. New projects can use an initial preset, and MCP preset setters remain supported.
+
+**Terminals** and **Configurations** share the workspace area but retain separate layouts. Configuration output uses the same anchors and dividers, keeps placement only for this window, and never becomes a shell tab. Closing its view does not stop its process.
+
+Validation: `npm run test:docking` covers the model and native Electron pointer interactions, failed writes, and fresh-window restoration. `npm run test:navigation`, `npm run test:workspace`, and `npm run test:mcp` cover integration.
+
 ## Run configurations
 
 Enable **run-configurations** in **Settings → Plugins**. It ships disabled and stores its library in `~/.marinashell/run-configurations.json`. The toolbar provides configuration selection, Run, Restart, Stop, Edit configurations, and a run list for reopening output.
 
 - Templates: Python script/module, Celery, Uvicorn, Flask, Node script/module, npm script, and shell script/commands.
 - Choose local or an SSH alias, working directory, arguments, and interpreter. **Detect** finds common Python/Node/shell installations, conda/mamba/micromamba environments, pyenv versions, and nvm installations; the picker lists only environments of the selected environment manager. Custom manager and interpreter paths are also accepted, and a stale manager path falls back to a `PATH` lookup at launch.
-- Launching does not open a terminal tab. Runs appear in a status indicator next to the configuration dropdown (green dot while running); open it to show, refocus, or clear a run's output tab. Output tabs are read-only, with selection/copy and Find.
+- Launching adds a row to Run configurations without opening output. Click the row to show or focus its read-only output, or use the pane icon to show/hide it. Outputs support selection/copy and Find in the separate Configurations workspace.
 - Terminal links recognize absolute file paths (tracebacks, `path:line`) — click one to open the file in the CodeMirror editor. Local files open without a terminal session; remote paths need a connected tab on that host.
 - Node module mode imports the module with the selected Node interpreter. For a package CLI, use its entry script or an npm script.
 - **Before run — setup scripts**: optional scripts you add yourself, each run before launch in the shell you pick (`bash` or `zsh`). Variables a script exports are applied to the run — this is how `.autoenv.zsh`-style activation files (which may `source` other files or run an environment-manager `activate`) contribute settings. Later scripts override earlier ones, and variables edited under **Environment variables** win over all of them. Only variables a script actually adds or changes are applied; the launch header reports the applied count or the script's exit status, never values, and a failing script does not block the launch. Nothing is detected or enforced automatically — add only scripts you trust.
@@ -200,14 +212,20 @@ Enable **run-configurations** in **Settings → Plugins**. It ships disabled and
 - **Group defaults**: with a configuration shown in a tab group, *Save current values as group defaults* stores its working directory, interpreter/manager, `.env` files, setup scripts, and system-environment choice under that group in `~/.marinashell/run-group-defaults.json`. New configurations created while a tab of that group is active are prefilled from them, and the editor offers *Apply* for one-click adoption. Defaults live in shelldock's library, never inside the project directory.
 - **Detect** also scans the working directory for project hints — entry-point directories (`src/` with `app.py`, `manage.py`, …), `.autoenv*`/`.envrc`/`.env` files, and a project-local `.venv` — and offers them as clickable suggestions. Nothing is applied until you click a suggestion.
 - **Allow multiple instances** is off by default. Single-instance Run reuses the existing run; multiple-instance Run adds another entry to the run indicator. Restart keeps an already-open output view attached.
-- Output is read-only, with selection/copy and Find. Stop requests termination of the managed job; Stop again force-kills it. Closing a tab or group asks for confirmation and keeps the view open until termination is confirmed.
+- Hiding or closing an output view keeps its process and run record available. Stop requests termination; Stop again force-kills it. Closing a whole project still checks its runs and confirms termination before closing.
 - SSH **Run in tmux** is off by default and requires the installed/enabled tmux plugin plus tmux on the remote host. A named session is reused with a dedicated managed window per run. Reconnecting resumes the output log and verifies status, without automatically launching a duplicate.
 - Run records are stored separately in `~/.marinashell/run-records.json`; per-run status and output live under `~/.marinashell/runs/` on the execution host. Logs retain approximately 4–8 MB per run. Older output may rotate. Launch scripts containing inline environment variables use owner-only permissions and are removed after exit.
 - Process control uses a Bash supervisor that owns the job, not name-based `pkill` or blind signaling of saved PIDs. Unknown/disconnected runs must be rechecked before controlling them. Programs should run in the foreground; deliberately daemonized children are outside the managed job.
-- The runner currently targets **macOS/Linux hosts with Bash**, including POSIX SSH hosts when the client runs on Windows. Native Windows execution hosts are not supported. tmux persistence covers SSH loss, not remote reboots. Ordinary runs are stopped on app quit; tmux runs remain remote until stopped or their tab is explicitly closed.
-- Saved project snapshots are independent in `~/.marinashell/saved-groups.json`. Restoring configuration tabs does not execute them.
+- The runner currently targets **macOS/Linux hosts with Bash**, including POSIX SSH hosts when the client runs on Windows. Native Windows execution hosts are not supported. tmux persistence covers SSH loss, not remote reboots. Ordinary runs are stopped on app quit; tmux runs remain remote until explicitly stopped or their project is closed.
+- Saved project snapshots are independent in `~/.marinashell/saved-groups.json`. Configuration output placement is temporary and is not restored on launch.
 
 Validation: `npm run test:runs`, `npm run test:runs:ssh` (requires local tmux; uses an isolated loopback SSH server/socket), and `npm run test:workspace` (Electron UI plus real local processes).
+
+### Python debugging
+
+Enable **PyDebug** with **Editor** and **Run Configurations**, install `debugpy` 1.8.x in the configuration's selected Python environment, then use **Debug** beside Run. Local and SSH Python scripts/modules support CodeMirror breakpoints, a central breakpoint manager, Python conditions, variables, call stacks, watches, console evaluation, and stepping. A stop opens and highlights the source automatically. Uvicorn reload is disabled only for Debug; one worker is required.
+
+[Usage, SSH behavior, limits, and verification](docs/pydebug.md). Validation: `npm run test:pydebug` and `npm run test:pydebug:ui` with the documented isolated Python environment.
 
 ### Agent access (MCP)
 

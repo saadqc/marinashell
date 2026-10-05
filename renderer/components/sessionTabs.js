@@ -775,7 +775,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     sessionTabs.dataset.overflow = settingsService.readSettingValue('ui', 'session', 'tabOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll';
     sessionTabs.innerHTML = '';
     const activeGroupId = getActiveTab(state)?.groupId || '';
-    const tabs = Array.from(state.tabs.values()).filter(tab => !tab.runOutput && (tab.groupId || '') === activeGroupId);
+    const tabs = Array.from(state.tabs.values()).filter(tab => (tab.groupId || '') === activeGroupId);
     // Projects live in the outer rail; this strip contains only their sessions.
     tabs.forEach(tab => sessionTabs.appendChild(buildTabButton(tab)));
     renderLucide(sessionTabs);

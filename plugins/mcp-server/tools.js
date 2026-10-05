@@ -254,10 +254,14 @@ function createTools({ store, broker, library, getService, capture }) {
     if (!projectAllowed(c, id, snapshot))
       fail("PERMISSION_DENIED", "Project is outside the allowed scope.");
   }
+  function configurationAllowed(c, id) {
+    return includes(c.scope.configurations, id) ||
+      (c.scope.futureConfigurations === true && !(c.knownConfigurationIds || []).includes(id));
+  }
   function requireConfig(c, config) {
     if (!config) fail("TARGET_GONE");
     requireHost(c, config.host);
-    if (!includes(c.scope.configurations, config.id))
+    if (!configurationAllowed(c, config.id))
       fail("PERMISSION_DENIED", "Configuration is outside the allowed scope.");
   }
   function visible(d, client) {
@@ -350,18 +354,13 @@ function createTools({ store, broker, library, getService, capture }) {
         requireConfig(client, config);
       }
       if (name === "projects.create") {
-        if (!client.scope.projects.includes("*"))
-          fail(
-            "PERMISSION_DENIED",
-            "Creating projects requires All projects (including future projects).",
-          );
         for (const tab of a.tabs) requireHost(client, tab.host);
       }
       if (name === "configurations.create") {
-        if (!client.scope.configurations.includes("*"))
+        if (!client.scope.configurations.includes("*") && !client.scope.futureConfigurations)
           fail(
             "PERMISSION_DENIED",
-            "Creating configurations requires All configurations (including future configurations).",
+            "Creating configurations requires future configuration access.",
           );
         requireHost(client, a.configuration.host);
       }
@@ -404,7 +403,7 @@ function createTools({ store, broker, library, getService, capture }) {
           ?.manager.list()
           .filter((r) => r.groupId === a.projectId) || []) {
           requireHost(client, r.host);
-          if (!includes(client.scope.configurations, r.configurationId))
+          if (!configurationAllowed(client, r.configurationId))
             fail("PERMISSION_DENIED");
           const fresh = await manager().status(r.id);
           if (!["exited", "failed", "blocked"].includes(fresh.status))
@@ -473,14 +472,6 @@ function createTools({ store, broker, library, getService, capture }) {
           ) !== revision(config)
         )
           fail("REVISION_CONFLICT");
-        if (
-          !needsApproval &&
-          client.approvedRevisions?.[config.id] !== revision(config)
-        )
-          fail(
-            "REVISION_CONFLICT",
-            "Configuration changed since access was granted. Save its permissions again, or use Ask.",
-          );
       }
       if (
         saved &&
@@ -545,7 +536,7 @@ function createTools({ store, broker, library, getService, capture }) {
               .configs.read()
               .filter(
                 (c) =>
-                  includes(client.scope.configurations, c.id) &&
+                  configurationAllowed(client, c.id) &&
                   includes(client.scope.hosts, c.host),
               )
               .map(configSummary),
@@ -579,7 +570,7 @@ function createTools({ store, broker, library, getService, capture }) {
             .list()
             .filter(
               (r) =>
-                includes(client.scope.configurations, r.configurationId) &&
+                configurationAllowed(client, r.configurationId) &&
                 includes(client.scope.hosts, r.host) &&
                 projectAllowed(client, r.groupId || "", snapshot),
             );
@@ -722,8 +713,16 @@ function createTools({ store, broker, library, getService, capture }) {
       store.log({
         client: client.name,
         tool: name,
+        target:
+          a.terminalId ||
+          a.configurationId ||
+          a.runId ||
+          a.savedProjectId ||
+          a.projectId ||
+          "",
         decision: "denied_or_failed",
         outcome: error.code || "FAILED",
+        reason: error.message,
         durationMs: Date.now() - started,
       });
       throw error;

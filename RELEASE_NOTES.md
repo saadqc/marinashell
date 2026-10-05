@@ -1,8 +1,6 @@
-# MarinaShell v0.2.16
+# MarinaShell v0.2.17
 
-- Settings now use dedicated tabs. Agent access has a simple name and optional password form, an agent table, copyable credentials, token rotation, and manual password replacement without selecting an AI tool.
-- Added a three-pane terminal layout with two panes on the left and one full-height pane on the right. Tab dragging also changes terminal order using left-to-right row order.
-- Terminal context menus can create a new terminal on the right or below the clicked pane, inheriting its connection and directory. Custom splits and tab order survive saving and reopening groups.
-- Open in editor and Tail last 500 lines require a selected, existing file. Empty, stale, missing, or inaccessible selections do nothing.
-- Local Bash and Zsh startup no longer types setup scripts into the terminal. Settings offer Errors only (quiet), Info, or Debug startup messages while preserving shell profile output and errors.
-- Fixed a queued terminal resize running after the terminal was closed.
+- Agent permissions show expandable projects with their configurations, a separate future-configuration checkbox, and Check All / Uncheck All controls. Removed the two global project/configuration entries and the Unassigned pseudo-project.
+- Saved permission selections now determine actual MCP access. Run=Allow no longer requires an invisible approval snapshot; expected revisions, Ask approvals, host/project scope, and port-cleanup permissions remain enforced. Future access covers newly created configurations without granting existing unchecked configurations.
+- Configurations with missing project links are grouped under the unique matching host and directory. Failed MCP activity entries now show their target and reason.
+- Configuration output appears in the top tab strip. Different runs open separate output tabs without replacing existing shell or output tabs; reopening the same run focuses its own tab.

@@ -152,7 +152,6 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
     runs.set(run.id, run); sessionRunIds.add(run.id);
     if (views.has(run.id)) { if (focus) sessionTabs.setActiveSessionTab(views.get(run.id).tabId); return; }
     let tab = replaceTab || [...state.tabs.values()].find(tab => tab.runId === run.id);
-    if (!tab) tab = [...state.tabs.values()].find(tab => tab.readOnly && !tab.runId && tab.configurationId === run.configurationId && tab.groupId === run.groupId);
     if (!tab) tab = sessionTabs.createTabState({
       host: run.host, currentPath: run.cwd || '/', readOnly: true, runId: run.id, configurationId: run.configurationId,
       runOutput: true,
@@ -207,17 +206,8 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
       const group = state.appState.tabGroups?.find(g => g.id === active?.groupId);
       const result = await call('start', { id: selectedId, groupId: group?.id || '', groupName: group?.name || '' });
       runs.set(result.run.id, result.run); sessionRunIds.add(result.run.id);
-      // An already-open output view for this configuration is refreshed in
-      // place; otherwise the run stays in the indicator until output is wanted.
-      const previous = [...views.keys()].reverse().find(id => id !== result.run.id
-        && runs.get(id)?.configurationId === selectedId && ended(runs.get(id)));
-      const oldTab = previous ? state.tabs.get(views.get(previous)?.tabId) : null;
-      if (oldTab) {
-        await call('close', { id: previous });
-        attach(result.run, { replaceTab: oldTab, focus: false });
-      } else {
-        updateControls();
-      }
+      // Starting a new run never recycles a previous output or shell tab.
+      updateControls();
     } catch (error) { showError(error); }
     finally { launching = false; updateControls(); }
   }
@@ -243,25 +233,9 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
       else updateControls();
     } catch (error) { showError(error); pollRun(id); }
   }
-  // At most one output tab per configuration: opening output for a newer run
-  // refreshes the existing tab instead of stacking another one.
+  // Each run owns its output tab. Reopening that run focuses its own tab;
+  // another run (including an ended run) gets a separate tab.
   async function showOutput(run) {
-    const others = [...views.keys()]
-      .filter(id => id !== run.id && runs.get(id)?.configurationId === run.configurationId);
-    const endedId = others.find(id => ended(runs.get(id)));
-    if (endedId != null) {
-      const oldTab = state.tabs.get(views.get(endedId)?.tabId);
-      const old = runs.get(endedId);
-      if (oldTab && old) {
-        try { await call('close', { id: endedId }); } catch (_) { /* keep the tab if the record is stuck */ }
-        old.closed = true;
-        attach(run, { replaceTab: oldTab });
-        return;
-      }
-      views.delete(endedId);
-    }
-    const liveId = others.find(id => !ended(runs.get(id)));
-    if (liveId != null) { attach(runs.get(liveId)); return; }
     attach(run);
   }
   const play = icon('play', 'Run', start, 'run-play');

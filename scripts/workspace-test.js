@@ -133,9 +133,13 @@ app.whenReady().then(async () => {
   await evaluate(`testWait(()=>!document.querySelector('.run-editor')); document.querySelector('#run-toolbar [aria-label="Run"]').click();`);
   // Launching stays in the run indicator; the output tab opens on demand.
   await evaluate(`testWait(()=>document.querySelector('.running-configuration'))`);
+  const shellTabIds = await evaluate(`return [...document.querySelectorAll('.terminal-pane:not(.run-output)')].map(p=>p.dataset.tabId);`);
   await evaluate(`testWait(()=>document.querySelectorAll('.running-configuration').length === 1); document.querySelector('.running-configuration .run-chip').click();`);
   await evaluate(`testWait(()=>document.querySelector('.run-output-bar')?.textContent.includes('Running'))`);
   assert.equal(manager.list().length, 1);
+  assert.equal(await evaluate(`const pane=document.querySelector('.terminal-pane.run-output');return Boolean(document.querySelector('#session-tabs .session-tab[data-tab-id="'+pane.dataset.tabId+'"]'));`), true, 'Run output must have a visible tab in the top strip');
+  for (const id of shellTabIds)
+    assert.equal(await evaluate(`return Boolean(document.querySelector('.terminal-pane[data-tab-id="${id}"]:not(.run-output)'));`), true, 'Opening running output must preserve shell tabs');
   // The rendered terminal must fit between the run toolbar and pane bottom,
   // including after the window shrinks (FitAddon must exclude toolbar space).
   for (const [width, height] of [[1300, 900], [1000, 650]]) {
@@ -172,17 +176,32 @@ app.whenReady().then(async () => {
   await evaluate(`document.querySelector('#run-toolbar [aria-label="Run"]').click(); testWait(()=>document.querySelectorAll('.running-configuration').length === 2);`);
   assert.equal(await evaluate(`return document.querySelector('.running-configuration').classList.contains('ended')`), false);
   assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration')[1].classList.contains('ended')`), true);
+  // Opening an ended run and a newer active run keeps separate output tabs.
+  const endedRunId = manager.list().find(r=>r.status==='exited').id;
+  const liveRunId = manager.list().find(r=>r.status==='running').id;
+  await clickAt(`.running-configuration[data-run-id="${endedRunId}"] .run-chip`);
+  await evaluate(`testWait(()=>document.querySelectorAll('.terminal-pane.run-output').length === 1)`);
+  const endedTabId = await evaluate(`return document.querySelector('.terminal-pane.run-output').dataset.tabId;`);
+  await clickAt(`.running-configuration[data-run-id="${liveRunId}"] .run-chip`);
+  await evaluate(`testWait(()=>document.querySelectorAll('.terminal-pane.run-output').length === 2)`);
+  assert.equal(await evaluate(`return Boolean(document.querySelector('.terminal-pane.run-output[data-tab-id="${endedTabId}"]'));`), true);
+  await clickAt(`.running-configuration[data-run-id="${liveRunId}"] .run-chip`);
+  assert.equal(await evaluate(`return document.querySelectorAll('.terminal-pane.run-output').length;`), 2, 'Reopening the same run focuses its own tab');
   // Dismissing removes only the indicator row; stored run records survive.
   await evaluate(`document.querySelector('.running-configuration.ended .run-dismiss').click();`);
   assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 1);
   assert.equal(manager.list().length, 2);
   await evaluate(`document.querySelector('#run-toolbar [aria-label="Stop"]').click(); testWait(()=>document.querySelector('.running-configuration.ended .run-dismiss'));`);
+  const outputIds = await evaluate(`return [...document.querySelectorAll('.terminal-pane.run-output')].map(p=>p.dataset.tabId);`);
+  for (const id of outputIds) {
+    await evaluate(`document.querySelector('.session-tab[data-tab-id="${id}"] .close-btn').click(); testWait(()=>!document.querySelector('.terminal-pane[data-tab-id="${id}"]'));`);
+  }
   // Selecting the other workspace scopes the dropdown and the indicator to it.
   await evaluate(`document.querySelector('.session-tab.active .close-btn').click();`);
   await evaluate(`document.querySelector('.session-tab.active .close-btn').click(); testWait(()=>[...document.querySelector('#run-toolbar select').options].some(o => o.textContent === 'Other job — Other workspace'));`);
   assert.deepEqual(await evaluate(`return [...document.querySelector('#run-toolbar select').options].map(o => o.textContent)`), ['Other job — Other workspace']);
   assert.equal(await evaluate(`return document.querySelectorAll('.running-configuration').length`), 0);
-  assert.equal(manager.list().length, 2);
+  assert.equal(manager.list().length, 0);
   // Exercise xterm's real keydown/keyup listeners: one shortcut must write once
   // and cancel Chromium's default paste action.
   await evaluate(`if(document.querySelector('#disconnect-session-btn').disabled) { document.querySelector('.terminal-pane.active .welcome-connect').click(); } testWait(()=>!document.querySelector('#disconnect-session-btn').disabled);`);

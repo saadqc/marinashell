@@ -48,7 +48,7 @@
 }
 .mcp-scopes {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-columns: minmax(150px, .65fr) minmax(0, 1.35fr);
   gap: 12px;
 }
 .mcp-scopes fieldset {
@@ -57,57 +57,6 @@
   max-height: 220px;
   overflow: auto;
   min-width: 0;
-}
-.mcp-tree {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 6px;
-}
-#preferences-mcp .mcp-tree-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-#preferences-mcp .mcp-tree-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 3px 0;
-  text-transform: none;
-  font-weight: normal;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-#preferences-mcp .mcp-tree-label input[type="checkbox"] {
-  flex: 0 0 14px;
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  padding: 0;
-}
-#preferences-mcp .mcp-tree-children {
-  margin-left: 24px;
-  display: flex;
-  flex-direction: column;
-}
-#preferences-mcp .mcp-tree-children .mcp-tree-label {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-#preferences-mcp .mcp-tree-arrow {
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1;
-  cursor: pointer;
 }
 #preferences-mcp button {
   border: 1px solid var(--border);
@@ -208,3 +157,19 @@
   .mcp-server-bar code { flex-basis: calc(100% - 150px); }
   .mcp-tabs { gap: 16px; }
 }
+
+#preferences-mcp .mcp-project-field { max-height: none; overflow: visible; }
+.mcp-project-list { max-height: 360px; overflow: auto; margin-top: 12px; }
+.mcp-project { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.mcp-project:last-child { border-bottom: 0; }
+.mcp-project-header { display: flex; align-items: center; gap: 8px; }
+.mcp-project-header .mcp-check { flex: 1; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.mcp-config-note { color: var(--text-muted); font-size: 11px; font-weight: normal; }
+.mcp-project-header .mcp-config-note { flex-shrink: 0; }
+#preferences-mcp .mcp-project-toggle { border: 0; background: none; padding: 0; width: 20px; height: 24px; color: var(--text-muted); }
+.mcp-project-configurations { padding: 4px 0 0 28px; }
+.mcp-project-configurations[hidden] { display: none; }
+#preferences-mcp .mcp-config-access { margin: 0; padding: 7px 0; font-weight: normal; overflow-wrap: anywhere; }
+.mcp-config-access .mcp-config-note { margin-left: auto; }
+#preferences-mcp .mcp-future-access { margin: 0; font-weight: normal; }
+@media (max-width: 740px) { .mcp-scopes { grid-template-columns: 1fr; } }

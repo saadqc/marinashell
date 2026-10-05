@@ -274,11 +274,18 @@ async function load() {
       policy.append(el("p", "Choose tool access and the hosts, projects or Scratchpad this agent can use. Save permissions when you’re done.", "hint"));
       const controls = new Map();
       const presets = el("div", undefined, "mcp-row");
+      const toolToggle = button("Check All", () => {
+        const on = [...controls.values()].some(s => s.value !== "allow");
+        for (const s of controls.values()) s.value = on ? "allow" : "hidden";
+        syncToolToggle();
+      });
+      toolToggle.setAttribute("aria-label", "Check all tool permissions");
+      function syncToolToggle() {
+        toolToggle.textContent = [...controls.values()].every(s => s.value === "allow") ? "Uncheck All" : "Check All";
+      }
       presets.append(
         el("span", "Tool access"),
-        button("Hide all", () => {
-          for (const s of controls.values()) s.value = "hidden";
-        }),
+        toolToggle,
         button("Metadata only", () => {
           for (const [name, s] of controls)
             s.value = [
@@ -290,10 +297,12 @@ async function load() {
             ].includes(name)
               ? "allow"
               : "hidden";
+          syncToolToggle();
         }),
         button("Ask before changes", () => {
           for (const [name, s] of controls)
             s.value = /\.(list|get)$/.test(name) ? "allow" : "ask";
+          syncToolToggle();
         }),
       );
       policy.append(presets);
@@ -323,14 +332,16 @@ async function load() {
         select.value = client.tools[name] || "hidden";
         select.setAttribute("aria-label", name);
         controls.set(name, select);
+        select.onchange = syncToolToggle;
         label.append(select);
         grid.append(label);
       }
+      syncToolToggle();
       policy.append(grid);
       policy.append(
         el(
           "p",
-          "Create + Run permits code execution on allowed hosts. Terminal reads and screenshots may reveal sensitive output. Kill Port permits terminating the process listening on a configured port. Allow for Run is bound to the configuration as it exists when permissions are saved.",
+          "Select the projects and configurations this agent can access. Allow runs the current configuration; Ask prompts before running. Future configuration access is separate from existing selections. Hosts, projects and Kill Port permissions still apply.",
           "hint",
         ),
       );
@@ -354,166 +365,107 @@ async function load() {
         return { id: item.id, input: c.input };
       });
       scopeGrid.append(hostField);
-      // Projects tree: every project carries its run configurations, so the
-      // standalone Configurations block is gone. The project checkbox selects
-      // or clears its whole branch; individual configurations stay toggleable.
-      const projectField = el("fieldset");
-      projectField.append(el("legend", "Projects"));
-      const allProjects = check(
-        "All projects, including future ones",
-        client.scope.projects.includes("*"),
+      const future = check(
+        "Allow agents to access all future configurations",
+        client.scope.futureConfigurations === true || client.scope.configurations.includes("*"),
       );
-      projectField.append(allProjects.label);
-      const allConfigurations = check(
-        "All configurations, including future ones",
-        client.scope.configurations.includes("*"),
-      );
-      projectField.append(allConfigurations.label);
-      const knownConfigurations = new Map(
-        data.configurations.map((c) => [c.id, c.name]),
-      );
-      const linked = new Set(
-        data.projects.flatMap((p) => p.configurationIds || []),
-      );
-      const branches = [
-        ...data.projects.map((p) => ({
-          id: p.id,
-          name: p.name,
-          children: [...new Set(p.configurationIds || [])],
-          project: true,
-        })),
-        {
-          id: "__unassigned__",
-          name: "Unassigned configurations",
-          children: [
-            ...data.configurations
-              .filter((c) => !linked.has(c.id))
-              .map((c) => c.id),
-            ...client.scope.configurations.filter(
-              (id) =>
-                id !== "*" &&
-                !knownConfigurations.has(id) &&
-                !linked.has(id),
-            ),
-          ],
-          project: false,
-        },
-        ...client.scope.projects
-          .filter(
-            (id) => id !== "*" && !data.projects.some((p) => p.id === id),
-          )
-          .map((id) => ({
-            id,
-            name: `${id} (unavailable)`,
-            children: [],
-            project: true,
-          })),
-      ];
-      const selectedProjects = new Set(
-        client.scope.projects.filter((id) => id !== "*"),
-      );
-      const selectedConfigurations = new Set(
-        client.scope.configurations.filter((id) => id !== "*"),
-      );
+      future.input.setAttribute("aria-label", "Allow agents to access all future configurations");
+      future.label.classList.add("mcp-future-access");
+      const knownConfigurations = new Map(data.configurations.map(c => [c.id, c.name]));
+      const selectedProjects = new Set(client.scope.projects.includes("*")
+        ? data.projects.map(p => p.id) : client.scope.projects);
+      const selectedConfigurations = new Set([
+        ...client.scope.configurations.filter(id => id !== "*"),
+        ...data.configurations.filter(c => client.scope.configurations.includes("*") ||
+          (client.scope.futureConfigurations === true && !(client.knownConfigurationIds || []).includes(c.id)))
+          .map(c => c.id),
+      ]);
+      const projects = [...data.projects];
+      for (const id of selectedProjects)
+        if (!projects.some(p => p.id === id)) projects.push({ id, name: `${id} (unavailable)`, configurationIds: [] });
+      const projectField = el("fieldset", undefined, "mcp-project-field");
+      projectField.append(el("legend", "Projects and configurations"));
       const projectInputs = new Map();
       const configurationInputs = new Map();
-      const tree = el("div", undefined, "mcp-tree");
-      function refreshTree() {
-        for (const [id, rows] of configurationInputs) {
-          const on =
-            allConfigurations.input.checked || selectedConfigurations.has(id);
-          for (const input of rows) {
-            input.checked = on;
-            input.disabled = allConfigurations.input.checked;
-            input.indeterminate = false;
-          }
-        }
-        for (const [id, row] of projectInputs) {
-          const all = row.children.every((cid) =>
-            selectedConfigurations.has(cid),
-          );
-          if (row.project) {
-            const inScope = selectedProjects.has(id);
-            row.input.checked = inScope && all;
-            row.input.indeterminate =
-              row.children.length > 0 && inScope !== all;
-          } else {
-            row.input.checked = row.children.length > 0 && all;
-            row.input.indeterminate =
-              !row.input.checked &&
-              row.children.some((cid) => selectedConfigurations.has(cid));
-          }
-        }
+      const list = el("div", undefined, "mcp-project-list");
+      const allConfigurationIds = new Set([...knownConfigurations.keys(), ...selectedConfigurations]);
+      const scopeToggle = button("Check All", () => {
+        const on = !allSelected();
+        for (const p of projects) on ? selectedProjects.add(p.id) : selectedProjects.delete(p.id);
+        for (const id of allConfigurationIds) on ? selectedConfigurations.add(id) : selectedConfigurations.delete(id);
+        syncSelections();
+      });
+      scopeToggle.setAttribute("aria-label", "Check all project and configuration access");
+      projectField.append(scopeToggle);
+      function allSelected() {
+        return projects.every(p => selectedProjects.has(p.id)) &&
+          [...allConfigurationIds].every(id => selectedConfigurations.has(id)) &&
+          (projects.length > 0 || allConfigurationIds.size > 0);
       }
-      for (const branch of branches) {
-        const row = el("div", undefined, "mcp-tree-row");
-        const label = el("label", undefined, "mcp-tree-label");
-        const input = el("input");
-        input.type = "checkbox";
-        input.setAttribute("aria-label", branch.name);
-        label.append(input, document.createTextNode(branch.name));
-        const arrow = el("button", "▾", "mcp-tree-arrow");
-        arrow.type = "button";
-        arrow.setAttribute("aria-label", `Toggle ${branch.name} configurations`);
-        const childBox = el("div", undefined, "mcp-tree-children");
-        for (const childId of branch.children) {
-          const childLabel = el("label", undefined, "mcp-tree-label");
-          const child = el("input");
-          child.type = "checkbox";
-          child.setAttribute(
-            "aria-label",
-            knownConfigurations.get(childId) || childId,
-          );
-          childLabel.append(
-            child,
-            document.createTextNode(
-              knownConfigurations.get(childId) || `${childId} (unavailable)`,
-            ),
-          );
-          child.onchange = () => {
-            if (child.checked) selectedConfigurations.add(childId);
-            else selectedConfigurations.delete(childId);
-            refreshTree();
-          };
-          childBox.append(childLabel);
-          const rows = configurationInputs.get(childId) || [];
-          rows.push(child);
-          configurationInputs.set(childId, rows);
-        }
-        if (branch.children.length) {
-          arrow.onclick = () => {
-            childBox.hidden = !childBox.hidden;
-            arrow.textContent = childBox.hidden ? "▸" : "▾";
-          };
-        } else {
-          arrow.style.visibility = "hidden";
-        }
-        row.append(arrow, label);
-        input.onchange = () => {
-          const turnOn = input.indeterminate ? true : input.checked;
-          if (turnOn) {
-            if (branch.project) selectedProjects.add(branch.id);
-            for (const childId of branch.children)
-              selectedConfigurations.add(childId);
-          } else {
-            selectedProjects.delete(branch.id);
-            for (const childId of branch.children)
-              selectedConfigurations.delete(childId);
-          }
-          refreshTree();
+      function syncSelections() {
+        for (const [id, input] of projectInputs) input.checked = selectedProjects.has(id);
+        for (const [id, inputs] of configurationInputs)
+          for (const input of inputs) input.checked = selectedConfigurations.has(id);
+        scopeToggle.textContent = allSelected() ? "Uncheck All" : "Check All";
+      }
+      function configurationRow(id, project) {
+        const row = check(knownConfigurations.get(id) || `${id} (unavailable)`, selectedConfigurations.has(id));
+        row.label.classList.add("mcp-config-access");
+        row.label.dataset.configurationId = id;
+        row.input.setAttribute("aria-label", knownConfigurations.get(id) || id);
+        row.input.onchange = () => {
+          if (row.input.checked) {
+            selectedConfigurations.add(id);
+            if (project) selectedProjects.add(project.id);
+          } else selectedConfigurations.delete(id);
+          syncSelections();
         };
-        projectInputs.set(branch.id, {
-          input,
-          children: branch.children,
-          project: branch.project,
-        });
-        tree.append(row, childBox);
+        const inputs = configurationInputs.get(id) || [];
+        inputs.push(row.input);
+        configurationInputs.set(id, inputs);
+        if (!project) row.label.append(el("small", "No project", "mcp-config-note"));
+        return row.label;
       }
-      projectField.append(tree);
-      allConfigurations.input.onchange = refreshTree;
-      refreshTree();
+      const linked = new Set();
+      for (const project of projects) {
+        const section = el("section", undefined, "mcp-project");
+        section.dataset.projectId = project.id;
+        const header = el("div", undefined, "mcp-project-header");
+        const children = [...new Set(project.configurationIds || [])];
+        const group = el("div", undefined, "mcp-project-configurations");
+        group.id = `mcp-configurations-${project.id}`;
+        const projectCheck = check(project.name, selectedProjects.has(project.id));
+        projectCheck.input.setAttribute("aria-label", project.name);
+        projectInputs.set(project.id, projectCheck.input);
+        projectCheck.input.onchange = () => {
+          const on = projectCheck.input.checked;
+          on ? selectedProjects.add(project.id) : selectedProjects.delete(project.id);
+          for (const id of children) on ? selectedConfigurations.add(id) : selectedConfigurations.delete(id);
+          syncSelections();
+        };
+        const toggle = el("button", "▾", "mcp-project-toggle");
+        toggle.type = "button";
+        toggle.setAttribute("aria-label", `Toggle ${project.name} configurations`);
+        toggle.setAttribute("aria-controls", group.id);
+        toggle.setAttribute("aria-expanded", "true");
+        toggle.onclick = () => {
+          group.hidden = !group.hidden;
+          toggle.textContent = group.hidden ? "▸" : "▾";
+          toggle.setAttribute("aria-expanded", String(!group.hidden));
+        };
+        if (!children.length) { toggle.disabled = true; toggle.style.visibility = "hidden"; }
+        for (const id of children) { linked.add(id); allConfigurationIds.add(id); group.append(configurationRow(id, project)); }
+        header.append(toggle, projectCheck.label, el("small", `${children.length} configuration${children.length === 1 ? "" : "s"}`, "mcp-config-note"));
+        section.append(header, group);
+        list.append(section);
+      }
+      for (const id of allConfigurationIds)
+        if (!linked.has(id)) list.append(configurationRow(id));
+      if (!projects.length && !allConfigurationIds.size) list.append(el("p", "No projects or configurations yet.", "hint"));
+      projectField.append(list);
+      syncSelections();
       scopeGrid.append(projectField);
-      policy.append(scopeGrid);
+      policy.append(future.label, scopeGrid);
       const scratch = check(
         "Allow Scratchpad (ungrouped terminals and runs)",
         client.scope.scratchpad,
@@ -521,28 +473,32 @@ async function load() {
       policy.append(
         scratch.label,
         button("Save agent permissions", async () => {
-          data = await call("policy", {
+          const requested = {
             id: client.id,
             tools: Object.fromEntries(
               [...controls].map(([k, s]) => [k, s.value]),
             ),
             scope: {
-              projects: [
-                ...(allProjects.input.checked ? ["*"] : []),
-                ...[...selectedProjects],
-              ],
-              configurations: [
-                ...(allConfigurations.input.checked ? ["*"] : []),
-                ...[...selectedConfigurations],
-              ],
+              projects: [...selectedProjects],
+              configurations: [...selectedConfigurations],
+              futureConfigurations: future.input.checked,
               hosts: hostInputs
                 .filter((r) => r.input.checked)
                 .map((r) => r.id),
               scratchpad: scratch.input.checked,
             },
-          });
+          };
+          const saved = await call("policy", requested);
+          const actual = saved.settings.clients.find(c => c.id === client.id);
+          const sameSet = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+          if (!actual || !Object.entries(requested.tools).every(([name, mode]) => actual.tools[name] === mode) ||
+            !["projects", "configurations", "hosts"].every(key => sameSet(actual.scope[key], requested.scope[key])) ||
+            actual.scope.futureConfigurations !== requested.scope.futureConfigurations ||
+            actual.scope.scratchpad !== requested.scope.scratchpad)
+            throw new Error("Saved permissions do not match your selections. Refresh and try again.");
+          data = saved;
           await refresh();
-          message("Permissions saved. Reconnect your agent to refresh its tool list.");
+          message(`Permissions saved for ${client.name}. Reconnect your agent to refresh its tool list.`);
         }),
       );
     }
@@ -553,12 +509,12 @@ async function load() {
     else {
       const table = el("table", undefined, "mcp-agent-table");
       const head = el("tr");
-      for (const title of ["Time", "Agent", "Tool", "Outcome"]) { const th = el("th", title); th.scope = "col"; head.append(th); }
+      for (const title of ["Time", "Agent", "Tool", "Outcome", "Details"]) { const th = el("th", title); th.scope = "col"; head.append(th); }
       const thead = el("thead"); thead.append(head); table.append(thead);
       const body = el("tbody");
       for (const row of data.activity) {
         const tr = el("tr");
-        for (const text of [new Date(row.time).toLocaleString(), row.client, row.tool, row.outcome]) tr.append(el("td", text));
+        for (const text of [new Date(row.time).toLocaleString(), row.client, row.tool, row.outcome, [row.target, row.reason].filter(Boolean).join(": ")]) tr.append(el("td", text));
         body.append(tr);
       }
       table.append(body);

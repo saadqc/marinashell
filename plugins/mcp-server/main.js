@@ -6,6 +6,7 @@ const { createStore } = require("./store");
 const { createBroker } = require("./broker");
 const { createTools, revision } = require("./tools");
 const { createHttpServer } = require("./server");
+const { projectConfigurations } = require("./projectConfigurations");
 module.exports = ({
   app,
   getMainWindow,
@@ -64,6 +65,7 @@ module.exports = ({
     ]) {
       if (g && g.id)
         liveGroups.set(g.id, {
+          id: g.id,
           name: g.name || "",
           configurationIds: [...(g.configurationIds || [])],
           savedGroupId: g.savedGroupId || "",
@@ -79,6 +81,9 @@ module.exports = ({
         configurationIds: counterpart
           ? counterpart.configurationIds
           : l.configurationIds || [],
+        tabs: counterpart
+          ? (live.terminals || []).filter(t => t.projectId === counterpart.id)
+          : l.tabs || [],
       };
     });
     for (const [id, g] of liveGroups) {
@@ -87,6 +92,7 @@ module.exports = ({
           id,
           name: `${g.name} (open)`,
           configurationIds: g.configurationIds,
+          tabs: (live.terminals || []).filter(t => t.projectId === id),
         });
     }
     return {
@@ -95,9 +101,9 @@ module.exports = ({
       settings: store.publicState(),
       tools: engine.names,
       activity: store.activity(),
-      projects,
+      projects: projectConfigurations(projects, getService("runs")?.manager.configs.read() || []),
       configurations: (getService("runs")?.manager.configs.read() || []).map(
-        (c) => ({ id: c.id, name: c.name }),
+        (c) => ({ id: c.id, name: c.name, host: c.host, cwd: c.cwd }),
       ),
       hosts: require("../../main/services/sshConfig").listConfigHosts() || [],
     };
@@ -155,8 +161,9 @@ module.exports = ({
     return current();
   });
   ipc("policy", ({ id, tools, scope }) => {
+    const configurations = getService("runs")?.manager.configs.read() || [];
     const revisions = Object.fromEntries(
-      (getService("runs")?.manager.configs.read() || [])
+      configurations
         .filter(
           (c) =>
             scope.configurations.includes("*") ||
@@ -164,7 +171,7 @@ module.exports = ({
         )
         .map((c) => [c.id, revision(c)]),
     );
-    store.policy(id, tools, scope, engine.names, revisions);
+    store.policy(id, tools, scope, engine.names, revisions, configurations.map(c => c.id));
     broker.cancel();
     return current();
   });

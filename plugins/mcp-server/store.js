@@ -125,7 +125,7 @@ function createStore({ root, secureStorage }) {
       data.clients = data.clients.filter((c) => c.id !== id);
       save();
     },
-    policy(id, tools, scope, names, approvedRevisions = {}) {
+    policy(id, tools, scope, names, approvedRevisions = {}, knownConfigurationIds = Object.keys(approvedRevisions)) {
       const client = data.clients.find((c) => c.id === id);
       if (!client) throw new Error("Agent not found");
       const next = {};
@@ -144,14 +144,21 @@ function createStore({ root, secureStorage }) {
           throw new Error("Invalid scope");
         return [...new Set(values)];
       };
-      client.approvedRevisions = approvedRevisions;
-      client.tools = next;
-      client.scope = {
+      const nextScope = {
         projects: allowed("projects"),
         hosts: allowed("hosts"),
         configurations: allowed("configurations"),
         scratchpad: scope.scratchpad === true,
+        futureConfigurations: scope.futureConfigurations === true,
       };
+      if (scope.futureConfigurations !== undefined && typeof scope.futureConfigurations !== "boolean")
+        throw new Error("Invalid future configuration access");
+      if (!Array.isArray(knownConfigurationIds) || knownConfigurationIds.some(id => typeof id !== "string"))
+        throw new Error("Invalid configuration snapshot");
+      client.approvedRevisions = approvedRevisions;
+      client.knownConfigurationIds = [...new Set(knownConfigurationIds)];
+      client.tools = next;
+      client.scope = nextScope;
       client.version++;
       save();
     },

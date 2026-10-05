@@ -244,36 +244,25 @@ app
     });
     assert.equal(invalid.ok, false);
     assert.match(invalid.error, /printable/);
-    // The scope editor renders projects as a tree; configurations are nested
-    // under their project instead of a standalone block.
+    // One future-access field outside the project card; no pseudo-projects.
     await settings.webContents.executeJavaScript(
       `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Refresh status').click()`,
     );
-    await pause(300);
-    const treeView = await settings.webContents.executeJavaScript(
-      `(() => {
-        document.querySelector('#mcp-tab-permissions').click();
-        const select = document.querySelector('#mcp-controls select[aria-label="Agent permissions"]');
-        const option = Array.from(select.options).find(o => o.textContent === 'Fixed password agent');
-        if (!option) return { tree: false, missing: 'agent option' };
-        select.value = option.value;
-        select.dispatchEvent(new Event('change'));
-        return {
-          tree: Boolean(document.querySelector('.mcp-tree')),
-          rows: document.querySelectorAll('.mcp-tree .mcp-tree-row').length,
-          children: document.querySelectorAll('.mcp-tree .mcp-tree-children .mcp-tree-label').length,
-          wildcards: [...document.querySelectorAll('.mcp-tree-row, .mcp-tree ~ label')].length,
-          labels: Array.from(document.querySelectorAll('#mcp-controls fieldset legend')).map(l => l.textContent),
-        };
-      })()`,
-    );
-    assert(treeView.tree, `project tree missing: ${JSON.stringify(treeView)}`);
-    assert(treeView.rows >= 1, `project rows missing: ${JSON.stringify(treeView)}`);
-    assert(
-      !treeView.labels.includes("Configurations"),
-      "standalone Configurations block must be gone",
-    );
-    assert(treeView.labels.includes("Projects") && treeView.labels.includes("Hosts"));
+    await uiWait("Boolean(document.querySelector('.mcp-project-list'))", "project access list");
+    const accessView = await settings.webContents.executeJavaScript(`(() => {
+      document.querySelector('#mcp-tab-permissions').click();
+      const select = document.querySelector('#mcp-controls select[aria-label="Agent permissions"]');
+      select.value = Array.from(select.options).find(o => o.textContent === 'Fixed password agent').value;
+      select.dispatchEvent(new Event('change'));
+      const future = document.querySelector('input[aria-label="Allow agents to access all future configurations"]');
+      return { future: Boolean(future), outside: !future.closest('fieldset'), tree: Boolean(document.querySelector('.mcp-tree')),
+        obsolete: /All projects, including future ones|All configurations, including future ones|Unassigned configurations/.test(document.querySelector('#mcp-controls').textContent) };
+    })()`);
+    assert(accessView.future && accessView.outside && !accessView.tree && !accessView.obsolete);
+    await clickSettings('button[aria-label="Check all tool permissions"]');
+    assert.equal(await settings.webContents.executeJavaScript("[...document.querySelectorAll('.mcp-permissions select')].every(s=>s.value==='allow')"), true);
+    await clickSettings('button[aria-label="Check all tool permissions"]');
+    assert.equal(await settings.webContents.executeJavaScript("[...document.querySelectorAll('.mcp-permissions select')].every(s=>s.value==='hidden')"), true);
     const project = await call("projects.create", {
       name: "MCP test",
       tabs: [
@@ -358,76 +347,94 @@ app
       },
       requestId: "config-create",
     });
-    // Tree interactions: an unlinked configuration nests under "Unassigned
-    // configurations"; checking it leaves the parent indeterminate, selecting
-    // the parent branch checks everything, and saving persists exactly that.
+    // A uniquely matching configuration appears inside its project. Project
+    // access and individual configuration access remain explicit and editable.
     await settings.webContents.executeJavaScript(
       `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Refresh status').click()`,
     );
-    await pause(300);
-    const treeFlow = await settings.webContents.executeJavaScript(
-      `(() => {
-        document.querySelector('#mcp-tab-permissions').click();
-        const select = document.querySelector('#mcp-controls select[aria-label="Agent permissions"]');
-        const option = Array.from(select.options).find(o => o.textContent === 'Fixed password agent');
-        select.value = option.value;
-        select.dispatchEvent(new Event('change'));
-        const rows = Array.from(document.querySelectorAll('.mcp-tree > .mcp-tree-row .mcp-tree-label'));
-        const project = rows.find(l => l.textContent === 'MCP test');
-        if (!project) return { ok: false, reason: 'no MCP test branch', rows: rows.map(r => r.textContent) };
-        project.closest('.mcp-tree-row').querySelector('input').click();
-        const unassigned = rows.find(l => l.textContent === 'Unassigned configurations');
-        if (!unassigned) return { ok: false, reason: 'no unassigned branch' };
-        const row = unassigned.closest('.mcp-tree-row');
-        const parent = row.querySelector('input');
-        const child = row.nextElementSibling.querySelector('.mcp-tree-label input');
-        child.click();
-        const s1 = { child: child.checked, parent: parent.checked, indet: parent.indeterminate };
-        parent.click();
-        const s2 = { child: child.checked, parent: parent.checked, indet: parent.indeterminate };
-        parent.click();
-        const s3 = { child: child.checked, parent: parent.checked, indet: parent.indeterminate };
-        return { ok: true, s1, s2, s3 };
-      })()`,
-    );
-    assert(
-      treeFlow.ok &&
-        treeFlow.s1.child && treeFlow.s1.parent &&
-        !treeFlow.s2.child && !treeFlow.s2.parent &&
-        treeFlow.s3.child && treeFlow.s3.parent,
-      `tree interactions failed: ${JSON.stringify(treeFlow)}`,
-    );
-    await settings.webContents.executeJavaScript(
-      `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Save agent permissions').click()`,
-    );
-    await pause(300);
-    const treeScope = (await invoke("status")).settings.clients.find(
-      (c) => c.id === fixedPair.id,
-    ).scope;
-    assert(
-      treeScope.projects.includes(project.id),
-      "project branch must be in saved scope",
-    );
-    assert(
-      treeScope.configurations.includes(config.id),
-      "selected configuration must be in saved scope",
-    );
-    assert(
-      !treeScope.projects.includes("__unassigned__") &&
-        !treeScope.configurations.includes("__unassigned__"),
-      "the grouping row must not leak into saved scope",
-    );
+    await uiWait(`Boolean(document.querySelector('.mcp-project[data-project-id="${project.id}"] .mcp-config-access[data-configuration-id="${config.id}"]'))`, "configuration linked to project");
+    await settings.webContents.executeJavaScript(`(() => {
+      document.querySelector('#mcp-tab-permissions').click();
+      const select = document.querySelector('#mcp-controls select[aria-label="Agent permissions"]');
+      select.value = Array.from(select.options).find(o => o.textContent === 'Fixed password agent').value;
+      select.dispatchEvent(new Event('change'));
+    })()`);
+    const projectSelector = `.mcp-project[data-project-id="${project.id}"]`;
+    await clickSettings(`${projectSelector} .mcp-project-toggle`);
+    assert.equal(await settings.webContents.executeJavaScript(`document.querySelector('${projectSelector} .mcp-project-configurations').hidden`), true);
+    await clickSettings(`${projectSelector} .mcp-project-toggle`);
+    assert.equal(await settings.webContents.executeJavaScript(`document.querySelector('${projectSelector} .mcp-project-configurations').hidden`), false);
+    await clickSettings('button[aria-label="Check all tool permissions"]');
+    await clickSettings('button[aria-label="Check all project and configuration access"]');
+    assert.equal(await settings.webContents.executeJavaScript("[...document.querySelectorAll('.mcp-project-list input')].every(i=>i.checked&&!i.disabled&&!i.indeterminate)"), true);
+    await clickSettings('button[aria-label="Check all project and configuration access"]');
+    assert.equal(await settings.webContents.executeJavaScript("[...document.querySelectorAll('.mcp-project-list input')].every(i=>!i.checked)"), true);
+    await clickSettings(`${projectSelector} .mcp-project-header input`);
+    const savePermissions = async () => {
+      await settings.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Save agent permissions').click()`);
+      await uiWait("document.querySelector('#mcp-error').textContent.includes('Permissions saved for Fixed password agent')", "saved scope confirmation");
+    };
+    await savePermissions();
+    const actualScope = (await invoke("status")).settings.clients.find(c => c.id === fixedPair.id).scope;
+    assert(actualScope.projects.includes(project.id) && actualScope.configurations.includes(config.id));
+    assert(!actualScope.projects.includes("*") && !actualScope.configurations.includes("*"));
+    assert.equal(actualScope.futureConfigurations, false);
+    assert.equal(await settings.webContents.executeJavaScript(`document.querySelector('.mcp-config-access[data-configuration-id="${config.id}"] input').checked`), true);
+    const scopedClient = new Client({ name: "saved-scope", version: "1" });
+    await scopedClient.connect(new StreamableHTTPClientTransport(new URL(started.url), {
+      requestInit: { headers: { Authorization: `Bearer ${(await invoke("credential", {id:fixedPair.id})).token}` } },
+    }));
+    const scopedList = async () => {
+      const result = await scopedClient.callTool({name:"configurations.list",arguments:{}});
+      assert(!result.isError, result.content[0].text);
+      return result.structuredContent.items;
+    };
+    assert((await scopedList()).some(c=>c.id===config.id));
+    await clickSettings(`.mcp-config-access[data-configuration-id="${config.id}"] input`);
+    await savePermissions();
+    assert(!(await scopedList()).some(c=>c.id===config.id), "unchecking must remove actual MCP access");
+    await clickSettings(`.mcp-config-access[data-configuration-id="${config.id}"] input`);
+    await clickSettings('input[aria-label="Allow agents to access all future configurations"]');
+    await savePermissions();
+    assert((await invoke("status")).settings.clients.find(c=>c.id===fixedPair.id).scope.futureConfigurations);
+    const futureConfig = await call("configurations.create", {
+      configuration:{name:"Future config",host:"__local__",type:"shell",mode:"commands",target:"true",cwd:root},requestId:"future-config-create",
+    });
+    assert((await scopedList()).some(c=>c.id===futureConfig.id), "future access must take effect without another save");
+    await scopedClient.close();
+    settings.setSize(900, 760);
+    settings.show();
+    await settings.webContents.executeJavaScript("document.querySelector('#mcp-tab-permissions').click()");
+    await pause(150);
+    assert.equal(await settings.webContents.executeJavaScript("document.documentElement.scrollWidth <= document.documentElement.clientWidth"), true);
+    fs.mkdirSync(path.join(__dirname, "../design/validation"), {recursive:true});
+    fs.writeFileSync(path.join(__dirname, "../design/validation/mcp-permissions.png"), (await settings.webContents.capturePage()).toPNG());
     let conflict = await client.callTool({
       name: "configurations.run",
       arguments: {
         configurationId: config.id,
         projectId: opened.id,
-        expectedRevision: config.revision,
+        expectedRevision: "stale-configuration-revision",
         requestId: "run-stale",
       },
     });
     assert.equal(conflict.isError, true);
-    await invoke("policy", { id: pair.id, tools: permissions, scope });
+    assert.match(conflict.content[0].text, /Target changed/);
+    const failedActivity = (await invoke("status")).activity.find(
+      (entry) => entry.tool === "configurations.run" && entry.outcome === "REVISION_CONFLICT",
+    );
+    assert.equal(failedActivity.target, config.id);
+    assert.match(failedActivity.reason, /Target changed/);
+    await settings.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('#mcp-controls button')).find(b=>b.textContent==='Refresh status').click()`,
+    );
+    await uiWait("Array.from(document.querySelectorAll('#mcp-controls td')).some(c=>c.textContent.includes('Target changed'))", "activity failure reason");
+    await clickSettings('#mcp-tab-activity');
+    assert.equal(await settings.webContents.executeJavaScript(
+      "document.querySelector('#mcp-panel-activity').textContent.includes('Target changed')",
+    ), true);
+    // All configurations was saved before creation: launching a future
+    // configuration must work without another permissions save.
     run = await call("configurations.run", {
       configurationId: config.id,
       projectId: opened.id,

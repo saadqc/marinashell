@@ -47,6 +47,18 @@
 .run-editor .run-check input, .run-env-dialog .run-check input { width:14px; height:14px; min-height:0; margin:0; padding:0; flex-shrink:0; accent-color:var(--accent); }
 .run-hint { display:block; color:var(--text-subtle); font-size:11px; line-height:1.5; margin:0 0 14px; }
 .run-hint:empty { display:none; }
+.run-debugpy-setup { margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
+.run-debugpy-setup .run-section-title { margin-bottom:8px; }
+.run-debugpy-setup .run-hint { overflow-wrap:anywhere; }
+.run-debugpy-status { font-size:12px; margin:0 0 8px; overflow-wrap:anywhere; }
+.run-debugpy-status[data-state=ready] { color:var(--success); }
+.run-debugpy-status[data-state=error] { color:var(--danger); }
+.run-debugpy-status[data-state=missing] { color:var(--text-muted); }
+.run-debugpy-command { display:block; white-space:pre-wrap; overflow-wrap:anywhere; font:11px 'JetBrains Mono',monospace; user-select:text; margin-bottom:10px; }
+.run-debugpy-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.run-debugpy-setup button:disabled { opacity:.5; cursor:default; }
+.run-debugpy-details { margin-top:10px; font-size:11px; }
+.run-debugpy-details pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:150px; overflow:auto; }
 .run-inline-actions { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 14px 162px; }
 #run-panel-launch .run-inline-actions, #run-panel-projects .run-inline-actions { margin-left:0; }
 .run-setup-row { display:flex; align-items:center; gap:6px; margin-bottom:8px; }

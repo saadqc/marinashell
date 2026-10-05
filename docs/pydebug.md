@@ -5,7 +5,7 @@ PyDebug adds a debugger to the CodeMirror editor and existing Python run configu
 ## Start debugging
 
 1. Enable **PyDebug**, **Editor**, and **Run Configurations** in **Settings → Plugins**. PyDebug ships disabled.
-2. Install `debugpy` in the configuration's selected Python environment. For SSH, install it on that SSH host. Python 3.9 or newer and debugpy 1.8.x are required; 1.8.17 is the tested version. Preflight reports the resolved interpreter when installation is needed. For example:
+2. Open the configuration's **Environment → Python debugger** section. It checks for `debugpy` using the selected interpreter and displays **debugpy found in current environment** when ready. If missing, use **Install debugpy** or **Copy command** to install it yourself. Installation uses the configuration's environment on its local or SSH host, then rechecks it. Configurations with setup scripts require an explicit **Check debugpy** click so opening the dialog does not execute those scripts. Python 3.9 or newer and debugpy 1.8.x are required; 1.8.17 is the tested installation version. The command uses the resolved interpreter, for example:
 
    ```bash
    /path/to/selected/python -m pip install debugpy==1.8.17
@@ -47,6 +47,7 @@ The tests use isolated libraries and a real loopback SSH/SFTP server; they do no
 python3 -m venv /tmp/marinashell-pydebug-test-env
 /tmp/marinashell-pydebug-test-env/bin/python -m pip install debugpy==1.8.17 uvicorn==0.37.0
 npm run test:pydebug
+npm run test:pydebug:setup
 npm run test:pydebug:ui
 ```
 

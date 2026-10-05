@@ -537,6 +537,7 @@ function injectPromptTracking(session, settings) {
 
 function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPassword, passwordStore }) {
   const sessions = new Map();
+  const teardowns = new Map();
 
   function getSession(tabId) {
     if (!tabId) {
@@ -1083,8 +1084,10 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
       cwd: os.homedir(),
       env: process.env
     });
+    const terminal = session.ptyProcess;
 
-    session.ptyProcess.onData((data) => {
+    terminal.onData((data) => {
+      if (session.ptyProcess !== terminal) return;
       if (detectPasswordPrompt(session, data)) {
         handlePasswordPrompt(tabId, session).catch(() => { });
       }
@@ -1109,14 +1112,15 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
       send('ssh:data', { tabId, data });
     });
 
-    session.ptyProcess.onExit(() => {
+    terminal.onExit(() => {
+      if (session.ptyProcess !== terminal) return;
       send('ssh:exit', { tabId });
       // Ensure tunnel forwards are always closed when the SSH terminal ends unexpectedly.
       // (Port forwarding runs on `tunnelClient`, which can outlive the PTY unless we clean it up.)
       disconnect(tabId).catch(() => { });
     });
 
-    setTimeout(() => injectPromptTracking(session, null), 600);
+    setTimeout(() => { if (session.ptyProcess === terminal) injectPromptTracking(session, null); }, 600);
   }
 
   function spawnLocalShell(tabId) {
@@ -1154,8 +1158,10 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
       throw error;
     }
     if (startup.notice) send('ssh:data', { tabId, data: startup.notice });
+    const terminal = session.ptyProcess;
 
-    session.ptyProcess.onData((data) => {
+    terminal.onData((data) => {
+      if (session.ptyProcess !== terminal) return;
       data = startup.filter(data);
       const cwdUpdates = consumeOsc7Sequences(session, data);
       for (const cwd of cwdUpdates) {
@@ -1178,14 +1184,33 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
       send('ssh:data', { tabId, data });
     });
 
-    session.ptyProcess.onExit(() => {
+    terminal.onExit(() => {
       startup.cleanup();
-      if (session.shellStartup === startup) session.shellStartup = null;
+      if (session.ptyProcess !== terminal) return;
+      session.shellStartup = null;
+      session.ptyProcess = null;
+      stopMetrics(tabId);
       send('ssh:exit', { tabId });
     });
   }
 
-  async function disconnect(tabId) {
+  // Reconnect must await all previous cleanup, including asynchronous SFTP
+  // teardown, before installing the replacement session's resources.
+  function teardown(tabId, force = false) {
+    if (teardowns.has(tabId)) {
+      const pending = teardowns.get(tabId);
+      return force ? pending.then(() => teardown(tabId, true)) : pending;
+    }
+    const pending = Promise.resolve().then(() => force ? killSession(tabId) : disconnectSession(tabId));
+    teardowns.set(tabId, pending);
+    const clear = () => { if (teardowns.get(tabId) === pending) teardowns.delete(tabId); };
+    pending.then(clear, clear);
+    return pending;
+  }
+  function disconnect(tabId) { return teardown(tabId); }
+  function kill(tabId) { return teardown(tabId, true); }
+
+  async function disconnectSession(tabId) {
     const session = getSession(tabId);
     if (!session) {
       return;
@@ -1199,11 +1224,12 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
       session.shellStartup?.cleanup();
       session.shellStartup = null;
       if (session.ptyProcess) {
+        const terminal = session.ptyProcess;
+        session.ptyProcess = null;
         try {
-          session.ptyProcess.kill();
+          terminal.kill();
         } catch (err) {
         }
-        session.ptyProcess = null;
       }
       if (session.sftpClient) {
         try {
@@ -1239,7 +1265,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     }
   }
 
-  async function kill(tabId) {
+  async function killSession(tabId) {
     const session = getSession(tabId);
     if (!session) {
       return;
@@ -1253,15 +1279,16 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
       session.shellStartup?.cleanup();
       session.shellStartup = null;
       if (session.ptyProcess) {
+        const terminal = session.ptyProcess;
+        session.ptyProcess = null;
         try {
-          session.ptyProcess.kill('SIGKILL');
+          terminal.kill('SIGKILL');
         } catch (err) {
           try {
-            session.ptyProcess.kill();
+            terminal.kill();
           } catch (innerErr) {
           }
         }
-        session.ptyProcess = null;
       }
       if (session.sftpClient) {
         try {

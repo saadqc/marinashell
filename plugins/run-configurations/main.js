@@ -4,6 +4,7 @@ const { dialog } = require('electron');
 const { resolveHost } = require('../../main/services/sshConfig');
 const { createLibraryStore } = require('../../main/services/libraryStore');
 const { createRunManager } = require('./manager');
+const { createDebugpyEnvironment } = require('./debugpy-environment');
 const { normalize, normalizeDefaults, quote, pathExpression } = require('./configuration');
 
 module.exports = function activate({ sessionManager, registerIpc, getPlugins, getMainWindow, registerShutdown, registerService, getService }) {
@@ -30,6 +31,7 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
     execute, tmuxAvailable,
     hostIdentity: async host => host === '__local__' ? `local:${os.hostname()}:${os.userInfo().username}` : JSON.stringify(resolved(host))
   });
+  const debugpyEnvironment = createDebugpyEnvironment({ manager, execute });
   registerService?.('runs', {
     manager, normalize, changed: () => getMainWindow()?.webContents.send('run-configurations:changed'),
     async openDebugTransport(host, port) {
@@ -57,6 +59,8 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
   }
   ipc('list', async () => ({ configurations: manager.configs.read(), runs: manager.list(), tmuxAvailable: tmuxAvailable() }));
   ipc('save', async ({ configuration }) => ({ configuration: manager.configs.upsert(normalize(configuration)) }));
+  ipc('debugpy-check', async ({ configuration }) => ({ status: await debugpyEnvironment.check(configuration) }));
+  ipc('debugpy-install', async ({ configuration }) => debugpyEnvironment.install(configuration));
   ipc('delete', async ({ id }) => {
     if (manager.list().some(run => run.configurationId === id && !['exited', 'failed', 'blocked'].includes(run.status))) throw new Error('Stop this configuration’s runs before deleting it');
     manager.configs.remove(id); return {};

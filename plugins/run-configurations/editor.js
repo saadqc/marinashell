@@ -1,4 +1,5 @@
 import { modal, button, confirmAction, showError } from '../../renderer/components/dialog.js';
+import { debugpySetup } from './debugpy-setup.js';
 
 const templates = [
   { label: 'Python script', type: 'python', mode: 'script', interpreter: 'python3' },
@@ -52,6 +53,8 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   sidebar.append(tools, list); layout.append(sidebar, form); view.body.append(layout, errorLine);
   let draft = null; let clean = ''; let groupIds = []; let cleanGroups = '';
   let discoveryVersion = 0; let lastDiscovery = null;
+  let debuggerSetup;
+  view.dialog.addEventListener('close', () => debuggerSetup?.dispose());
   const groupDefaultsCache = new Map(); let prefillGroup = null; let suggestionBox = null;
   const dirty = () => JSON.stringify(draft) !== clean || JSON.stringify(groupIds) !== cleanGroups;
   const newDraft = template => ({ id: crypto.randomUUID(), name: template.label, host: state.tabs.get(state.activeTabId)?.host || '__local__',
@@ -176,7 +179,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
         if (!value || draft !== editing) return;
         draft[key] = value;
         // A re-render while the dialog was open detaches this input.
-        if (el.isConnected) el.value = value; else renderForm();
+        if (el.isConnected) { el.value = value; debuggerSetup?.refresh(); } else renderForm();
       } catch (error) { showError(error); }
     }));
     const browseButton = row.lastElementChild; browseButton.classList.add('run-browse');
@@ -250,6 +253,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     }
   }
   function renderForm() {
+    debuggerSetup?.dispose(); debuggerSetup = null;
     discoveryVersion++; form.replaceChildren(); errorLine.textContent = '';
     if (!draft) { form.textContent = 'Choose a template to create a run configuration.'; return; }
     const sections = new Map(); const tabs = document.createElement('div'); tabs.className = 'run-form-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Configuration sections');
@@ -259,6 +263,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
       for (const [id, { panel, control }] of sections) {
         panel.hidden = id !== key; control.setAttribute('aria-selected', String(id === key)); control.tabIndex = id === key ? 0 : -1;
       }
+      debuggerSetup?.refresh();
     };
     for (const [key, title] of [['run', 'Run'], ['environment', 'Environment'], ['launch', 'Before launch'], ['projects', 'Projects']]) {
       const panel = document.createElement('section'); panel.className = 'run-form-panel'; panel.id = `run-panel-${key}`; panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', `run-section-${key}`);
@@ -342,6 +347,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     field(sectionParent, draft.host === '__local__' ? '.env files' : 'Remote .env files', envFiles, 'Loaded in order; later files override earlier files.');
     const envTools = document.createElement('div'); envTools.className = 'run-inline-actions';
     envTools.append(button('Add file…', async () => { try { const file = await browse(draft.cwd); if (file) { draft.envFiles ||= []; draft.envFiles.push(file); renderForm(); } } catch (error) { showError(error); } }), button('Create .env file…', createEnvFile)); sectionParent.append(envTools);
+    if (draft.type === 'python') debuggerSetup = debugpySetup({ parent: sectionParent, form, getDraft: () => draft, call, api });
     section('launch');
     const setupTitle = document.createElement('h3'); setupTitle.className = 'run-section-title'; setupTitle.textContent = 'Before launch'; sectionParent.append(setupTitle);
     if (!Array.isArray(draft.setupScripts)) draft.setupScripts = [];

@@ -22,7 +22,7 @@ function prepareLocalShell(shell, args, env, bootstrap = '', level = 'errors') {
     write('integration.sh', `${bootstrap}\n
 __marinashell_pwd() { local __marinashell_exit_code=$?; printf '\\033]7;file://%s%s\\007' "\${HOSTNAME:-localhost}" "$PWD"; return "$__marinashell_exit_code"; }
 if [ -n "$ZSH_VERSION" ]; then
-  if (( \${precmd_functions[(Ie)__marinashell_pwd]} == 0 )); then precmd_functions+=(__marinashell_pwd); fi
+  if (( \${precmd_functions[(Ie)__marinashell_pwd]:-0} == 0 )); then precmd_functions+=(__marinashell_pwd); fi
 elif [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == 'declare -a'* ]]; then
   if (( BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 1) )); then
     __marinashell_prompt_commands=("\${PROMPT_COMMAND[@]}")

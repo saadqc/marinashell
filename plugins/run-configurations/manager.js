@@ -169,14 +169,7 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
     launching.set(id, operation);
     try { return await operation; } finally { launching.delete(id); }
   }
-  async function launch(config, groupId, groupName, options = {}) {
-    const c = normalize(config);
-    if (c.host === '__local__' && process.platform === 'win32') throw new Error('Native Windows execution is not supported; select a macOS/Linux SSH host with Bash.');
-    if (c.tmux && !tmuxAvailable()) throw new Error('Install and enable the tmux plugin before using tmux execution');
-    const home = (await command(c.host, 'printf "%s" "$HOME"')).trim();
-    if (!home.startsWith('/')) throw new Error('Run configurations require a POSIX host with Bash (macOS or Linux).');
-    await command(c.host, 'command -v bash >/dev/null || { echo "Bash is required on the execution host" >&2; exit 1; }');
-    if (c.tmux) await command(c.host, 'command -v tmux >/dev/null || { echo "tmux is not installed on the SSH host" >&2; exit 1; }');
+  async function prepareEnvironment(c) {
     let fileEnv = {};
     for (const file of c.envFiles) {
       const content = await command(c.host, `cd -- ${pathExpression(c.cwd)} && cat -- ${pathExpression(file)}`);
@@ -189,6 +182,17 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       scriptEnv = { ...scriptEnv, ...applied.values };
       scriptMeta.push(applied.meta);
     }
+    return { fileEnv, scriptEnv, scriptMeta };
+  }
+  async function launch(config, groupId, groupName, options = {}) {
+    const c = normalize(config);
+    if (c.host === '__local__' && process.platform === 'win32') throw new Error('Native Windows execution is not supported; select a macOS/Linux SSH host with Bash.');
+    if (c.tmux && !tmuxAvailable()) throw new Error('Install and enable the tmux plugin before using tmux execution');
+    const home = (await command(c.host, 'printf "%s" "$HOME"')).trim();
+    if (!home.startsWith('/')) throw new Error('Run configurations require a POSIX host with Bash (macOS or Linux).');
+    await command(c.host, 'command -v bash >/dev/null || { echo "Bash is required on the execution host" >&2; exit 1; }');
+    if (c.tmux) await command(c.host, 'command -v tmux >/dev/null || { echo "tmux is not installed on the SSH host" >&2; exit 1; }');
+    const { fileEnv, scriptEnv, scriptMeta } = await prepareEnvironment(c);
     const debugNotes = [];
     if (options.debug) {
       if (c.mode === 'module' && c.target === 'uvicorn') {
@@ -309,6 +313,6 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       } catch (_) { /* Unknown records remain available on next launch. */ }
     }));
   }
-  return { configs, list: () => [...runs.values()].filter(run => !run.closed), start, poll, status, stop, restart, close, shutdown, command, verifyHost };
+  return { configs, list: () => [...runs.values()].filter(run => !run.closed), start, poll, status, stop, restart, close, shutdown, command, verifyHost, prepareEnvironment };
 }
 module.exports = { createRunManager, ended };

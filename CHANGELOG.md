@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.19 — 2026-10-05
+
+- Fixed Reconnect returning to the disconnected panel even when the new shell was running. Late data and exit events from a replaced terminal no longer overwrite its replacement; reconnect waits for previous asynchronous connection cleanup. The same ownership checks apply to local and SSH terminals.
+- Python configurations now offer an Environment → Python debugger section with debugpy status, the resolved interpreter, a copyable installation command, and an Install debugpy button. Installation uses the selected local or SSH environment and rechecks readiness; failures expose pip output and allow retry. Checks for configurations with setup scripts remain explicit so opening the editor does not run those scripts.
+- Fixed Zsh prompt tracking initialization when no prompt-hook array is defined.
+
 ## v0.2.18 — 2026-10-05
 
 - Added optional PyDebug for local and SSH Python configurations: Debug beside Run, CodeMirror breakpoints and conditions, a central breakpoint manager, automatic paused-source activation/highlighting, variables, call stacks, watches, console, stepping, and uncaught-exception stops.

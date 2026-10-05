@@ -136,6 +136,7 @@ function buildCommand(config, fileEnv = {}, scriptEnv = {}, scriptMeta = [], lau
   let command;
   if (c.type === 'python') command = [executable, '-u', ...(c.mode === 'module' ? ['-m', quote(c.target)] : [pathExpression(c.target)]), ...args].join(' ');
   if (c.type === 'python' && launch.pythonCode) command = [executable, '-u', '-c', quote(launch.pythonCode)].join(' ');
+  if (c.type === 'python' && launch.pythonArgs) command = [executable, ...launch.pythonArgs.map(quote)].join(' ');
   if (c.type === 'python' && launch.debugBootstrap) {
     command = [executable, '-u', pathExpression(launch.debugBootstrap), pathExpression(launch.endpointFile), quote(c.mode),
       c.mode === 'script' ? pathExpression(c.target) : quote(c.target), ...args].join(' ');

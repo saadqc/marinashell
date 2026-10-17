@@ -3,6 +3,7 @@ const { zodToJsonSchema } = require("zod-to-json-schema");
 const { randomUUID } = require("crypto");
 const { revision } = require("./store");
 const { normalizeProject } = require("../../main/services/projects");
+const { expired } = require('../run-configurations/lifecycle');
 const str = z.string().min(1).max(200);
 const page = {
   offset: z.number().int().min(0).default(0),
@@ -64,7 +65,7 @@ tool(
 tool(
   "configurations.list",
   "List permitted configuration summaries with revisions, excluding commands and environment values.",
-  page,
+  { ...page, createdVia: z.enum(['mcp', 'ui', 'unknown']).optional() },
 );
 tool(
   "configurations.create",
@@ -82,6 +83,7 @@ tool(
         args: z.string().max(10000).optional(),
         killPortOnLaunch: z.boolean().optional(),
         killPort: z.number().int().min(1).max(65535).optional(),
+        expiryDurationMs: z.number().int().min(60000).max(31536000000).nullable().optional().describe('Expiry from creation; null means Never. Omit for the configured MCP default (one hour).'),
       })
       .strict(),
     ...write,
@@ -211,6 +213,10 @@ function createTools({ store, broker, library, getService, capture }) {
     cwd: c.cwd,
     killPortOnLaunch: c.killPortOnLaunch,
     killPort: c.killPort,
+    createdVia: c.createdVia || 'unknown',
+    createdAt: c.createdAt || null,
+    expiresAt: c.expiresAt || null,
+    expiryDurationMs: c.expiryDurationMs || null,
     revision: revision(c),
   });
   const runSummary = (r) => ({
@@ -537,6 +543,7 @@ function createTools({ store, broker, library, getService, capture }) {
               .filter(
                 (c) =>
                   configurationAllowed(client, c.id) &&
+                  !expired(c) && (!a.createdVia || (c.createdVia || 'unknown') === a.createdVia) &&
                   includes(client.scope.hosts, c.host),
               )
               .map(configSummary),
@@ -547,7 +554,9 @@ function createTools({ store, broker, library, getService, capture }) {
             ...a.configuration,
             id: randomUUID(),
           });
-          result = configSummary(manager().configs.upsert(c));
+          result = configSummary(manager().configs.save
+            ? manager().configs.save({ ...c, ...(Object.hasOwn(a.configuration, 'expiryDurationMs') ? { expiryDurationMs: a.configuration.expiryDurationMs } : {}) }, { origin: 'mcp', defaultExpiryMs: getService('runs').mcpExpiry?.() ?? 3600000 })
+            : manager().configs.upsert(c));
           break;
         }
         case "configurations.run":
@@ -557,12 +566,12 @@ function createTools({ store, broker, library, getService, capture }) {
           break;
         case "configurations.stop":
           result = runSummary(
-            await manager().stop(run.id, a.force, { allowEscalation: false }),
+            await (getService('runs').debuggerForRun?.(run.id)?.stopRun(run.id, a.force, { allowEscalation: false }) || manager().stop(run.id, a.force, { allowEscalation: false })),
           );
           break;
         case "configurations.restart":
           result = runSummary(
-            await manager().restart(run.id, { allowEscalation: false }),
+            await (getService('runs').debuggerForRun?.(run.id)?.restartRun(run.id, { allowEscalation: false }) || manager().restart(run.id, { allowEscalation: false })),
           );
           break;
         case "runs.list": {
@@ -747,9 +756,9 @@ function createTools({ store, broker, library, getService, capture }) {
           },
         }));
     },
-    execute(...args) {
-      const version = store.data.clients.find((c) => c.id === args[0])?.version;
-      const work = queue.then(() => execute(...args, version));
+    execute(clientId, name, raw, signal) {
+      const version = store.data.clients.find((c) => c.id === clientId)?.version;
+      const work = queue.then(() => execute(clientId, name, raw, signal, version));
       queue = work.catch(() => {});
       return work;
     },

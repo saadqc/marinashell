@@ -119,7 +119,7 @@
 <body>
   <header>
     <h1>Settings</h1>
-    <nav class="preferences-nav" aria-label="Settings sections"><a href="#preferences-editor">Editor</a><a href="#preferences-workspace">Workspace</a><a href="#preferences-shell">Local shell</a><a href="#preferences-shortcuts">Shortcuts</a><a href="#preferences-plugins">Plugins</a><a href="#preferences-mcp">Agent access</a></nav>
+    <nav class="preferences-nav" aria-label="Settings sections"><a href="#preferences-editor">Editor</a><a href="#preferences-git">Git</a><a href="#preferences-workspace">Workspace</a><a href="#preferences-shell">Local shell</a><a href="#preferences-shortcuts">Shortcuts</a><a href="#preferences-plugins">Plugins</a><a href="#preferences-mcp">Agent access</a></nav>
   </header>
   <main>
     <section class="card" id="preferences-editor">
@@ -145,8 +145,17 @@
       <textarea id="editor-associations"></textarea>
       <div class="hint">Array of {pattern, mode, commandTemplate, localCommandTemplate, sftpUriTemplate}</div>
     </section>
+    <section class="card" id="preferences-git">
+      <h2>Git</h2>
+      <label for="github-cli-paths">GitHub CLI paths by host (JSON)</label>
+      <textarea id="github-cli-paths" placeholder='{"__local__":"/path/to/gh","my-server":"/usr/bin/gh"}'></textarea>
+      <div class="hint">Optional executable overrides. Hosts omitted here use gh from PATH.</div>
+    </section>
     <section class="card" id="preferences-workspace">
       <h2>Workspace</h2>
+      <label for="mcp-config-expiry">Default expiry for MCP run configurations</label>
+      <select id="mcp-config-expiry"><option value="0">Never</option><option value="900000">15 minutes</option><option value="3600000">1 hour</option><option value="10800000">3 hours</option></select>
+      <div class="hint">Applies to newly created agent configurations. Active processes continue after expiry.</div>
       <button id="cleanup-groups" type="button">Clean up unused groups</button>
       <div class="hint">Remove leftover group entries. Open sessions and saved projects are preserved.</div>
       <div id="cleanup-groups-status" class="hint" role="status" aria-live="polite"></div>

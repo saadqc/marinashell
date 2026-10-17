@@ -572,6 +572,9 @@ app
     await clickSettings('a[href="#preferences-editor"]');
     settings.webContents.sendInputEvent({type: 'keyDown', keyCode: 'Right'});
     settings.webContents.sendInputEvent({type: 'keyUp', keyCode: 'Right'});
+    await uiWait("document.querySelector('a[href=\"#preferences-git\"]').getAttribute('aria-selected') === 'true'", "Git keyboard tab");
+    settings.webContents.sendInputEvent({type: 'keyDown', keyCode: 'Right'});
+    settings.webContents.sendInputEvent({type: 'keyUp', keyCode: 'Right'});
     await uiWait("document.querySelector('a[href=\"#preferences-workspace\"]').getAttribute('aria-selected') === 'true'", "keyboard tabs");
     await clickSettings('a[href="#preferences-mcp"]');
     await settings.webContents.executeJavaScript(

@@ -15,6 +15,9 @@ import { yaml, yamlLanguage } from '@codemirror/lang-yaml';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { debugProvider, subscribeDebugViews } from '../../renderer/services/debugIntegration.js';
 import { debuggingExtension, debugMarkers } from './debugging.js';
+import { createDebugVisibility } from './debug-visibility.mjs';
+import { registerDiffRenderer } from '../../renderer/services/diffIntegration.js';
+import { mountReadOnlyDiff } from './diff.js';
 
 const documents = new Map();
 let pendingLine = null;
@@ -32,7 +35,7 @@ function fileName(file) {
 
 function ensureDocument(file) {
   const reusable = [...documents.values()].find(doc => doc.host === file.host && doc.projectId === (file.projectId || '') &&
-    (doc.path === file.path || debugProvider()?.sameFile?.(doc.path, file.path)));
+    (doc.path === file.path || debugProvider(file)?.sameFile?.(doc.path, file.path)));
   if (reusable) { reusable.tabId = String(file.tabId); return reusable; }
   const key = documentKey(file);
   if (!documents.has(key)) {
@@ -247,18 +250,55 @@ function createWorkspace(container, options, api) {
   let debugCompartment = null;
   let mountedDebugProvider = null;
   let disposeDebugPanel = null;
+  const visibility = createDebugVisibility();
+  const debugToggle = button('Debugger', 'mse-debug-toggle', 'Toggle debugger');
+  debugToggle.className = 'mse-debug-toggle';
+  const debugBody = document.createElement('div');
+  debugBody.className = 'mse-debug-body';
   const debugPanel = document.createElement('aside'); debugPanel.className = 'mse-debug-companion';
+  debugPanel.append(debugToggle, debugBody);
   stage.append(debugPanel);
+  let preferenceVersion = 0;
+  function applyPreferences(preferences) {
+    preferenceVersion++;
+    visibility.updatePreference(preferences?.debuggerCollapsed?.value === true);
+    refreshDebug();
+  }
+  const unsubscribePreferences = api.onEditorPreferencesChanged?.(applyPreferences);
+  const initialPreferenceVersion = preferenceVersion;
+  api.getSettings?.().then(settings => {
+    if (!disposed && preferenceVersion === initialPreferenceVersion) applyPreferences(settings.editor?.preferences);
+  }).catch(error => { statusMessage.textContent = error.message; });
+  debugToggle.addEventListener('click', async () => {
+    const previous = visibility.preference();
+    const debuggerCollapsed = visibility.toggle();
+    preferenceVersion++;
+    refreshDebug();
+    try { await api.invoke('settings:editor-preferences', { debuggerCollapsed }); }
+    catch (error) { visibility.updatePreference(previous); refreshDebug(); statusMessage.textContent = `Cannot save debugger preference: ${error.message}`; }
+  });
   function refreshDebug() {
-    const provider = debugProvider();
+    const provider = debugProvider(activeDocument()) || debugProvider();
     if (provider !== mountedDebugProvider) {
-      disposeDebugPanel?.(); debugPanel.replaceChildren(); mountedDebugProvider = provider;
-      disposeDebugPanel = provider?.mountPanel(debugPanel);
+      disposeDebugPanel?.(); debugBody.replaceChildren(); mountedDebugProvider = provider;
+      disposeDebugPanel = provider?.mountPanel(debugBody);
       stage.classList.toggle('with-debug', Boolean(provider)); debugPanel.hidden = !provider;
-      if (view && debugCompartment) view.dispatch({ effects: debugCompartment.reconfigure(provider && /\.pyw?$/i.test(activeDocument()?.path || '') ? debuggingExtension(activeDocument(), provider) : []) });
+      if (view && debugCompartment) view.dispatch({ effects: debugCompartment.reconfigure(provider?.supports?.(activeDocument()) ? debuggingExtension(activeDocument(), provider) : []) });
     }
     const doc = activeDocument();
-    if (view && provider && /\.pyw?$/i.test(doc?.path || '')) {
+    const paused = provider?.pausedContext?.();
+    const matches = paused && doc && paused.host === doc.host && (paused.projectId || '') === (doc.projectId || '') &&
+      (paused.path === doc.path || provider.sameFile?.(paused.path, doc.path));
+    visibility.updateStop(matches ? paused.stopId : '');
+    const expanded = visibility.expanded();
+    debugBody.hidden = !expanded;
+    debugPanel.classList.toggle('collapsed', !expanded);
+    debugToggle.textContent = expanded ? '› Debugger' : '‹ Debugger';
+    debugToggle.setAttribute('aria-expanded', String(expanded));
+    debugToggle.setAttribute('aria-label', expanded ? 'Collapse debugger' : 'Expand debugger');
+    stage.classList.toggle('debug-collapsed', !expanded);
+    view?.requestMeasure();
+    if (view && provider?.supports?.(doc)) {
       const markers = provider.markers(doc);
       view.dispatch({ effects: debugMarkers.of(markers) });
       provider.document?.(doc);
@@ -506,7 +546,7 @@ function createWorkspace(container, options, api) {
     const language = languageFor(doc.name);
     indentationCompartment = new Compartment();
     debugCompartment = new Compartment();
-    const provider = debugProvider();
+    const provider = debugProvider(doc);
     const saveKeymap = keymap.of([
       indentWithTab,
       { key: 'Mod-s', preventDefault: true, run: () => { saveActive(false); return true; } }
@@ -519,7 +559,7 @@ function createWorkspace(container, options, api) {
           oneDark,
           language.extension,
           indentationCompartment.of(indentationExtension(doc)),
-          debugCompartment.of(provider && /\.pyw?$/i.test(doc.path) ? debuggingExtension(doc, provider) : []),
+          debugCompartment.of(provider?.supports?.(doc) ? debuggingExtension(doc, provider) : []),
           saveKeymap,
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
@@ -727,6 +767,7 @@ function createWorkspace(container, options, api) {
   return () => {
     disposed = true;
     unsubscribeDebug(); disposeDebugPanel?.();
+    unsubscribePreferences?.();
     document.removeEventListener('pointerdown', dismissContextMenu, true);
     window.removeEventListener('blur', hideContextMenu);
     destroyView();
@@ -735,11 +776,12 @@ function createWorkspace(container, options, api) {
 
 export default function activate(context) {
   installStyles();
+  registerDiffRenderer((container, options) => mountReadOnlyDiff(container, { ...options, language: languageFor(options.name || '').extension }));
   const { api, openView, registerEditorMode, registerView } = context;
   window.marinashellEditorDocuments = {
-    async saveForDebug(host, projectId) {
+    async saveForDebug(host, projectId, providerId = 'pydebug') {
       for (const doc of documents.values()) {
-        if (!doc.dirty || !/\.pyw?$/i.test(doc.path) || doc.host !== host || (doc.projectId && doc.projectId !== projectId)) continue;
+        if (!doc.dirty || !debugProvider(doc, providerId)?.supports?.(doc) || doc.host !== host || (doc.projectId && doc.projectId !== projectId)) continue;
         const result = await api.invoke('plugin:editor:save', { tabId: doc.tabId, host: doc.host, path: doc.path, content: serializeLineEndings(doc.content, doc.eol), expectedStat: doc.stat, force: false });
         if (!result?.ok) throw new Error(result?.conflict ? `Resolve the save conflict in ${doc.name} before debugging` : result?.error || 'Save failed');
         doc.savedContent = doc.content; doc.savedEol = doc.eol; doc.stat = result.stat; updateDirty(doc);

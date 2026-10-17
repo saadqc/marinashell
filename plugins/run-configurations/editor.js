@@ -40,6 +40,10 @@ function check(parent, label, value, update) {
 
 export async function editConfigurations({ api, state, call, selectedId, onSaved, tmuxAvailable }) {
   let configurations = (await call('list')).configurations;
+  const savedProjects = await api.invoke('groups:list');
+  const projects = [...(state.appState.tabGroups || []).map(group => ({ ...group, savedId: group.savedGroupId })),
+    ...savedProjects.filter(saved => !(state.appState.tabGroups || []).some(group => group.savedGroupId === saved.id)).map(saved => ({ ...saved, savedId: saved.id, id: `saved:${saved.id}` }))];
+  let renewExpiry = false;
   const view = modal('Run configurations', { wide: true });
   view.dialog.classList.add('run-editor');
   const layout = document.createElement('div'); layout.className = 'run-editor-layout';
@@ -47,16 +51,21 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   const tools = document.createElement('div'); tools.className = 'run-editor-tools';
   const template = select(templates.map((t, index) => ({ value: String(index), label: t.label })), '0'); template.setAttribute('aria-label', 'Configuration template');
   const list = document.createElement('div'); list.className = 'run-config-list';
+  const projectFilter = select([{ value: '*', label: 'All projects' }, ...projects.map(p => ({ value: p.id, label: p.name })), { value: '', label: 'Unassigned' }], state.tabs.get(state.activeTabId)?.groupId || '*');
+  projectFilter.setAttribute('aria-label', 'Configuration project filter');
+  const originFilter = select([{ value: '*', label: 'All creation sources' }, { value: 'mcp', label: 'Created via MCP only' }, { value: 'exclude', label: 'Exclude MCP' }], '*');
+  originFilter.setAttribute('aria-label', 'Created via MCP filter');
+  const filters = document.createElement('div'); filters.className = 'run-config-filters'; filters.append(projectFilter, originFilter);
   const form = document.createElement('div'); form.className = 'run-config-form';
   let sectionParent = form; let activeSection = 'run';
   const errorLine = document.createElement('div'); errorLine.className = 'run-error'; errorLine.setAttribute('role', 'alert');
-  sidebar.append(tools, list); layout.append(sidebar, form); view.body.append(layout, errorLine);
+  sidebar.append(filters, tools, list); layout.append(sidebar, form); view.body.append(layout, errorLine);
   let draft = null; let clean = ''; let groupIds = []; let cleanGroups = '';
   let discoveryVersion = 0; let lastDiscovery = null;
   let debuggerSetup;
   view.dialog.addEventListener('close', () => debuggerSetup?.dispose());
   const groupDefaultsCache = new Map(); let prefillGroup = null; let suggestionBox = null;
-  const dirty = () => JSON.stringify(draft) !== clean || JSON.stringify(groupIds) !== cleanGroups;
+  const dirty = () => renewExpiry || JSON.stringify(draft) !== clean || JSON.stringify(groupIds) !== cleanGroups;
   const newDraft = template => ({ id: crypto.randomUUID(), name: template.label, host: state.tabs.get(state.activeTabId)?.host || '__local__',
     cwd: state.tabs.get(state.activeTabId)?.currentPath || '~', target: '', args: '', manager: 'system', environment: '', managerPath: '',
     envFiles: [], setupScripts: [], env: {}, inheritEnv: true, multiInstance: false, tmux: false, tmuxSession: '', sourceFile: '', ...template });
@@ -69,7 +78,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     }
   }
   async function applyGroupPrefill() {
-    const groupId = state.tabs.get(state.activeTabId)?.groupId;
+    const groupId = projectFilter.value === '*' ? state.tabs.get(state.activeTabId)?.groupId : projectFilter.value;
     if (!groupId) return;
     try {
       const result = await call('group-defaults-get', { groupId });
@@ -83,10 +92,12 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     if (draft && dirty() && !await confirmAction('Discard unsaved changes?', 'Switch configurations without saving these changes?', 'Discard')) return;
     if (draft?.id !== config.id) activeSection = 'run';
     draft = clone(config); delete draft.label;
+    renewExpiry = false;
+    if (isNew) { draft.createdVia = 'ui'; draft.createdAt = null; draft.expiresAt = null; }
     prefillGroup = null;
     if (isNew && !draft.setupScripts) draft.setupScripts = [];
     if (isNew) await applyGroupPrefill();
-    groupIds = (state.appState.tabGroups || []).filter(g => (g.configurationIds || []).includes(draft.id)).map(g => g.id);
+    groupIds = isNew ? (projectFilter.value && projectFilter.value !== '*' ? [projectFilter.value] : []) : projects.filter(g => (g.configurationIds || []).includes(draft.id)).map(g => g.id);
     clean = isNew ? '' : JSON.stringify(draft); cleanGroups = JSON.stringify(groupIds);
     renderList(); renderForm();
   }
@@ -102,7 +113,13 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     if (c.type === 'shell' && /^\s*uv\s+run\b/.test(String(c.target || ''))) return 'uv';
     return c.type;
   };
-  const projectsOf = id => (state.appState.tabGroups || []).filter(group => (group.configurationIds || []).includes(id)).map(group => group.name);
+  const projectsOf = id => projects.filter(group => (group.configurationIds || []).includes(id)).map(group => group.name);
+  const matches = c => (projectFilter.value === '*' || (projectFilter.value === '' ? !projects.some(p => p.configurationIds?.includes(c.id)) : projects.find(p => p.id === projectFilter.value)?.configurationIds?.includes(c.id))) &&
+    (originFilter.value === '*' || (originFilter.value === 'mcp' ? c.createdVia === 'mcp' : c.createdVia !== 'mcp'));
+  for (const filter of [projectFilter, originFilter]) filter.addEventListener('change', () => {
+    renderList();
+    if (!dirty() && !matches(draft)) { const next = configurations.find(matches); if (next) switchTo(next); }
+  });
   function icon(type) {
     const image = document.createElement('img'); image.className = 'run-type-icon'; image.alt = '';
     image.src = new URL(`../../assets/${type === 'javascript' ? 'icons/file-icons/language-javascript.svg' : `jetbrains/${type}.svg`}`, import.meta.url).href;
@@ -114,7 +131,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     const all = configurations.map(c => c.id === draft?.id ? draft : c);
     if (draft && !all.some(c => c.id === draft.id)) all.push(draft);
     for (const type of ['flask', 'uvicorn', 'uv', 'python', 'javascript', 'shell']) {
-      const items = all.filter(c => kind(c) === type);
+      const items = all.filter(c => kind(c) === type && (matches(c) || c.id === draft?.id && dirty()));
       if (!items.length) continue;
       const heading = button('', () => { collapsed.has(type) ? collapsed.delete(type) : collapsed.add(type); renderList(); }, 'run-list-heading');
       heading.setAttribute('role', 'treeitem'); heading.setAttribute('aria-expanded', String(!collapsed.has(type)));
@@ -129,6 +146,8 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
         // project membership directly beneath each configuration name.
         const body = document.createElement('span'); body.className = 'run-tree-item-body';
         const name = document.createElement('span'); name.textContent = config.name; body.append(name);
+        if (config.createdVia === 'mcp') { const badge = document.createElement('small'); badge.textContent = 'MCP'; badge.className = 'run-mcp-badge'; body.append(badge); }
+        if (config.expiresAt) { const expiry = document.createElement('small'); expiry.textContent = Date.parse(config.expiresAt) <= Date.now() ? 'Expired · active run retained' : `Expires ${new Date(config.expiresAt).toLocaleString()}`; body.append(expiry); }
         const projects = projectsOf(config.id);
         if (projects.length) { const sub = document.createElement('small'); sub.className = 'run-tree-item-projects'; sub.textContent = projects.join(', '); body.append(sub); }
         row.title = projects.length ? `${config.name} — ${projects.join(', ')}` : config.name;
@@ -274,6 +293,22 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     const section = key => { sectionParent = sections.get(key).panel; };
     section('run');
     textField('Name', 'name');
+    const provenance = input(draft.createdVia === 'mcp' ? 'Yes' : draft.createdVia === 'ui' ? 'No' : 'Unknown (existing configuration)'); provenance.readOnly = true;
+    field(sectionParent, 'Created via MCP', provenance);
+    const ttl = draft.expiryDurationMs || null;
+    const presets = [900000, 3600000, 10800000];
+    const expiry = select([{ value: '', label: 'Never' }, ...presets.map((n, i) => ({ value: String(n), label: ['15 minutes', '1 hour', '3 hours'][i] })), { value: 'custom', label: 'Custom' }], ttl === null ? '' : presets.includes(ttl) ? String(ttl) : 'custom');
+    expiry.setAttribute('aria-label', 'Configuration expiry');
+    expiry.addEventListener('change', () => { draft.expiryDurationMs = expiry.value === 'custom' ? 60000 : Number(expiry.value) || null; renewExpiry = true; renderForm(); });
+    field(sectionParent, 'Expiry', expiry, 'Expiry removes the saved configuration after active runs finish.');
+    if (expiry.value === 'custom') {
+      const minutes = input(String(ttl / 60000)); minutes.type = 'number'; minutes.min = '1'; minutes.max = '525600';
+      minutes.addEventListener('input', () => { draft.expiryDurationMs = Number(minutes.value) * 60000; renewExpiry = true; }); field(sectionParent, 'Expiry in minutes', minutes);
+    }
+    if (draft.expiresAt) {
+      const note = document.createElement('small'); note.textContent = `Expires ${new Date(draft.expiresAt).toLocaleString()}${Date.parse(draft.expiresAt) <= Date.now() ? ' (expired)' : ` · ${Math.max(1, Math.ceil((Date.parse(draft.expiresAt) - Date.now()) / 60000))} minutes remaining`}`; sectionParent.append(note);
+      sectionParent.append(button('Renew expiry', () => { renewExpiry = true; errorLine.textContent = `On Save: expiry will be ${new Date(Date.now() + (draft.expiryDurationMs || 0)).toLocaleString()}`; }), button('Keep permanently', () => { draft.expiryDurationMs = null; renewExpiry = true; renderForm(); }));
+    }
     const hosts = [{ value: '__local__', label: 'Local machine' }, ...[...state.hostConfigs.entries()].filter(([id]) => id !== '__local__').map(([id]) => ({ value: id, label: `SSH · ${id}` }))];
     if (!hosts.some(item => item.value === draft.host)) hosts.push({ value: draft.host, label: `SSH · ${draft.host} (unavailable)` });
     const host = select(hosts, draft.host); host.addEventListener('change', () => { draft.host = host.value; draft.tmux = false; draft.manager = 'system'; draft.environment = ''; draft.managerPath = ''; draft.interpreter = draft.type === 'python' ? 'python3' : draft.type === 'javascript' ? 'node' : '/bin/bash'; renderForm(); });
@@ -281,6 +316,12 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
     const type = select([{ value: 'python', label: 'Python' }, { value: 'javascript', label: 'JavaScript' }, { value: 'shell', label: 'Shell' }], draft.type);
     type.addEventListener('change', () => { draft.type = type.value; draft.mode = 'script'; draft.manager = 'system'; draft.environment = ''; draft.managerPath = ''; draft.interpreter = draft.type === 'python' ? 'python3' : draft.type === 'javascript' ? 'node' : '/bin/bash'; renderList(); renderForm(); }); field(sectionParent, 'Type', type);
     section('environment');
+    if (draft.type === 'javascript') {
+      const mapping = document.createElement('textarea'); mapping.value = JSON.stringify(draft.javascriptDebug || {}, null, 2);
+      mapping.setAttribute('aria-label', 'JavaScript debug source mapping');
+      mapping.addEventListener('input', () => { try { draft.javascriptDebug = JSON.parse(mapping.value || '{}'); mapping.setCustomValidity(''); } catch { mapping.setCustomValidity('Enter valid JSON for source mapping'); } });
+      field(sectionParent, 'JavaScript debug source mapping (JSON)', mapping, 'Optional outFiles, localRoot, remoteRoot, sourceMapPathOverrides, skipFiles, sourceMaps and autoAttachChildProcesses.');
+    }
     const environmentRow = document.createElement('div'); environmentRow.className = 'run-path-field';
     const discovered = select([{ value: '', label: 'Detect environments or enter paths below' }], '');
     const discoveryHint = document.createElement('small'); discoveryHint.className = 'run-hint';
@@ -386,8 +427,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
         const options = document.createElement('datalist'); options.id = `tmux-sessions-${draft.id}`; session.setAttribute('list', options.id); sectionParent.append(options);
       }
     }
-    const groups = (state.appState.tabGroups || []).filter(group =>
-      (group.configurationIds || []).length || [...state.tabs.values()].some(tab => tab.groupId === group.id));
+    const groups = projects;
     section('projects');
     if (groups.length) {
       const title = document.createElement('div'); title.className = 'run-group-heading'; title.textContent = 'Show in projects'; sectionParent.append(title);
@@ -433,12 +473,19 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   async function save(close = false) {
     try {
       if (!draft) return;
-      const result = await call('save', { configuration: draft }); draft = result.configuration;
+      for (const input of form.querySelectorAll('input,textarea')) if (!input.reportValidity()) return;
+      const result = await call('save', { configuration: draft, renewExpiry }); draft = result.configuration; renewExpiry = false;
       configurations = (await call('list')).configurations;
       for (const group of state.appState.tabGroups || []) {
         const ids = new Set(group.configurationIds || []);
         if (groupIds.includes(group.id)) ids.add(draft.id); else ids.delete(draft.id);
         group.configurationIds = [...ids];
+      }
+      for (const project of projects) {
+        const ids = new Set(project.configurationIds || []);
+        if (groupIds.includes(project.id)) ids.add(draft.id); else ids.delete(draft.id);
+        project.configurationIds = [...ids];
+        if (project.savedId) { const saved = savedProjects.find(p => p.id === project.savedId); if (saved) { saved.configurationIds = [...ids]; await api.invoke('groups:save', saved); } }
       }
       await api.updateState({ tabGroups: state.appState.tabGroups });
       clean = JSON.stringify(draft); cleanGroups = JSON.stringify(groupIds);
@@ -457,6 +504,6 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
   view.footer.append(button('Cancel', cancel, 'ghost-btn'), button('Apply', () => save()), button('Save', () => save(true), 'run-save-primary'));
   // Override the generic dialog's Escape handler to preserve drafts.
   view.dialog.addEventListener('cancel', event => { event.preventDefault(); event.stopImmediatePropagation(); cancel(); }, { capture: true });
-  const initial = configurations.find(c => c.id === selectedId) || configurations[0];
+  const initial = configurations.find(c => c.id === selectedId && matches(c)) || configurations.find(matches);
   if (initial) await switchTo(initial); else await switchTo(newDraft(templates[0]), true);
 }

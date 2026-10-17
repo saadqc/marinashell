@@ -16,7 +16,13 @@ const DEFAULT_STATE = {
 };
 
 const DEFAULT_SETTINGS = {
+  git: { github: { paths: { type: 'object', value: {} } } },
+  runs: { configurations: { mcpExpiryMs: { type: 'number', value: 3600000 } } },
   editor: {
+    preferences: {
+      debuggerCollapsed: { type: 'boolean', value: false },
+      diffMode: { type: 'string', value: 'unified' }
+    },
     open: {
       mode: { type: 'string', value: 'remote-shell' },
       commandTemplate: { type: 'string', value: 'nano {escapedPath}' },

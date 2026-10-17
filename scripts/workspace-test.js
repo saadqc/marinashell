@@ -229,7 +229,8 @@ app.whenReady().then(async () => {
   const preferences = new BrowserWindow({ show: false, webPreferences: { preload: path.resolve('preload.js'), contextIsolation: true, nodeIntegration: false } });
   try {
     await preferences.loadFile(path.resolve('settings.html'));
-    assert.equal(await preferences.webContents.executeJavaScript("document.querySelectorAll('main > section.card').length"), 6);
+    assert.deepEqual(await preferences.webContents.executeJavaScript("[...document.querySelectorAll('main > section.card')].map(section => section.id)"),
+      ['preferences-editor', 'preferences-git', 'preferences-workspace', 'preferences-shell', 'preferences-shortcuts', 'preferences-plugins', 'preferences-mcp']);
     assert.equal(await preferences.webContents.executeJavaScript("document.querySelectorAll('section.card section.card').length"), 0);
     await preferences.webContents.executeJavaScript(`(async () => {
       for (let i=0; i<100 && !document.querySelector('#session-tab-title-template').value; i++) await new Promise(r=>setTimeout(r,50));

@@ -1,0 +1,8 @@
+{
+  "name": "jsdebug",
+  "version": "1.0.0",
+  "description": "JavaScript and TypeScript debugging for Node.js, npm and Chrome/Edge with local and SSH run configurations. Requires Editor and Run Configurations.",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "marinashell": { "defaultEnabled": false }
+}

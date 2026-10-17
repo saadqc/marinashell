@@ -27,8 +27,9 @@ function getBundledPluginsDir(app) {
     return null;
 }
 
-function createPluginManager({ app, sessionManager, getMainWindow, getSettings }) {
+function createPluginManager({ app, sessionManager, getMainWindow, getSettings, retireConfiguration, projectIdentity }) {
     const services = new Map();
+    const debuggers = new Map();
     const defaultEnabled = new Map();
     const plugins = new Map(); // id -> pluginObject
 
@@ -122,9 +123,13 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
                     sessionManager,
                     getMainWindow,
                     getSettings,
+                    retireConfiguration,
+                    projectIdentity,
                     pluginPath: dirPath,
                     getPlugins: getPluginsList,
                     registerService: (name, service) => services.set(name, { owner: id, service }),
+                    registerDebugger: provider => debuggers.set(id, provider),
+                    getRunDebugger: runId => [...debuggers.entries()].find(([owner, provider]) => isEnabled(owner) && provider.hasRun(runId))?.[1] || null,
                     getService: name => { const entry = services.get(name); return entry && isEnabled(entry.owner) ? entry.service : null; },
                     registerActivation: handler => { pluginInfo.activation = handler; pluginInfo.active = true; },
                     registerShutdown: handler => { pluginInfo.shutdown = handler; },
@@ -268,9 +273,13 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings }
                     sessionManager,
                     getMainWindow,
                     getSettings,
+                    retireConfiguration,
+                    projectIdentity,
                     pluginPath: dirPath,
                     getPlugins: getPluginsList,
                     registerService: (name, service) => services.set(name, { owner: id, service }),
+                    registerDebugger: provider => debuggers.set(id, provider),
+                    getRunDebugger: runId => [...debuggers.entries()].find(([owner, provider]) => isEnabled(owner) && provider.hasRun(runId))?.[1] || null,
                     getService: name => { const entry = services.get(name); return entry && isEnabled(entry.owner) ? entry.service : null; },
                     registerActivation: handler => { pluginInfo.activation = handler; pluginInfo.active = true; },
                     registerShutdown: handler => { pluginInfo.shutdown = handler; },

@@ -56,9 +56,9 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
     const activeGroup = selectedGroup();
     // Only the selected workspace's configurations are offered; an ungrouped
     // tab falls back to the whole library.
-    const visible = activeGroup
+    const visible = (activeGroup
       ? configurations.filter(config => (activeGroup.configurationIds || []).includes(config.id))
-      : configurations;
+      : configurations).filter(config => !config.expiresAt || Date.parse(config.expiresAt) > Date.now());
     if (visible.length) {
       // The launcher shows only this project's configurations, but names repeat
       // across projects; keep the owning project visible in each choice.
@@ -292,7 +292,7 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
     const oldView = views.get(id);
     try {
       const restarting = runs.get(id);
-      if (restarting?.executionMode === 'debug') await debugProvider()?.prepare(restarting.host, restarting.groupId || '');
+      if (restarting?.executionMode === 'debug') await debugProvider(undefined, restarting.debuggerId || 'pydebug')?.prepare(restarting.host, restarting.groupId || '');
       // Stop remains usable while Restart waits for a graceful shutdown.
       const run = runs.get(id); if (run) run.status = 'stopping'; updateControls();
       const result = await call('restart', { id });
@@ -385,6 +385,11 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
   });
   window.addEventListener('marinashell:groups-changed', renderChoices);
   api.onRunConfigurationsChanged?.(() => { fetchLibrary().then(updateControls).catch(() => {}); });
+  api.onConfigurationRetired?.(({ id }) => {
+    for (const group of state.appState.tabGroups || []) group.configurationIds = (group.configurationIds || []).filter(value => value !== id);
+    if (state.appState.selectedRunConfigurationId === id) state.appState.selectedRunConfigurationId = '';
+    fetchLibrary().catch(showError);
+  });
   const timer = setInterval(() => {
     for (const id of views.keys()) {
       const run = runs.get(id); const view = views.get(id);

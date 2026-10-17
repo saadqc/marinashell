@@ -5,9 +5,14 @@ contextBridge.exposeInMainWorld('api', {
   respondCleanupGroups: payload => ipcRenderer.send('workspace:cleanup-groups-response', payload),
   onOpenMenu: handler => ipcRenderer.on('workspace:open', (_event, action) => handler(action)),
   onRunConfigurationsChanged: handler => ipcRenderer.on('run-configurations:changed', () => handler()),
+  onConfigurationRetired: handler => ipcRenderer.on('run-configurations:retired', (_event, payload) => handler(payload)),
   onPyDebugChanged: handler => {
     const listener = () => handler(); ipcRenderer.on('pydebug:changed', listener);
     return () => ipcRenderer.removeListener('pydebug:changed', listener);
+  },
+  onJsDebugChanged: handler => {
+    const listener = () => handler(); ipcRenderer.on('jsdebug:changed', listener);
+    return () => ipcRenderer.removeListener('jsdebug:changed', listener);
   },
   onMcpRequest: handler => ipcRenderer.on('mcp:request', (_event, payload) => handler(payload)),
   onMcpCancel: handler => ipcRenderer.on('mcp:cancel', (_event, payload) => handler(payload)),
@@ -18,6 +23,11 @@ contextBridge.exposeInMainWorld('api', {
   getState: () => ipcRenderer.invoke('app:get-state'),
   updateState: (patch) => ipcRenderer.invoke('app:update-state', patch),
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  onEditorPreferencesChanged: handler => {
+    const listener = (_event, value) => handler(value);
+    ipcRenderer.on('editor:preferences-changed', listener);
+    return () => ipcRenderer.removeListener('editor:preferences-changed', listener);
+  },
   updateSettings: (patch) => ipcRenderer.invoke('settings:update', patch),
   getHosts: () => ipcRenderer.invoke('ssh:hosts'),
   connect: (tabId, host) => ipcRenderer.invoke('ssh:connect', { tabId, host }),

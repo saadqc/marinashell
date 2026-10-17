@@ -7,7 +7,7 @@ const { createRunManager } = require('./manager');
 const { createDebugpyEnvironment } = require('./debugpy-environment');
 const { normalize, normalizeDefaults, quote, pathExpression } = require('./configuration');
 
-module.exports = function activate({ sessionManager, registerIpc, getPlugins, getMainWindow, registerShutdown, registerService, getService }) {
+module.exports = function activate({ sessionManager, registerIpc, getPlugins, getMainWindow, registerShutdown, registerService, getService, getRunDebugger, getSettings, retireConfiguration }) {
   const connections = new Map();
   const tmuxAvailable = () => getPlugins().some(plugin => plugin.id === 'tmux' && plugin.enabled && plugin.loaded && !plugin.error);
   function resolved(host) {
@@ -28,12 +28,14 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
     catch (error) { connections.delete(host); throw error; }
   }
   const manager = createRunManager({
-    execute, tmuxAvailable,
+    execute, tmuxAvailable, retired: retireConfiguration,
     hostIdentity: async host => host === '__local__' ? `local:${os.hostname()}:${os.userInfo().username}` : JSON.stringify(resolved(host))
   });
   const debugpyEnvironment = createDebugpyEnvironment({ manager, execute });
   registerService?.('runs', {
     manager, normalize, changed: () => getMainWindow()?.webContents.send('run-configurations:changed'),
+    debuggerForRun: id => getRunDebugger?.(id),
+    mcpExpiry: () => getSettings?.()?.runs?.configurations?.mcpExpiryMs?.value ?? 3600000,
     async openDebugTransport(host, port) {
       await execute(host, 'true');
       return sessionManager.openForwardStream(`run-control:${host}`, port);
@@ -50,7 +52,9 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
   // interpreter, working directory, and environment sources. They live in
   // shelldock's own library — never inside the project directory.
   const groupDefaults = createLibraryStore('run-group-defaults');
-  registerShutdown(manager.shutdown);
+  const expiryTimer = setInterval(() => { try { manager.configs.cleanup(); getMainWindow()?.webContents.send('run-configurations:changed'); } catch (error) { console.error('Configuration expiry cleanup failed:', error.message); } }, 30000);
+  expiryTimer.unref();
+  registerShutdown(async () => { clearInterval(expiryTimer); await manager.shutdown(); });
   function ipc(name, handler) {
     registerIpc(name, async (_event, payload = {}) => {
       try { return { ok: true, ...(await handler(payload)) }; }
@@ -58,7 +62,10 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
     });
   }
   ipc('list', async () => ({ configurations: manager.configs.read(), runs: manager.list(), tmuxAvailable: tmuxAvailable() }));
-  ipc('save', async ({ configuration }) => ({ configuration: manager.configs.upsert(normalize(configuration)) }));
+  ipc('save', async ({ configuration, renewExpiry }) => {
+    const saved = manager.configs.save(configuration, { origin: 'ui', renew: renewExpiry === true });
+    getMainWindow()?.webContents.send('run-configurations:changed'); return { configuration: saved };
+  });
   ipc('debugpy-check', async ({ configuration }) => ({ status: await debugpyEnvironment.check(configuration) }));
   ipc('debugpy-install', async ({ configuration }) => debugpyEnvironment.install(configuration));
   ipc('delete', async ({ id }) => {
@@ -68,8 +75,8 @@ module.exports = function activate({ sessionManager, registerIpc, getPlugins, ge
   ipc('start', async ({ id, groupId, groupName }) => ({ run: await manager.start(id, groupId, groupName) }));
   ipc('poll', async ({ id, offset = 0, generation = 0 }) => manager.poll(id, offset, generation));
   ipc('status', async ({ id }) => ({ run: await manager.status(id) }));
-  ipc('stop', async ({ id, force }) => ({ run: await (getService?.('pydebug')?.hasRun(id) ? getService('pydebug').stopRun(id, force) : manager.stop(id, force)) }));
-  ipc('restart', async ({ id }) => ({ run: await (getService?.('pydebug')?.hasRun(id) ? getService('pydebug').restartRun(id) : manager.restart(id)) }));
+  ipc('stop', async ({ id, force }) => ({ run: await (getRunDebugger?.(id)?.stopRun(id, force) || manager.stop(id, force)) }));
+  ipc('restart', async ({ id }) => ({ run: await (getRunDebugger?.(id)?.restartRun(id) || manager.restart(id)) }));
   ipc('close', async ({ id }) => { await manager.close(id); return {}; });
   ipc('browse', async ({ host = '__local__', directory = '~', kind = 'file' }) => {
     if (host === '__local__') {

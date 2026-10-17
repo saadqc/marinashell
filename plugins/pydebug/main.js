@@ -1,7 +1,7 @@
 const { createDebugStore } = require('./store');
 const { createDebugManager } = require('./session-manager');
 
-module.exports = function activate({ registerIpc, registerService, getService, getPlugins, getMainWindow, registerShutdown, registerActivation }) {
+module.exports = function activate({ registerIpc, registerService, registerDebugger, getService, getPlugins, getMainWindow, registerShutdown, registerActivation }) {
   const store = createDebugStore(); let manager; let enabled = true; let monitoring = false;
   const changed = () => { getMainWindow()?.webContents.send('pydebug:changed'); getService('runs')?.changed(); };
   function prerequisite() {
@@ -55,11 +55,13 @@ module.exports = function activate({ registerIpc, registerService, getService, g
   });
   ipc('watch-save', ({ watch }) => { const saved = store.saveWatch(watch || {}); changed(); return { watch: saved }; });
   ipc('watch-remove', ({ id }) => { store.watches.remove(id); changed(); return {}; });
-  registerService('pydebug', {
+  const debuggerService = {
     hasRun: id => manager?.hasRun(id),
-    stopRun: (id, force) => manager.stop(manager.sessionForRun(id).id, force),
-    restartRun: async id => (await manager.restart(manager.sessionForRun(id).id)).run
-  });
+    stopRun: (id, force, options) => manager.stop(manager.sessionForRun(id).id, force, options),
+    restartRun: async (id, options) => (await manager.restart(manager.sessionForRun(id).id, options)).run
+  };
+  registerService('pydebug', debuggerService);
+  registerDebugger?.(debuggerService);
   registerActivation(active => { enabled = active; if (!active) return manager?.shutdown(); });
   const timer = setInterval(async () => {
     if (!enabled || monitoring || !manager) return;

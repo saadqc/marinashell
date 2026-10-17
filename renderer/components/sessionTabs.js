@@ -1,4 +1,5 @@
 import { fileAction, terminalFileAt } from '../services/fileActions.js';
+import { terminalMenuActions } from '../services/terminalMenu.js';
 import { createTerminalDocking } from './terminalDocking.js';
 import { createSavedGroups } from './savedGroups.js';
 import { showError } from './dialog.js';
@@ -397,6 +398,9 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     terminalContextMenu.innerHTML = '';
     const tab = state.tabs.get(tabId);
     if (!tab) return;
+    for (const action of terminalMenuActions(tab)) addMenuButton(terminalContextMenu, action.title, () => {
+      hideTerminalContextMenu(); Promise.resolve(action.run(tab)).catch(showError);
+    });
 
     const file = terminalFileAt(tab);
     addMenuLabel(terminalContextMenu, 'File');

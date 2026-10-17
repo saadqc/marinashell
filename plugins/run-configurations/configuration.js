@@ -61,6 +61,23 @@ function normalizeDefaults(input = {}) {
     inheritEnv: source.inheritEnv !== false
   };
 }
+function normalizeJavaScriptDebug(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('JavaScript debug options must be an object');
+  const result = { sourceMaps: input.sourceMaps !== false, autoAttachChildProcesses: input.autoAttachChildProcesses !== false };
+  for (const name of ['localRoot', 'remoteRoot']) if (input[name]) {
+    if (typeof input[name] !== 'string' || input[name].length > 4096 || input[name].includes('\0')) throw new Error(`Invalid ${name}`);
+    result[name] = input[name];
+  }
+  for (const name of ['outFiles', 'skipFiles']) if (input[name]) {
+    if (!Array.isArray(input[name]) || input[name].length > 100 || !input[name].every(value => typeof value === 'string' && value.length <= 4096 && !value.includes('\0'))) throw new Error(`Invalid ${name}`);
+    result[name] = input[name];
+  }
+  if (input.sourceMapPathOverrides) {
+    if (typeof input.sourceMapPathOverrides !== 'object' || Array.isArray(input.sourceMapPathOverrides) || !Object.entries(input.sourceMapPathOverrides).every(([key, value]) => key.length < 4096 && typeof value === 'string' && value.length < 4096 && !key.includes('\0') && !value.includes('\0'))) throw new Error('Invalid source map path overrides');
+    result.sourceMapPathOverrides = input.sourceMapPathOverrides;
+  }
+  return result;
+}
 function normalize(input) {
   const type = ['python', 'javascript', 'shell'].includes(input.type) ? input.type : 'python';
   const modes = type === 'python' ? ['script', 'module'] : type === 'javascript' ? ['script', 'module', 'npm'] : ['script', 'commands'];
@@ -75,7 +92,8 @@ function normalize(input) {
     env: input.env && typeof input.env === 'object' && !Array.isArray(input.env) ? { ...input.env } : {},
     inheritEnv: input.inheritEnv !== false, sourceFile: String(input.sourceFile || ''),
     killPortOnLaunch: Boolean(input.killPortOnLaunch), killPort: Number(input.killPort) || null,
-    multiInstance: Boolean(input.multiInstance), tmux: Boolean(input.tmux), tmuxSession: String(input.tmuxSession || '')
+    multiInstance: Boolean(input.multiInstance), tmux: Boolean(input.tmux), tmuxSession: String(input.tmuxSession || ''),
+    ...(type === 'javascript' ? { javascriptDebug: normalizeJavaScriptDebug(input.javascriptDebug) } : {})
   };
   if (config.killPortOnLaunch && (!Number.isInteger(config.killPort) || config.killPort < 1 || config.killPort > 65535)) throw new Error('Port must be an integer between 1 and 65535');
   if (!config.name) throw new Error('Configuration name is required');
@@ -143,14 +161,15 @@ function buildCommand(config, fileEnv = {}, scriptEnv = {}, scriptMeta = [], lau
     if (c.mode === 'module' && c.target === 'uvicorn') lines.push('unset UVICORN_RELOAD WEB_CONCURRENCY', 'export UVICORN_WORKERS=1');
   }
   if (c.type === 'javascript') {
+    const nodeDebug = launch.nodeBootstrap ? ['--require', pathExpression(launch.nodeBootstrap)] : [];
     if (c.mode === 'npm') {
       // Run npm with the selected Node runtime, including an explicit node path.
       const nodeDir = c.interpreter.includes('/') ? `$(dirname ${pathExpression(c.interpreter)})` : '';
       if (nodeDir) lines.push(`export PATH="${nodeDir}:$PATH"`);
-      command = ['npm', 'run', quote(c.target), '--', ...args].join(' ');
+      command = launch.nodeBootstrap ? [executable, ...nodeDebug, '"$(command -v npm)"', 'run', quote(c.target), '--', ...args].join(' ') : ['npm', 'run', quote(c.target), '--', ...args].join(' ');
     } else if (c.mode === 'module') {
-      command = [executable, '--input-type=module', '-e', quote('await import(process.argv[1])'), quote(c.target), ...args].join(' ');
-    } else command = [executable, pathExpression(c.target), ...args].join(' ');
+      command = [executable, ...nodeDebug, '--input-type=module', '-e', quote('await import(process.argv[1])'), quote(c.target), ...args].join(' ');
+    } else command = [executable, ...nodeDebug, pathExpression(c.target), ...args].join(' ');
   }
   if (c.type === 'shell') command = c.mode === 'commands'
     ? `${executable} -c ${quote(c.target)} -- ${args.join(' ')}`
@@ -176,4 +195,4 @@ function buildCommand(config, fileEnv = {}, scriptEnv = {}, scriptMeta = [], lau
   lines.push(log(`Command: ${displayCommand}`), log(''), `exec ${command}`);
   return lines.join('\n');
 }
-module.exports = { quote, pathExpression, parseArguments, parseEnv, normalizeSetupScripts, normalizeDefaults, normalize, buildCommand };
+module.exports = { quote, pathExpression, parseArguments, parseEnv, normalizeSetupScripts, normalizeDefaults, normalizeJavaScriptDebug, normalize, buildCommand };

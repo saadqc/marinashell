@@ -467,6 +467,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
       btn.classList.toggle('active', btn.dataset.view === activeView);
       btn.setAttribute('aria-pressed', String(btn.dataset.view === activeView));
       const viewInfo = views.get(btn.dataset.view) || null;
+      btn.hidden = Boolean(viewInfo?.visible && !viewInfo.visible(activeTab));
       if (!viewInfo || viewInfo.id === 'terminal') {
         btn.disabled = false;
         return;
@@ -530,6 +531,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
       icon: info?.icon || '',
       mount: info && typeof info.mount === 'function' ? info.mount : () => null,
       supports: info && Array.isArray(info.supports) ? info.supports : null,
+      visible: typeof info?.visible === 'function' ? info.visible : null,
       requiresConnection: info && Object.prototype.hasOwnProperty.call(info, 'requiresConnection')
         ? Boolean(info.requiresConnection)
         : true
@@ -549,6 +551,7 @@ export function createDockLayout({ rootEl, toolbarEl, sessionTabs, terminalStack
 
   // Public API
   const api = {
+    refreshAvailability: syncToolbarActiveState,
     registerView,
     registerTerminalAction: (id, info) => {
       if (!id) return;

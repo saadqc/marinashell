@@ -35,20 +35,25 @@ function createDebugManager({ runs, store, openTransport, changed = () => {}, ro
     s.paths.set(file, resolved); return resolved;
   }
   async function syncSession(s, additionalPaths = []) {
-    if (!s.client || !s.initialized || !active(s) || s.state === 'stopping') return;
+    const connected = () => s.client && !s.client.closed && s.initialized && active(s) && !['stopping', 'disconnected'].includes(s.state);
+    if (!connected()) return;
     s.conditionError = '';
     const points = store.breakpoints.read().filter(b => b.host === s.host && b.projectId === s.projectId);
     const paths = new Set([...s.sentPaths, ...points.map(b => b.path), ...additionalPaths]);
     const grouped = new Map();
     for (const file of paths) {
       const resolved = await canonical(s, file);
+      if (!connected()) return;
       if (!grouped.has(resolved)) grouped.set(resolved, []);
       grouped.get(resolved).push(...points.filter(b => b.path === file && b.enabled));
     }
     for (const [file, entries] of grouped) {
+      if (!connected()) return;
       const supported = entries.filter(b => !b.condition || s.capabilities.supportsConditionalBreakpoints);
       for (const b of entries.filter(b => b.condition && !s.capabilities.supportsConditionalBreakpoints)) s.verification.set(b.id, { verified: false, message: 'Debugger does not support conditional breakpoints' });
-      const response = await s.client.request('setBreakpoints', { source: { path: file }, breakpoints: supported.map(b => ({ line: b.line, ...(b.condition ? { condition: b.condition } : {}) })) });
+      let response;
+      try { response = await s.client.request('setBreakpoints', { source: { path: file }, breakpoints: supported.map(b => ({ line: b.line, ...(b.condition ? { condition: b.condition } : {}) })) }); }
+      catch (error) { if (!connected()) return; throw error; }
       supported.forEach((b, i) => { const result = response.breakpoints?.[i] || {}; s.verification.set(b.id, { verified: Boolean(result.verified), line: result.line || b.line, message: result.message || '' }); if (result.id != null) s.breakpointIds.set(result.id, b.id); });
     }
     s.sentPaths = new Set(points.map(b => b.path)); changed();
@@ -138,7 +143,7 @@ function createDebugManager({ runs, store, openTransport, changed = () => {}, ro
     pending.finally(() => launches.delete(pending)).catch(() => {});
     return pending;
   }
-  async function stop(id, force = false) {
+  async function stop(id, force = false, options = {}) {
     const s = get(id); s.cancelled = true;
     if (s.stopPromise && !force) return s.stopPromise;
     const operation = (async () => {
@@ -149,7 +154,7 @@ function createDebugManager({ runs, store, openTransport, changed = () => {}, ro
       }
       if (!s.run) { state(s, 'ended'); return null; }
       let run = await runs.status(s.run.id);
-      if (!ended(run)) run = await runs.stop(s.run.id, force);
+      if (!ended(run)) run = await runs.stop(s.run.id, force, options);
       for (let i = 0; i < 60 && !ended(run); i++) { await delay(100); run = await runs.status(s.run.id); }
       if (!ended(run)) throw new Error(run.status === 'unknown' ? 'SSH/process status unknown; reconnect and Stop before restarting' : 'Process is still stopping; press Stop again to force termination');
       s.run = run; state(s, 'ended'); return run;
@@ -158,7 +163,7 @@ function createDebugManager({ runs, store, openTransport, changed = () => {}, ro
     try { return await operation; } catch (error) { state(s, 'disconnected', error.message); throw error; }
     finally { if (s.stopPromise === operation) s.stopPromise = null; }
   }
-  async function restart(id) { const s = get(id); await stop(id); return start(s.configurationId, s.projectId, s.projectName); }
+  async function restart(id, options = {}) { const s = get(id); runs.configs.assertRunnable?.(s.configurationId); await stop(id, false, options); return start(s.configurationId, s.projectId, s.projectName); }
   async function request(id, command, args = {}, generation) {
     const s = get(id); const version = s.generation;
     const runningAllowed = ['threads', 'pause'].includes(command);

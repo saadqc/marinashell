@@ -113,3 +113,6 @@
 .running-dot.unknown { background:var(--text-muted); }
 .running-dot.exited, .running-dot.blocked { background:var(--text-muted); }
 .running-dot.failed { background:var(--danger); }
+.run-config-filters { display:grid; gap:6px; padding:8px; }
+.run-config-filters select { width:100%; min-width:0; }
+.run-mcp-badge { color:var(--accent, #d6ac58); }

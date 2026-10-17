@@ -1,0 +1,8 @@
+{
+  "name": "git",
+  "version": "1.0.0",
+  "description": "Git changes, branch comparisons, operations and GitHub pull requests for local and SSH repositories. Requires Editor for diffs.",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "marinashell": { "defaultEnabled": false }
+}

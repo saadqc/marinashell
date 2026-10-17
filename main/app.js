@@ -4,7 +4,7 @@ const os = require('os');
 const fs = require('fs');
 const { ICON_PATH, LOCAL_HOST_VALUE } = require('./constants');
 const { loadState, saveState } = require('./services/stateStore');
-const { loadSettings, saveSettings } = require('./services/settingsStore');
+const { loadSettings, saveSettings, mergeSettings } = require('./services/settingsStore');
 const { listConfigHosts, resolveHost } = require('./services/sshConfig');
 const { createSessionManager } = require('./services/sessionManager');
 const { createPasswordStore } = require('./services/passwordStore');
@@ -203,7 +203,17 @@ app.whenReady().then(() => {
   state = loadState();
   settings = loadSettings();
   passwordStore = createPasswordStore({ app, logDebug });
-  pluginManager = createPluginManager({ app, sessionManager, getMainWindow: () => mainWindow, getSettings: () => settings });
+  pluginManager = createPluginManager({ app, sessionManager, getMainWindow: () => mainWindow, getSettings: () => settings,
+    projectIdentity: id => state.tabGroups?.find(group => group.id === id)?.savedGroupId || id,
+    retireConfiguration(id) {
+      const unlink = groups => require('./services/configurationLinks').removeConfigurationLinks(groups, new Set([id]));
+      const library = require('./services/libraryStore').createLibraryStore('saved-groups');
+      const saved = library.read();
+      if (saved.some(group => group.configurationIds?.includes(id) || group.tabs?.some(tab => tab.configurationId === id))) library.write(unlink(saved));
+      state = saveState(state, { tabGroups: unlink(state.tabGroups), tabs: (state.tabs || []).map(tab => tab.configurationId === id ? { ...tab, configurationId: '' } : tab), selectedRunConfigurationId: state.selectedRunConfigurationId === id ? '' : state.selectedRunConfigurationId });
+      mainWindow?.webContents.send('run-configurations:retired', { id });
+    }
+  });
   pluginManager.init();
   buildMenu();
 
@@ -211,6 +221,8 @@ app.whenReady().then(() => {
   ipcMain.handle('groups:list', () => groupsLibrary.read());
   ipcMain.handle('groups:save', (_event, group) => {
     if (!group || !String(group.name || '').trim() || !Array.isArray(group.tabs)) throw new Error('Invalid saved group');
+    const retired = new Set(require('./services/libraryStore').createLibraryStore('retired-configurations').read().map(item => item.id));
+    group = require('./services/configurationLinks').removeConfigurationLinks([group], retired)[0];
     return groupsLibrary.upsert(group.kind === 'project' ? require('./services/projects').normalizeProject(group) : group);
   });
   ipcMain.handle('groups:delete', (_event, id) => groupsLibrary.remove(id));
@@ -220,6 +232,10 @@ app.whenReady().then(() => {
     if (!patch || typeof patch !== 'object') {
       return state;
     }
+    const retired = new Set(require('./services/libraryStore').createLibraryStore('retired-configurations').read().map(item => item.id));
+    if (Array.isArray(patch.tabGroups)) patch.tabGroups = require('./services/configurationLinks').removeConfigurationLinks(patch.tabGroups, retired);
+    if (Array.isArray(patch.tabs)) patch.tabs = patch.tabs.map(tab => retired.has(tab.configurationId) ? { ...tab, configurationId: '' } : tab);
+    if (retired.has(patch.selectedRunConfigurationId)) patch.selectedRunConfigurationId = '';
     state = saveState(state, patch);
     return state;
   });
@@ -228,10 +244,25 @@ app.whenReady().then(() => {
   require('./services/logViewer').registerLogViewer({ipcMain, BrowserWindow, sessionManager});
 
   ipcMain.handle('settings:get', () => settings);
+  ipcMain.handle('settings:editor-preferences', (_event, patch = {}) => {
+    const values = {};
+    if (Object.hasOwn(patch, 'debuggerCollapsed')) {
+      if (typeof patch.debuggerCollapsed !== 'boolean') throw new Error('Invalid debugger visibility');
+      values.debuggerCollapsed = { type: 'boolean', value: patch.debuggerCollapsed };
+    }
+    if (Object.hasOwn(patch, 'diffMode')) {
+      if (!['unified', 'split'].includes(patch.diffMode)) throw new Error('Invalid diff mode');
+      values.diffMode = { type: 'string', value: patch.diffMode };
+    }
+    settings = saveSettings(mergeSettings(settings, { editor: { preferences: values } }));
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('editor:preferences-changed', settings.editor.preferences);
+    return settings.editor.preferences;
+  });
   ipcMain.handle('settings:update', (event, patch) => {
     if (!patch || typeof patch !== 'object') {
       return settings;
     }
+    const beforePreferences = JSON.stringify(settings.editor?.preferences);
     const readDisabled = (value) => {
       const node = value && value.plugins && value.plugins.disabled ? value.plugins.disabled.list : null;
       const arr = node && typeof node === 'object' && Array.isArray(node.value) ? node.value : [];
@@ -241,6 +272,7 @@ app.whenReady().then(() => {
     const beforeEnabled = readEnabled(settings);
     const beforeDisabled = readDisabled(settings);
     settings = saveSettings(patch);
+    if (beforePreferences !== JSON.stringify(settings.editor?.preferences)) for (const w of BrowserWindow.getAllWindows()) w.webContents.send('editor:preferences-changed', settings.editor.preferences);
     const afterDisabled = readDisabled(settings);
     if (beforeDisabled.join('|') !== afterDisabled.join('|') || beforeEnabled !== readEnabled(settings)) {
       try {

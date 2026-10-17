@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { randomUUID } = require('crypto');
 const { DEFAULT_SETTINGS } = require('../constants');
 
 function settingsPath() {
@@ -42,12 +43,13 @@ function loadSettings() {
 
 function saveSettings(nextSettings) {
   const merged = mergeSettings(DEFAULT_SETTINGS, nextSettings);
+  const temporary = `${settingsPath()}.${randomUUID()}.tmp`;
   try {
     const dir = path.dirname(settingsPath());
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(settingsPath(), JSON.stringify(merged, null, 2), 'utf8');
-  } catch (err) {
-  }
+    fs.writeFileSync(temporary, JSON.stringify(merged, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(temporary, settingsPath());
+  } finally { fs.rmSync(temporary, { force: true }); }
   return merged;
 }
 

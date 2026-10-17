@@ -17,6 +17,8 @@ PyDebug adds a debugger to the CodeMirror editor and existing Python run configu
 
 Expand Locals/Globals and nested values in **Inspect**; choose a thread or stack frame to change scope. Use **Watches** for saved expressions and **Console** for explicit evaluation in the selected frame. Continue, Pause, Step over/into/out, Restart Debug, and Stop are in the panel. **Break on uncaught exceptions** can be enabled while connected. Run output stays in the existing Configurations workspace.
 
+Use the companion's **Debugger** toggle to collapse it. The preference is global and survives restart. A new stop reveals the relevant source and debugger temporarily; Continue restores the saved preference. A manually collapsed paused panel stays collapsed until a different stop. PyDebug and JSDebug may be enabled together.
+
 ## Breakpoints and source changes
 
 The central **Breakpoints** tab provides Add, Edit, Remove, individual enable/disable, and scoped bulk actions. Its project and host filters determine which definitions the bulk actions affect. Definitions survive app restart and do not modify Python source.

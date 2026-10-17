@@ -1,8 +1,13 @@
-# MarinaShell v0.2.19
+# MarinaShell v0.2.20
 
-- Fixed Reconnect showing “Session disconnected” after successfully starting a new shell. Delayed exit/data events from the replaced terminal now stay with that terminal, and reconnect waits for previous connection cleanup. Applies to local and SSH terminals.
-- Added **Environment → Python debugger** to Python run configurations. See whether debugpy is available in the selected environment, copy the resolved interpreter's installation command, or click **Install debugpy** to install the tested version (1.8.17). Local and SSH installations recheck readiness, show pip failures, and allow retry.
-- Debugger status resets when the configuration's interpreter or environment changes. Configurations with setup scripts use an explicit **Check debugpy** action so opening the dialog does not execute those scripts.
-- Fixed Zsh startup tracking when the prompt-hook array is unset.
+- Added the optional **Git** plugin for local and SSH repositories: a changed-file list with addition/deletion counts, CodeMirror unified/split comparisons, previous/next change navigation, and branch comparisons from the merge base. Open Git from the tool rail or a terminal's Git Diff context action.
+- Added staging, unstaging, commits, fetch, fast-forward-only pull, push, and branch creation/switching. Writes reject stale repository snapshots and retain normal Git hooks and authentication.
+- Added compact **Pull Requests** review and creation through GitHub CLI, with a searchable PR picker, per-project account selection, configurable CLI paths, and links to open PRs or branches in the browser.
+- PR files use exact local Git objects when available, then fall back to concurrent GitHub reads. A bounded memory cache reuses immutable contents across file switches and unchanged refreshes, with account/project/repository isolation. Viewing a PR does not fetch or modify the checkout. Use Refresh to check for new PR commits.
+- Added the optional **JSDebug** plugin for Node, npm, source-mapped TypeScript, and Chrome/Edge launch or attach. Managed Node debugging supports local and SSH environments; externally attached targets remain running when disconnected.
+- The editor's debugger panel can collapse. The preference persists globally; a new breakpoint or other debugger stop temporarily reveals the relevant panel, and Continue restores the saved preference. Existing Python debugging remains supported alongside JSDebug.
+- Run configurations now support Never, 15-minute, 1-hour, 3-hour, and custom expiry, plus project and Created via MCP filters. Manual configurations default to Never; newly created MCP configurations default to one hour, configurable in Settings. Expiry blocks new launches and retires inactive definitions while preserving active runs and output history. Existing definitions retain their lifetime.
 
-PyDebug requires Python 3.9+ and debugpy 1.8.x. Enable PyDebug, Editor, and Run Configurations in Settings → Plugins. See the [PyDebug setup and usage guide](https://github.com/saadqc/marinashell/blob/v0.2.19/docs/pydebug.md).
+Enable Git or JSDebug in **Settings → Plugins**. Git comparisons require Editor; debugging requires Editor and Run Configurations. JSDebug's setup dialog installs Microsoft's standalone js-debug 1.140.0 with a pinned SHA-256 check. Python debugging still requires Python 3.9+ and debugpy 1.8.x. Managed run execution requires a POSIX host; native Windows run execution and tmux debug launches remain unsupported. Chrome was exercised locally; Edge requires its own installed browser.
+
+See the [Git guide](https://github.com/saadqc/marinashell/blob/v0.2.20/docs/git.md), [JavaScript debugging guide](https://github.com/saadqc/marinashell/blob/v0.2.20/docs/jsdebug.md), and [Python debugging guide](https://github.com/saadqc/marinashell/blob/v0.2.20/docs/pydebug.md).

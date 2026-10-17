@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { StringDecoder } = require('string_decoder');
 const { exec: execChildProcess } = require('child_process');
 const pty = require('node-pty');
 const SftpClient = require('ssh2-sftp-client');
@@ -628,8 +629,9 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     return null;
   }
 
-  function execWithClient(client, command, timeoutMs) {
+  function execWithClient(client, command, timeoutMs, options = {}) {
     return new Promise((resolve, reject) => {
+      const outputDecoder = new StringDecoder('utf8'); const errorDecoder = new StringDecoder('utf8');
       let timer = null;
       let stdout = '';
       let stderr = '';
@@ -648,6 +650,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
           return;
         }
         streamRef = stream;
+        if (options.input !== undefined) stream.end(options.input);
 
         if (timeoutMs > 0) {
           timer = setTimeout(() => {
@@ -659,13 +662,20 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
           }, timeoutMs);
         }
 
-        stream.on('data', (chunk) => { stdout += chunk.toString(); });
+        const append = (chunk, errorOutput = false) => {
+          if (options.maxBytes && Buffer.byteLength(stdout) + Buffer.byteLength(stderr) + chunk.length > options.maxBytes) {
+            cleanup(); stream.close(); reject(new Error('Remote command output exceeds the size limit')); return;
+          }
+          if (errorOutput) stderr += errorDecoder.write(chunk); else stdout += outputDecoder.write(chunk);
+        };
+        stream.on('data', chunk => append(chunk));
         if (stream.stderr && typeof stream.stderr.on === 'function') {
-          stream.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+          stream.stderr.on('data', chunk => append(chunk, true));
         }
         stream.on('exit', (code) => { exitCode = code; });
         stream.on('close', () => {
           cleanup();
+          stdout += outputDecoder.end(); stderr += errorDecoder.end();
           resolve({ stdout, stderr, exitCode });
         });
         stream.on('error', (streamErr) => {
@@ -899,54 +909,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     if (!session.tunnelClient) {
       await ensureTunnelConnection(tabId, session.hostConfig);
     }
-    const client = session.tunnelClient;
-
-    return new Promise((resolve, reject) => {
-      let timer = null;
-      let stdout = '';
-      let stderr = '';
-      let exitCode = null;
-      let streamRef = null;
-
-      const cleanup = () => {
-        if (timer) clearTimeout(timer);
-        timer = null;
-      };
-
-      client.exec(command, (err, stream) => {
-        if (err) {
-          cleanup();
-          reject(err);
-          return;
-        }
-        streamRef = stream;
-
-        if (timeoutMs > 0) {
-          timer = setTimeout(() => {
-            cleanup();
-            try {
-              streamRef && typeof streamRef.close === 'function' ? streamRef.close() : streamRef.destroy();
-            } catch (e) { }
-            reject(new Error('Remote command timed out'));
-          }, timeoutMs);
-        }
-
-        stream.on('data', (chunk) => { stdout += chunk.toString(); });
-        if (stream.stderr && typeof stream.stderr.on === 'function') {
-          stream.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-        }
-
-        stream.on('exit', (code) => { exitCode = code; });
-        stream.on('close', () => {
-          cleanup();
-          resolve({ stdout, stderr, exitCode });
-        });
-        stream.on('error', (streamErr) => {
-          cleanup();
-          reject(streamErr);
-        });
-      });
-    });
+    return execWithClient(session.tunnelClient, command, timeoutMs, options);
   }
 
   function resetPasswordState(session) {

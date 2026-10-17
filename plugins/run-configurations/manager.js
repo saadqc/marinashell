@@ -3,6 +3,7 @@ const path = require('path');
 const { randomUUID, createHash } = require('crypto');
 const { StringDecoder } = require('string_decoder');
 const { createLibraryStore } = require('../../main/services/libraryStore');
+const { createConfigurationLibrary } = require('./lifecycle');
 const { normalize, quote, pathExpression, buildCommand, parseEnv, parseArguments } = require('./configuration');
 const runner = fs.readFileSync(path.join(__dirname, 'runner.sh'), 'utf8');
 const ended = run => ['exited', 'blocked', 'failed'].includes(run.status);
@@ -18,11 +19,11 @@ function parseEnvSnapshot(base64) {
   return values;
 }
 
-function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, root }) {
-  const configs = createLibraryStore('run-configurations', root);
+function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, root, retired }) {
   const records = createLibraryStore('run-records', root);
   const runs = new Map(records.read().map(run => [run.id, run]));
   const launching = new Map();
+  const configs = createConfigurationLibrary({ root, retired, busy: id => launching.has(id) || [...runs.values()].some(run => run.configurationId === id && !ended(run)) });
   const decoders = new Map();
   const saveRuns = () => records.write([...runs.values()]);
   const runPath = run => `${run.home}/.marinashell/runs/${run.id}`;
@@ -143,6 +144,7 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
     return null;
   }
   async function start(id, groupId = '', groupName = '', options = {}) {
+    configs.assertRunnable(id);
     if (launching.has(id)) {
       const pending = launching.get(id);
       const c = configs.read().find(item => item.id === id);
@@ -161,9 +163,10 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       if (existing && (options.debug || existing.executionMode === 'debug')) throw new Error('Stop this configuration’s active run before changing execution mode');
       if (!config.multiInstance && existing) return { ...existing, reused: true };
       if (options.debug) {
-        if (config.type !== 'python' || config.tmux) throw new Error('PyDebug requires a Python script/module without tmux');
+        if (config.type !== (options.debug.type || 'python') || config.tmux) throw new Error('Debugger requires a matching Python/JavaScript configuration without tmux');
         config.multiInstance = false;
       }
+      configs.assertRunnable(id);
       return launch(config, groupId, groupName, options);
     })();
     launching.set(id, operation);
@@ -194,7 +197,7 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
     if (c.tmux) await command(c.host, 'command -v tmux >/dev/null || { echo "tmux is not installed on the SSH host" >&2; exit 1; }');
     const { fileEnv, scriptEnv, scriptMeta } = await prepareEnvironment(c);
     const debugNotes = [];
-    if (options.debug) {
+    if (options.debug && c.type === 'python') {
       if (c.mode === 'module' && c.target === 'uvicorn') {
         const args = parseArguments(c.args); const effective = [];
         for (let i = 0; i < args.length; i++) {
@@ -231,7 +234,7 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       tmux: c.tmux, multiInstance: c.multiInstance, tmuxSession: c.tmuxSession || `marina-${c.id.slice(0, 12)}`,
       startedAt: new Date().toISOString(), status: 'starting', exitCode: null, closed: false,
       instance: 1 + [...runs.values()].filter(item => item.configurationId === c.id).length,
-      executionMode: options.debug ? 'debug' : 'run', debugNotes
+      executionMode: options.debug ? 'debug' : 'run', debuggerId: options.debug ? c.type === 'python' ? 'pydebug' : 'jsdebug' : '', debugNotes
     };
     const dir = runPath(run);
     const locks = `${home}/.marinashell/run-locks`;
@@ -247,9 +250,13 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
         else throw new Error('This configuration already has a remote run. Reconnect to its existing output tab before starting another instance.');
       }
     }
-    const debugLaunch = options.debug ? { debugBootstrap: dir + '/debug-bootstrap.py', endpointFile: dir + '/debug-endpoint.json' } : {};
+    const debugLaunch = options.debug ? c.type === 'javascript' ? { nodeBootstrap: dir + '/debug-bootstrap.cjs' } : { debugBootstrap: dir + '/debug-bootstrap.py', endpointFile: dir + '/debug-endpoint.json' } : {};
     await command(c.host, `umask 077; mkdir -p ${quote(dir)} ${quote(locks)} && printf '%s' ${quote(runner)} > ${quote(dir + '/runner.sh')} && printf '%s' ${quote(buildCommand(c, fileEnv, scriptEnv, scriptMeta, debugLaunch))} > ${quote(dir + '/command.sh')}`);
-    if (options.debug) await command(c.host, `printf '%s' ${quote(options.debug.bootstrap)} > ${quote(dir + '/debug-bootstrap.py')}`);
+    if (options.debug) {
+      const file = c.type === 'javascript' ? '/debug-bootstrap.cjs' : '/debug-bootstrap.py';
+      const bootstrap = options.debug.bootstrap.replace('__MARINA_ENDPOINT__', JSON.stringify(dir + '/debug-endpoint.json'));
+      await command(c.host, `printf '%s' ${quote(bootstrap)} > ${quote(dir + file)}`);
+    }
     runs.set(run.id, run); saveRuns();
     const launchCommand = `bash ${quote(dir + '/runner.sh')} run ${quote(dir)} ${quote(lock)}`;
     try {
@@ -288,6 +295,7 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
   }
   async function restart(id, options = {}) {
     const run = runs.get(id); if (!run) throw new Error('Run not found');
+    configs.assertRunnable(run.configurationId);
     if (run.executionMode === 'debug') throw new Error('Use Restart Debug to preserve this run’s debugger');
     await stop(id, false, options);
     for (let i = 0; i < 40; i++) {

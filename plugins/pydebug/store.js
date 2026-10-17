@@ -1,8 +1,8 @@
 const { randomUUID } = require('crypto');
 const { createLibraryStore } = require('../../main/services/libraryStore');
-function createDebugStore(root) {
-  const breakpoints = createLibraryStore('pydebug-breakpoints', root);
-  const watches = createLibraryStore('pydebug-watches', root);
+function createDebugStore(root, prefix = 'pydebug') {
+  const breakpoints = createLibraryStore(`${prefix}-breakpoints`, root);
+  const watches = createLibraryStore(`${prefix}-watches`, root);
   function saveBreakpoint(input) {
     const host = String(input.host || '__local__'); const projectId = String(input.projectId || '');
     const path = String(input.path || ''); const line = Number(input.line);

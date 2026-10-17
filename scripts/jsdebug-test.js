@@ -1,0 +1,73 @@
+const assert = require('assert/strict'); const fs = require('fs'); const os = require('os'); const path = require('path');
+const { execFile, spawn } = require('child_process');
+const { createRunManager } = require('../plugins/run-configurations/manager');
+const { createDebugStore } = require('../plugins/pydebug/store');
+const { createAdapter } = require('../plugins/jsdebug/adapter');
+const { createJsDebugManager } = require('../plugins/jsdebug/session-manager');
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'marina-jsdebug-'));
+const adapter = createAdapter({ root });
+const execute = async (_host, command) => {
+  if (command === 'printf "%s" "$HOME"') return { exitCode: 0, stdout: root, stderr: '' };
+  return new Promise(resolve => execFile('/bin/bash', ['-c', command], { timeout: 30000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => resolve({ exitCode: error?.code || 0, stdout, stderr })));
+};
+const runs = createRunManager({ execute, hostIdentity: async () => 'fixture', root });
+const store = createDebugStore(root, 'jsdebug'); const debug = createJsDebugManager({ runs, store, adapter });
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+let external; let ssh; let sshClient; let remoteDebug; let remoteRuns;
+async function paused(id) { for (let i = 0; i < 200; i++) { const s = debug.list().find(s => s.id === id); if (s.state === 'paused') return s; if (['failed', 'ended'].includes(s.state)) throw new Error(`${s.state}: ${s.error}`); await delay(100); } throw new Error('No JavaScript breakpoint hit: ' + JSON.stringify(debug.list().map(({ name, state, error, verification }) => ({ name, state, error, verification })))); }
+async function test() {
+  const archive = process.env.JSDEBUG_TEST_ARCHIVE || '/tmp/marina-js-debug-dap-v1.140.0.tar.gz'; await adapter.install(fs.existsSync(archive) ? archive : undefined);
+  const file = path.join(root, 'fixture.cjs'); fs.writeFileSync(file, 'let number = 41;\nconst payload = {answer: number + 1};\nnumber += 1;\nsetTimeout(() => console.log(payload.answer), 30000);\n');
+  const config = runs.configs.upsert({ name: 'Node fixture', host: '__local__', type: 'javascript', mode: 'script', target: file, cwd: root, interpreter: process.execPath });
+  store.saveBreakpoint({ host: '__local__', projectId: 'fixture', path: file, line: 3, condition: 'number === 41' });
+  const started = await debug.start(config.id, 'fixture'); const s = await paused(started.session.id);
+  const frames = await debug.request(s.id, 'stackTrace', { threadId: s.threadId }, s.generation); const frame = frames.stackFrames.find(f => f.source?.path === fs.realpathSync(file)); assert(frame, JSON.stringify(frames)); assert.equal(frame.line, 3);
+  const value = await debug.request(s.id, 'evaluate', { expression: 'payload.answer', frameId: frame.id, context: 'watch' }, s.generation); assert.equal(value.result, '42');
+  const scopes = await debug.request(s.id, 'scopes', { frameId: frame.id }, s.generation); assert(scopes.scopes.length);
+  assert.equal(started.run.debuggerId, 'jsdebug');
+  await debug.action(s.id, 'next', s.threadId); const stepped = await paused(s.id); assert(stepped.generation > s.generation);
+  await assert.rejects(debug.request(s.id, 'scopes', { frameId: frame.id }, s.generation), /no longer paused/);
+  const restarted = await debug.restart(s.id); assert.notEqual(restarted.run.id, started.run.id); await paused(restarted.session.id); await debug.stop(restarted.session.id);
+  assert.equal((await runs.status(restarted.run.id)).status, 'exited');
+  assert(!require('../plugins/run-configurations/configuration').buildCommand(config).includes('debug-bootstrap'), 'Plain Run remains unchanged');
+  console.log('PASS: real standalone js-debug, Node conditional breakpoint, source/stack/scopes/watch, stepping, stale-frame guard, managed restart and process cleanup');
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { fixture: `"${process.execPath}" "${file}"` } }));
+  const npm = runs.configs.upsert({ ...config, id: undefined, name: 'npm fixture', mode: 'npm', target: 'fixture' });
+  store.saveBreakpoint({ host: '__local__', projectId: 'npm', path: file, line: 3 });
+  const npmStart = await debug.start(npm.id, 'npm'); await paused(npmStart.session.id); await debug.stop(npmStart.session.id);
+  console.log('PASS: npm root and child DAP sessions hit application breakpoints without shared inspector ports');
+  const moduleFile = path.join(root, 'fixture.mjs'); fs.writeFileSync(moduleFile, fs.readFileSync(file));
+  const moduleConfig = runs.configs.upsert({ ...config, id: undefined, name: 'ES module fixture', mode: 'module', target: require('url').pathToFileURL(moduleFile).href });
+  store.saveBreakpoint({ host: '__local__', projectId: 'esm', path: moduleFile, line: 3 });
+  const moduleStart = await debug.start(moduleConfig.id, 'esm'); await paused(moduleStart.session.id); await debug.stop(moduleStart.session.id);
+  console.log('PASS: real Node ES module launch and source breakpoint');
+  const ts = path.join(root, 'fixture.ts'); const compiled = path.join(root, 'compiled.cjs');
+  fs.writeFileSync(ts, 'let number: number = 41;\nconst payload = {answer: number + 1};\nnumber += 1;\nsetTimeout(() => console.log(payload.answer), 30000);\n');
+  await require('esbuild').build({ absWorkingDir: fs.realpathSync(root), entryPoints: [fs.realpathSync(ts)], outfile: path.join(fs.realpathSync(root), 'compiled.cjs'), platform: 'node', sourcemap: 'inline' });
+  const typescript = runs.configs.upsert({ ...config, id: undefined, name: 'TypeScript fixture', target: compiled });
+  store.saveBreakpoint({ host: '__local__', projectId: 'ts', path: ts, line: 3 });
+  const tsStart = await debug.start(typescript.id, 'ts'); const tsPause = await paused(tsStart.session.id);
+  const tsFrames = await debug.request(tsPause.id, 'stackTrace', { threadId: tsPause.threadId }, tsPause.generation);
+  assert(tsFrames.stackFrames.some(frame => frame.source?.path === fs.realpathSync(ts) && frame.line === 3)); await debug.stop(tsPause.id);
+  console.log('PASS: TypeScript source maps bind original source breakpoints');
+  external = spawn(process.execPath, ['--inspect-brk=127.0.0.1:0', file], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const port = await new Promise((resolve, reject) => { let output = ''; const timer = setTimeout(() => reject(new Error('External inspector did not start')), 10000); external.stderr.on('data', chunk => { output += chunk; const match = /ws:\/\/127\.0\.0\.1:(\d+)/.exec(output); if (match) { clearTimeout(timer); resolve(Number(match[1])); } }); external.once('error', reject); });
+  store.saveBreakpoint({ host: '__local__', projectId: 'external', path: file, line: 3 });
+  const attached = await debug.attach({ port, cwd: root, projectId: 'external' }); await paused(attached.session.id); await debug.stop(attached.session.id);
+  assert.equal(external.exitCode, null, 'Disconnect must not kill an externally attached process'); external.kill('SIGTERM');
+  console.log('PASS: external Node attach and non-terminating disconnect');
+  ssh = await require('./pydebug-ssh-fixture').createSshFixture(root);
+  sshClient = new (require('ssh2').Client)(); await new Promise((resolve, reject) => sshClient.once('ready', resolve).once('error', reject).connect({ host: '127.0.0.1', port: ssh.port, username: 'fixture', password: 'fixture' }));
+  const remoteExecute = (_host, command) => new Promise((resolve, reject) => sshClient.exec(command, (error, stream) => {
+    if (error) return reject(error); let stdout = ''; let stderr = ''; stream.on('data', chunk => { stdout += chunk; }); stream.stderr.on('data', chunk => { stderr += chunk; }); stream.on('close', code => resolve({ stdout, stderr, exitCode: code }));
+  }));
+  remoteRuns = createRunManager({ execute: remoteExecute, hostIdentity: async () => 'ssh-fixture', root: path.join(root, 'ssh') });
+  const remoteStore = createDebugStore(path.join(root, 'ssh'), 'jsdebug');
+  remoteDebug = createJsDebugManager({ runs: remoteRuns, store: remoteStore, adapter, openTransport: (_host, remotePort) => new Promise((resolve, reject) => sshClient.forwardOut('127.0.0.1', 0, '127.0.0.1', remotePort, (error, stream) => error ? reject(error) : resolve(stream))) });
+  const remoteConfig = remoteRuns.configs.upsert({ ...config, id: undefined, host: 'ssh-fixture' }); remoteStore.saveBreakpoint({ host: 'ssh-fixture', projectId: 'remote', path: file, line: 3 });
+  const remoteStart = await remoteDebug.start(remoteConfig.id, 'remote'); const remotePaused = await pausedRemote(remoteStart.session.id);
+  const remoteFrames = await remoteDebug.request(remotePaused.id, 'stackTrace', { threadId: remotePaused.threadId }, remotePaused.generation); assert(remoteFrames.stackFrames.some(frame => frame.line === 3)); await remoteDebug.stop(remotePaused.id);
+  console.log('PASS: actual SSH Node execution, loopback inspector forwarding and source breakpoint');
+}
+async function pausedRemote(id) { for (let i = 0; i < 200; i++) { const s = remoteDebug.list().find(s => s.id === id); if (s.state === 'paused') return s; await delay(100); } throw new Error('SSH Node did not pause'); }
+test().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { external?.kill('SIGTERM'); await remoteDebug?.shutdown(); await remoteRuns?.shutdown(); sshClient?.end(); ssh?.close(); await debug.shutdown(); await runs.shutdown(); fs.rmSync(root, { recursive: true, force: true }); });

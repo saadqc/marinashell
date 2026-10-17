@@ -1,9 +1,9 @@
 import { button, modal, showError } from '../../renderer/components/dialog.js';
-import { setDebugProvider, notifyDebugViews, registerRunAction } from '../../renderer/services/debugIntegration.js';
+import { setDebugProvider, selectDebugProvider, notifyDebugViews, registerRunAction } from '../../renderer/services/debugIntegration.js';
 
-let activated = false;
-export default function activate({ api, state, sessionTabs, openView, registerView, registerCommand }) {
-  if (activated) return; activated = true;
+const activated = new Set();
+export function activateDebugger({ api, state, sessionTabs, openView, registerView, registerCommand }, { id = 'pydebug', label = 'PyDebug', type = 'python', extensions = /\.pyw?$/i, setup } = {}) {
+  if (activated.has(id)) return; activated.add(id);
   const style = document.createElement('link'); style.rel = 'stylesheet'; style.href = new URL('./style.css', import.meta.url).href; document.head.append(style);
   let data = { sessions: [], breakpoints: [], watches: [] }; let selectedId = ''; let currentDoc = null; let location = null;
   let frames = []; let scopes = []; let threads = []; let frameId = null; let threadId = null; let epoch = 0; let inspected = '';
@@ -19,7 +19,7 @@ export default function activate({ api, state, sessionTabs, openView, registerVi
   const pointsFor = doc => data.breakpoints.filter(b => b.host === (doc.host || '__local__') && b.projectId === (doc.projectId || '') && canonicalPath(b.path) === canonicalPath(doc.path));
   const el = (tag, text, cls = '') => { const node = document.createElement(tag); node.textContent = text || ''; node.className = cls; return node; };
   const safe = fn => async (...args) => { try { await fn(...args); } catch (error) { showError(error); } };
-  async function call(name, payload = {}) { const result = await api.invoke(`plugin:pydebug:${name}`, payload); if (!result?.ok) throw new Error(result?.error || 'PyDebug request failed'); return result; }
+  async function call(name, payload = {}) { const result = await api.invoke(`plugin:${id}:${name}`, payload); if (!result?.ok) throw new Error(result?.error || `${label} request failed`); return result; }
   async function query(name, payload = {}) {
     const s = selected(); if (!s) throw new Error('Select a debug session');
     return (await call(name, { sessionId: s.id, generation: s.generation, ...payload })).result;
@@ -75,6 +75,7 @@ export default function activate({ api, state, sessionTabs, openView, registerVi
         if (!selectedId && data.sessions.length) selectedId = data.sessions.at(-1).id;
         if (newlyPaused.some(s => s.id === selectedId)) threadId = selected().threadId;
         for (const s of newlyPaused) seenStops.set(s.id, s.generation);
+        if (newlyPaused.length) selectDebugProvider(id);
         renderPanels(); notifyDebugViews();
         try { await inspect(Boolean(newlyPaused.some(s => s.id === selectedId))); }
         catch (error) { for (const [panel] of panels) panel.querySelector('.pd-error')?.replaceChildren(document.createTextNode(error.message)); }
@@ -90,7 +91,7 @@ export default function activate({ api, state, sessionTabs, openView, registerVi
     }
   }
   async function prepare(host, projectId) {
-    await window.marinashellEditorDocuments?.saveForDebug(host, projectId);
+    await window.marinashellEditorDocuments?.saveForDebug(host, projectId, id);
     await flushMapped();
     for (const key of changedFiles) if (key.startsWith(`${host}\0${projectId || ''}\0`)) changedFiles.delete(key);
     clearInspection();
@@ -127,14 +128,14 @@ export default function activate({ api, state, sessionTabs, openView, registerVi
     const group = el('select'); group.setAttribute('aria-label', 'Breakpoint project'); group.append(new Option('Ungrouped', ''));
     for (const p of state.appState.tabGroups || []) group.append(new Option(p.name, p.id));
     group.value = point.projectId || doc?.projectId || scope().projectId;
-    const source = el('input'); source.value = point.path || doc?.path || ''; source.placeholder = '/absolute/path/to/source.py'; source.setAttribute('aria-label', 'Source path');
+    const source = el('input'); source.value = point.path || doc?.path || ''; source.placeholder = `/absolute/path/to/source.${type === 'python' ? 'py' : 'js'}`; source.setAttribute('aria-label', 'Source path');
     const number = el('input'); number.type = 'number'; number.min = '1'; number.value = point.line || line; number.setAttribute('aria-label', 'Breakpoint line');
-    const condition = el('input'); condition.value = point.condition || ''; condition.placeholder = 'Optional: case_id == "CASE-123"'; condition.setAttribute('aria-label', 'Python condition');
+    const condition = el('input'); condition.value = point.condition || ''; condition.placeholder = 'Optional expression'; condition.setAttribute('aria-label', `${type === 'python' ? 'Python' : 'JavaScript'} condition`);
     const on = el('input'); on.type = 'checkbox'; on.checked = point.enabled !== false;
     const field = (label, input) => { const row = el('label', '', 'pd-field'); row.append(el('span', label), input); dialog.body.append(row); };
     field('Project', group); field('Host', host); field('Source file', source);
     dialog.body.append(button('Browse…', safe(async () => { const file = await browseFile(host.value, source.value || '~'); if (file) source.value = file; })));
-    field('Line', number); field('Python condition (empty = always stop)', condition); field('Enabled', on);
+    field('Line', number); field(`${type === 'python' ? 'Python' : 'JavaScript'} condition (empty = always stop)`, condition); field('Enabled', on);
     const error = el('p', '', 'pd-error'); dialog.body.append(error);
     dialog.footer.append(button('Cancel', dialog.close), button('Save breakpoint', async () => {
       try { await saveBreakpoint({ ...point, host: host.value, projectId: group.value, path: source.value, line: Number(number.value), condition: condition.value, enabled: on.checked }); dialog.close(); }
@@ -197,7 +198,8 @@ export default function activate({ api, state, sessionTabs, openView, registerVi
     select.append(new Option('Select debug session', ''));
     for (const item of data.sessions) select.append(new Option(`${item.projectName || 'Ungrouped'} / ${item.name} · ${item.state}`, item.id));
     select.value = selectedId; select.addEventListener('change', safe(async () => { selectedId = select.value; threadId = null; clearInspection(); await inspect(true); renderPanels(); }));
-    panel.append(el('strong', 'PyDebug'), select);
+    panel.append(el('strong', label), select);
+    if (setup) panel.append(button('Debugger setup / Attach', () => setup({ call, api, state, refresh })));
     const info = el('p', prerequisites || (s ? `${s.state}${s.reason ? ' · ' + s.reason : ''}` : 'Set a breakpoint, then click Debug.'), 'pd-state'); panel.append(info);
     const error = el('p', [s?.error, s?.conditionError, sourceError].filter(Boolean).join('\n'), 'pd-error'); panel.append(error);
     if (prerequisites) panel.append(button('Open Settings', () => api.openSettings()));
@@ -232,7 +234,7 @@ export default function activate({ api, state, sessionTabs, openView, registerVi
       const doc = window.marinashellEditorDocuments?.list().find(doc => doc.host === location?.host && doc.path === location?.path);
       if (doc?.dirty || location && changedFiles.has(fileKey(location))) content.append(el('p', 'Source differs from this running version. Save and Restart Debug to execute it.', 'pd-muted'));
     } else if (settings.tab === 'Watches') {
-      const expression = el('input'); expression.placeholder = 'Python expression'; expression.setAttribute('aria-label', 'Watch expression');
+      const expression = el('input'); expression.placeholder = `${type === 'python' ? 'Python' : 'JavaScript'} expression`; expression.setAttribute('aria-label', 'Watch expression');
       content.append(expression, button('Add watch', safe(async () => { await call('watch-save', { watch: { expression: expression.value, projectId: scope().projectId } }); await refresh(); if (frames.find(f => f.id === frameId)) await selectFrame(frames.find(f => f.id === frameId), false); })));
       for (const watch of data.watches.filter(w => w.projectId === scope().projectId)) { const row = el('div', '', 'pd-watch'); row.append(el('code', watch.expression), el('span', s?.state === 'paused' ? watchResults.get(watch.id) || 'Select a frame to evaluate' : 'Available while paused'), button('Remove', safe(async () => { await call('watch-remove', { id: watch.id }); await refresh(); }))); content.append(row); }
     } else {
@@ -245,6 +247,11 @@ export default function activate({ api, state, sessionTabs, openView, registerVi
   function renderPanels() { for (const [panel, settings] of panels) renderPanel(panel, settings); }
   const provider = {
     prepare,
+    supports: doc => Boolean(doc && extensions.test(doc.path || '')),
+    pausedContext() {
+      const s = selected();
+      return s?.state === 'paused' && location?.path ? { ...location, stopId: `${id}:${s.id}:${s.generation}` } : null;
+    },
     sameFile: (a, b) => canonicalPath(a) === canonicalPath(b),
     markers(doc) {
       const s = selected(); return { points: pointsFor(doc).map(b => ({ ...b, conditional: Boolean(b.condition), verified: s?.verification[b.id]?.verified, message: s?.verification[b.id]?.message })),
@@ -257,13 +264,13 @@ export default function activate({ api, state, sessionTabs, openView, registerVi
     mountPanel(panel, initialTab = 'Inspect') { panels.set(panel, { tab: initialTab }); renderPanel(panel, panels.get(panel)); return () => panels.delete(panel); }
   };
   async function configure() {
-    const plugins = await api.getPlugins(); enabled = Boolean(plugins.find(p => p.id === 'pydebug')?.enabled);
+    const plugins = await api.getPlugins(); enabled = Boolean(plugins.find(p => p.id === id)?.enabled);
     prerequisites = ['editor', 'run-configurations'].filter(id => !plugins.find(p => p.id === id)?.enabled).map(id => `Enable ${id === 'editor' ? 'Editor' : 'Run Configurations'} in Settings`).join('; ');
     removeRunAction?.(); removeRunAction = null;
-    if (!enabled) { setDebugProvider(null); return; }
-    setDebugProvider(prerequisites ? null : provider);
-    removeRunAction = registerRunAction('pydebug', { label: 'Debug', icon: 'bug',
-      unsupported: config => prerequisites || (config?.type !== 'python' || config?.tmux ? 'PyDebug supports Python scripts/modules without tmux' : ''),
+    if (!enabled) { setDebugProvider(null, id); return; }
+    setDebugProvider(prerequisites ? null : provider, id);
+    removeRunAction = registerRunAction(id, { label: type === 'python' ? 'Debug' : 'Debug JavaScript', icon: 'bug',
+      unsupported: config => prerequisites || (config?.type !== type || config?.tmux ? `${label} supports ${type} configurations without tmux` : ''),
       async start({ configuration, project }) {
         await prepare(configuration.host, project?.id || '');
         const result = await call('start', { configurationId: configuration.id, projectId: project?.id || '', projectName: project?.name || '' }); selectedId = result.session.id; threadId = null;
@@ -273,11 +280,12 @@ export default function activate({ api, state, sessionTabs, openView, registerVi
     });
     await refresh();
   }
-  registerView('pydebug', { title: 'PyDebug', iconClass: 'icon-bug', supports: ['ssh', 'local'], mount: container => provider.mountPanel(container, 'Breakpoints') });
-  registerCommand?.('PyDebug: Breakpoints', () => openView('pydebug', {}));
-  registerCommand?.('PyDebug: Debugger', () => openView('editor', {}));
-  api.onPyDebugChanged?.(refresh); api.onPluginsChanged?.(() => configure().catch(showError));
+  registerView(id, { title: label, iconClass: 'icon-bug', supports: ['ssh', 'local'], mount: container => provider.mountPanel(container, 'Breakpoints') });
+  registerCommand?.(`${label}: Breakpoints`, () => openView(id, {}));
+  registerCommand?.(`${label}: Debugger`, () => openView('editor', {}));
+  (id === 'pydebug' ? api.onPyDebugChanged : api.onJsDebugChanged)?.(refresh); api.onPluginsChanged?.(() => configure().catch(showError));
   window.addEventListener('marinashell:groups-changed', renderPanels);
   window.addEventListener('marinashell:editor:saved', event => { flushMapped(event.detail).catch(showError); });
   configure().catch(showError);
 }
+export default context => activateDebugger(context);

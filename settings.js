@@ -56,6 +56,8 @@
     finally { button.disabled = false; }
   });
   const statusEl = document.getElementById('settings-status');
+  const mcpConfigExpiry = document.getElementById('mcp-config-expiry');
+  const githubCliPaths = document.getElementById('github-cli-paths');
   const editorMode = document.getElementById('editor-mode');
   const editorCommand = document.getElementById('editor-command');
   const editorLocalCommand = document.getElementById('editor-local-command');
@@ -93,6 +95,7 @@
   });
 
   let settings = null;
+  api.onEditorPreferencesChanged?.(preferences => { if (settings) settings.editor = { ...settings.editor, preferences }; });
   let saveTimer = null;
 
   function syncEditorPluginAvailability(list) {
@@ -229,6 +232,17 @@
     localShellPathPrepend.addEventListener('input', () => {
       writeValue(['shell', 'local', 'pathPrepend'], 'string', localShellPathPrepend.value.trim());
       scheduleSave();
+    });
+    mcpConfigExpiry.addEventListener('change', () => {
+      writeValue(['runs', 'configurations', 'mcpExpiryMs'], 'number', Number(mcpConfigExpiry.value));
+      scheduleSave();
+    });
+    githubCliPaths.addEventListener('change', () => {
+      try {
+        const paths = JSON.parse(githubCliPaths.value || '{}');
+        if (!paths || Array.isArray(paths) || typeof paths !== 'object' || !Object.values(paths).every(value => typeof value === 'string' && value.trim() && !value.includes('\0'))) throw new Error('Use an object mapping host names to executable paths');
+        writeValue(['git', 'github', 'paths'], 'object', paths); scheduleSave();
+      } catch (error) { setStatus(error.message, true); }
     });
     localShellMacPaths.addEventListener('change', () => {
       writeValue(['shell', 'local', 'injectMacPaths'], 'boolean', localShellMacPaths.checked);
@@ -473,6 +487,8 @@
       localShellLogLevel.value = readValue(['shell', 'local', 'logLevel'], 'errors');
       localShellArgs.value = readValue(['shell', 'local', 'args'], '');
       localShellPathPrepend.value = readValue(['shell', 'local', 'pathPrepend'], '');
+      mcpConfigExpiry.value = String(readValue(['runs', 'configurations', 'mcpExpiryMs'], 3600000));
+      githubCliPaths.value = JSON.stringify(readValue(['git', 'github', 'paths'], {}), null, 2);
       localShellMacPaths.checked = Boolean(readValue(['shell', 'local', 'injectMacPaths'], true));
       // Load docker RPC setting
       enableDockerRpc.checked = Boolean(readValue(['plugins', 'docker', 'enableRpc'], false));

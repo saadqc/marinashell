@@ -227,6 +227,14 @@ Enable **PyDebug** with **Editor** and **Run Configurations**, install `debugpy`
 
 [Usage, SSH behavior, limits, and verification](docs/pydebug.md). Validation: `npm run test:pydebug` and `npm run test:pydebug:ui` with the documented isolated Python environment.
 
+### JavaScript debugging and Git
+
+Enable **JSDebug** for Node/npm/TypeScript and Chrome/Edge debugging, with a verified standalone adapter, local/SSH Node support, and the same collapsible debugger companion. [Setup and verification](docs/jsdebug.md).
+
+Enable **Git** to review working changes or branch comparisons in CodeMirror's unified/split viewer, navigate hunks, stage/commit/push, and create/view GitHub pull requests using per-project accounts. Open it from the left tool rail or a terminal's **Git Diff** context action. [Usage and configuration](docs/git.md).
+
+Run configuration management now includes **All projects / project / Unassigned** and **Created via MCP** filters. Expiry supports Never, 15 minutes, 1 hour, 3 hours, or custom minutes. Manual configurations default to Never; new MCP configurations default to one hour, adjustable in Settings → Workspace. Expiry prevents new launches/restarts and retires the definition after active runs finish. Existing configurations keep their current lifetime and have unknown creation origin; run records and output history are preserved. MCP creation accepts optional `expiryDurationMs` (null means Never), and listing accepts a `createdVia` filter.
+
 ### Agent access (MCP)
 
 Enable **MCP server** in Plugins, then open **Settings → Agent access**. Pair an agent, choose its tool permissions and project/host/configuration scope, save, and start the server. Nothing is exposed by default. The **Connect your agent** guide provides copyable instructions for Codex, Claude Code and ZCode.

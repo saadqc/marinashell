@@ -4,9 +4,17 @@ Status: implemented, 20 October 2026. Native grouped opening verified in PyCharm
 
 Add **Open in editor** to existing projects and groups. A project containing Backend, Frontend, and Worker should open those three directories together in one editor workspace. Reuse the folders already configured in MarinaShell, with automatic editor discovery and editable installation paths in Settings.
 
+## Islet integration
+
+Islet is available in the editor chooser, per-project defaults, and Settings → Editor → External editors. On macOS, discovery checks system/user Applications folders and the installed `islet` CLI. A custom app bundle or executable can be selected. App bundles launch through their bundled runtime and CLI, so a separate Node installation is unnecessary.
+
+MarinaShell creates a named `.islet-workspace` outside source repositories. Local roots are canonicalized; SSH roots retain their connection alias and absolute remote path. Repeated roots on the same host are deduplicated, while identical paths on different hosts remain separate. Existing workspace preferences are retained, and manual root changes require reconciliation. Launching uses Islet’s `open --new-window --workspace` interface and never opens MarinaShell terminal sessions.
+
+Islet currently provides an Apple Silicon DMG for macOS 13.5 or newer. Download it from [Islet releases](https://github.com/saadqc/Islet/releases); select the app or its installed launcher in Settings if automatic discovery cannot find it. Missing installations use the same named modal and path-setting actions as other editors.
+
 ## Implementation and validation
 
-The feature is available from project options and the project rail context action, grouped terminal context menus, and both saved-project and saved-group libraries. Settings → Editor → External editors includes discovery, installation selection, native path browsing, custom overrides, reset to detection, and a global default. The project editor provides a project-specific default. Missing applications show a named modal; missing folders offer editing and retry. Remote folders receive an explicit unsupported-connection explanation.
+The feature is available from project options and the project rail context action, grouped terminal context menus, and both saved-project and saved-group libraries. Settings → Editor → External editors includes discovery, installation selection, native path browsing, custom overrides, reset to detection, and a global default. The project editor provides a project-specific default. Missing applications show a named modal; missing folders offer editing and retry. Islet opens local and SSH roots together; other adapters show an explicit explanation for remote folders.
 
 PyCharm uses a MarinaShell-owned aggregate project with a separate named module for each folder. A native integration test confirmed Backend, Frontend, and Worker as three loaded roots, three separate Git repositories, and independent Backend/Worker interpreter references. Generated metadata remains outside the source repositories. PyCharm follows its own project-window preference. Interpreter references are imported when creating modules; interpreters absent from the IDE's SDK table must be selected in the IDE. Module SDK changes made inside the generated project survive future launches and folder membership changes.
 
@@ -29,13 +37,13 @@ Native probes used disposable repositories and isolated IDE profiles. Temporary 
 ## User experience
 
 1. Add **Open in editor →** to the project rail context menu, project options, group context menu, and each saved project or saved group in the library. Saved projects can launch directly without opening MarinaShell terminals first.
-2. Show VS Code, Antigravity IDE, PyCharm, and Sublime Text. Include other detected JetBrains IDEs as separate entries, including WebStorm and IntelliJ IDEA. Each entry shows its availability. Keep unavailable entries selectable so clicking them opens the requested missing-editor modal.
-3. Selecting an editor opens all configured folders together. For example, Backend, Frontend, and Worker appear as three roots in one workspace, retaining their display names and order. A single-folder project opens that folder normally.
+2. Show Islet, VS Code, Antigravity IDE, PyCharm, and Sublime Text. Include other detected JetBrains IDEs as separate entries, including WebStorm and IntelliJ IDEA. Each entry shows its availability. Keep unavailable entries selectable so clicking them opens the requested missing-editor modal.
+3. Selecting an editor opens all configured folders together. For example, Backend, Frontend, and Worker appear as three roots in one workspace, retaining their display names and order. A single-folder project opens that folder normally; Islet retains a named workspace even for one root.
 4. Default to a new editor window for the initial launch. Reopening the same generated workspace should reuse its identity where the editor supports this. Do not attach folders to whichever unrelated editor window happens to be focused.
 5. Allow a global default editor and an optional project override. The explicit editor submenu remains available. Changing the default does not immediately launch anything.
 6. A missing-editor modal names the editor and offers **Open editor settings**, **Detect again**, and **Cancel**. Distinguish an invalid configured path, an unsupported installed version, and an actual launch failure from an absent installation.
 
-The first release targets local folders. SSH and mixed-host projects remain visible, but opening them displays an explanation listing the remote folders and the unsupported connection. Do not silently omit folders or interpret a remote path as a local path. Remote workspace support is a separate follow-up with editor-specific connection requirements.
+Islet supports mixed local and SSH folders through a managed `.islet-workspace` file. Roots retain their host identity, label, and order; SSH aliases use the system SSH configuration and credentials are never copied into the workspace. Other editor adapters support local folders and list unsupported remote roots instead of omitting them or treating them as local paths.
 
 ## Settings and discovery
 
@@ -126,4 +134,4 @@ The main process resolves saved records and validates all launch inputs. Launch 
 - Existing saved projects, file-opening modes, layouts, session restoration, and run controls continue to work.
 - Real editor inspection confirms grouped opening, separate repository visibility, repeat-launch behavior, and PyCharm interpreter handling. Generated-file tests alone do not satisfy this requirement.
 
-Remote SSH/WSL connections, attaching into an arbitrary already-open editor window, editor plugins, and exporting workspace files into repositories are follow-up features. The initial scope remains one MarinaShell project or group opening as one local editor workspace.
+Remote connections in other editor adapters, attaching into an arbitrary already-open editor window, editor plugins, and exporting workspace files into repositories remain follow-up features. Islet supports local and SSH roots together in one named workspace.

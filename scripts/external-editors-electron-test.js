@@ -23,8 +23,8 @@ settings.editor.externalEditors.defaultEditorId.value = 'sublime';
 let mainWindow, settingsWindow, missing = false, settingsRequests = 0, connections = 0;
 const launches = [], errors = [];
 const discovery = {
-  list: async overrides => EDITORS.map(editor => ({ ...editor, override: overrides[editor.id] || '', path: overrides[editor.id] || process.execPath, version: 'test', status: overrides[editor.id] && overrides[editor.id] !== process.execPath ? 'invalid-path' : missing && editor.id === 'vscode' ? 'not-installed' : 'available', installations: [{ path: process.execPath, executable: process.execPath, version: 'test' }] })),
-  resolve: async (editor, location) => location === process.execPath && !(missing && editor.id === 'vscode') ? { executable: location } : null
+  list: async overrides => EDITORS.map(editor => ({ ...editor, override: overrides[editor.id] || '', path: overrides[editor.id] || process.execPath, version: 'test', status: overrides[editor.id] && overrides[editor.id] !== process.execPath ? 'invalid-path' : missing && editor.id === 'islet' ? 'not-installed' : 'available', installations: [{ path: process.execPath, executable: process.execPath, version: 'test' }] })),
+  resolve: async (editor, location) => location === process.execPath && !(missing && editor.id === 'islet') ? { executable: location } : null
 };
 const routes = {
   'app:get-state': () => state, 'app:update-state': patch => (state = { ...state, ...patch }),
@@ -86,7 +86,7 @@ app.whenReady().then(async () => {
 
   // A missing editor opens a named modal and its Settings action works.
   missing = true;
-  await run(`document.querySelector('#project-options-btn').click();clickText('Open in editor…');await waitFor(()=>document.querySelector('.external-editor-option'));document.querySelector('[data-editor-id="vscode"]').click();await waitFor(()=>[...document.querySelectorAll('dialog h2')].some(el=>el.textContent==='VS Code not found'));clickText('Open editor settings');await waitFor(()=>!document.querySelector('.external-editor-picker'));`);
+  await run(`document.querySelector('#project-options-btn').click();clickText('Open in editor…');await waitFor(()=>document.querySelector('.external-editor-option'));document.querySelector('[data-editor-id="islet"]').click();await waitFor(()=>[...document.querySelectorAll('dialog h2')].some(el=>el.textContent==='Islet not found'));clickText('Open editor settings');await waitFor(()=>!document.querySelector('.external-editor-picker'));`);
   assert.equal(settingsRequests, 1); assert.equal(launches.length, 2);
   missing = false;
 
@@ -96,12 +96,23 @@ app.whenReady().then(async () => {
   const pyManifest = JSON.parse(fs.readFileSync(path.join(launches[2].args[0], 'marinashell.json')));
   assert.deepEqual(pyManifest.folders.map(folder => folder.path), folders.map(folder => folder.currentPath));
 
+  // Islet preserves mixed local/SSH roots in a named workspace without opening terminals.
+  const mixed = normalizeProject({ id: 'saved-mixed', name: 'Mixed workspace', tabs: [...folders, { host: 'fixture-host', currentPath: '/srv/worker', manualTitle: 'Remote worker' }] });
+  library.push(mixed);
+  await run(`await editorFixture.state.externalEditors.openSaved(${JSON.stringify(mixed)});await waitFor(()=>document.querySelector('.external-editor-option'));document.querySelector('[data-editor-id="islet"]').click();await waitFor(()=>!document.querySelector('.external-editor-picker'));`);
+  assert.equal(launches.length, 4);
+  assert.deepEqual(launches[3].args.slice(0, 3), ['open', '--new-window', '--workspace']);
+  const isletWorkspace = JSON.parse(fs.readFileSync(launches[3].args[3]));
+  assert.equal(isletWorkspace.name, 'Mixed workspace');
+  assert.deepEqual(isletWorkspace.roots.map(item => item.hostId), ['local', 'local', 'local', 'ssh:fixture-host']);
+  assert.equal(connections, initialConnections);
+
   // Project preferences survive edits and snapshot saves.
-  await run(`document.querySelector('#project-options-btn').click();clickText('Edit saved setup');await waitFor(()=>document.querySelector('#project-external-editor')?.options.length>2);document.querySelector('#project-external-editor').value='antigravity';clickText('Save project');await waitFor(()=>!document.querySelector('.project-editor'));`);
-  assert.equal(library.find(project => project.id === 'saved-Active').externalEditor.preferredEditorId, 'antigravity');
+  await run(`document.querySelector('#project-options-btn').click();clickText('Edit saved setup');await waitFor(()=>document.querySelector('#project-external-editor')?.options.length>2);document.querySelector('#project-external-editor').value='islet';clickText('Save project');await waitFor(()=>!document.querySelector('.project-editor'));`);
+  assert.equal(library.find(project => project.id === 'saved-Active').externalEditor.preferredEditorId, 'islet');
   await run(`document.querySelector('#project-options-btn').click();clickText('Save current sessions and layout');await waitFor(()=>!document.querySelector('.project-options'));await editorFixture.state.externalEditors.openGroup('Active');await waitFor(()=>document.querySelector('.external-editor-option'));`);
-  assert.equal(library.find(project => project.id === 'saved-Active').externalEditor.preferredEditorId, 'antigravity');
-  assert.equal(await run(`return document.querySelector('.external-editor-option.preferred').dataset.editorId;`), 'antigravity');
+  assert.equal(library.find(project => project.id === 'saved-Active').externalEditor.preferredEditorId, 'islet');
+  assert.equal(await run(`return document.querySelector('.external-editor-option.preferred').dataset.editorId;`), 'islet');
   const screenshotDir = path.resolve('design/validation'); fs.mkdirSync(screenshotDir, { recursive: true });
   mainWindow.showInactive(); await new Promise(resolve => setTimeout(resolve, 200));
   fs.writeFileSync(path.join(screenshotDir, 'external-editor-picker.png'), (await mainWindow.webContents.capturePage()).toPNG());
@@ -111,20 +122,20 @@ app.whenReady().then(async () => {
   await settingsWindow.loadFile(path.resolve('settings.html'), { hash: 'preferences-editor' });
   await initHelpers(settingsWindow);
   const inSettings = source => evaluate(settingsWindow, source);
-  await inSettings(`await waitFor(()=>document.querySelectorAll('.external-editor-setting').length===6);`);
-  await inSettings(`const input=document.querySelector('[data-editor-id="vscode"] input');input.value='/missing/editor';input.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('[data-editor-id="vscode"] .hint').textContent.includes('unavailable'));`);
-  assert.equal(settings.editor.externalEditors.overrides.value.vscode, '/missing/editor');
-  await inSettings(`const row=document.querySelector('[data-editor-id="vscode"]');[...row.querySelectorAll('button')].find(button=>button.textContent==='Browse…').click();await waitFor(()=>document.querySelector('[data-editor-id="vscode"] input').value===${JSON.stringify(process.execPath)});`);
-  assert.equal(settings.editor.externalEditors.overrides.value.vscode, process.execPath);
-  await inSettings(`const row=document.querySelector('[data-editor-id="vscode"]');[...row.querySelectorAll('button')].find(button=>button.textContent==='Use detected path').click();await waitFor(()=>document.querySelector('[data-editor-id="vscode"] .hint').textContent.startsWith('Auto-detected'));document.querySelector('#external-editor-default').value='vscode';document.querySelector('#external-editor-default').dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('#external-editor-status').textContent==='Editor settings saved.');`);
-  assert.equal(settings.editor.externalEditors.overrides.value.vscode, undefined);
-  assert.equal(settings.editor.externalEditors.defaultEditorId.value, 'vscode');
+  await inSettings(`await waitFor(()=>document.querySelectorAll('.external-editor-setting').length===${EDITORS.length});`);
+  await inSettings(`const input=document.querySelector('[data-editor-id="islet"] input');input.value='/missing/editor';input.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('[data-editor-id="islet"] .hint').textContent.includes('unavailable'));`);
+  assert.equal(settings.editor.externalEditors.overrides.value.islet, '/missing/editor');
+  await inSettings(`const row=document.querySelector('[data-editor-id="islet"]');[...row.querySelectorAll('button')].find(button=>button.textContent==='Browse…').click();await waitFor(()=>document.querySelector('[data-editor-id="islet"] input').value===${JSON.stringify(process.execPath)});`);
+  assert.equal(settings.editor.externalEditors.overrides.value.islet, process.execPath);
+  await inSettings(`const row=document.querySelector('[data-editor-id="islet"]');[...row.querySelectorAll('button')].find(button=>button.textContent==='Use detected path').click();await waitFor(()=>document.querySelector('[data-editor-id="islet"] .hint').textContent.startsWith('Auto-detected'));document.querySelector('#external-editor-default').value='islet';document.querySelector('#external-editor-default').dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('#external-editor-status').textContent==='Editor settings saved.');`);
+  assert.equal(settings.editor.externalEditors.overrides.value.islet, undefined);
+  assert.equal(settings.editor.externalEditors.defaultEditorId.value, 'islet');
   // Existing file-editor settings save must retain the independently updated paths/default.
   await inSettings(`const input=document.querySelector('#editor-local-command');input.value='custom-editor {path}';input.dispatchEvent(new Event('input'));await new Promise(resolve=>setTimeout(resolve,450));`);
-  assert.equal(settings.editor.externalEditors.defaultEditorId.value, 'vscode');
+  assert.equal(settings.editor.externalEditors.defaultEditorId.value, 'islet');
   await settingsWindow.reload(); await initHelpers(settingsWindow);
-  await inSettings(`await waitFor(()=>document.querySelectorAll('.external-editor-setting').length===6);`);
-  assert.equal(await inSettings(`return document.querySelector('#external-editor-default').value;`), 'vscode');
+  await inSettings(`await waitFor(()=>document.querySelectorAll('.external-editor-setting').length===${EDITORS.length});`);
+  assert.equal(await inSettings(`return document.querySelector('#external-editor-default').value;`), 'islet');
   settingsWindow.showInactive();
   for (const width of [1000, 560]) {
     settingsWindow.setSize(width, 820); await new Promise(resolve => setTimeout(resolve, 150));

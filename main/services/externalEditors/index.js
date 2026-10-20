@@ -6,10 +6,11 @@ const { EDITORS, editorById, readPreferences } = require('./registry');
 const { createDiscovery } = require('./discovery');
 const { prepareWorkspace, resolveFolders, failure } = require('./workspaces');
 
-function launchProcess(executable, args, { platform = process.platform } = {}) {
+function launchProcess(executable, args, { platform = process.platform, isletAppPath } = {}) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
     for (const key of ['ELECTRON_RUN_AS_NODE', 'VSCODE_IPC_HOOK_CLI', 'NODE_OPTIONS', 'NODE_REPL_EXTERNAL_MODULE']) delete env[key];
+    if (isletAppPath) env.ISLET_APP_PATH = isletAppPath;
     const child = spawn(executable, args, { shell: false, detached: platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, env });
     let stderr = '', settled = false;
     const finish = error => {
@@ -56,14 +57,15 @@ function createExternalEditors({ getSettings, getState, library, root = path.joi
       const item = (await list()).editors.find(item => item.id === id);
       const installation = item.path && await discovery.resolve(editor, item.path);
       if (!installation) throw failure(item.override ? 'INVALID_EDITOR_PATH' : 'EDITOR_MISSING', item.override ? `The configured path for ${editor.name} is unavailable or is not a supported launcher. Choose its application or executable in Settings.` : `${editor.name} is not installed, or its installation could not be found.`, { editorId: id });
-      const folders = await resolveFolders(project);
-      const workspace = folders.length === 1
+      const folders = await resolveFolders(project, { allowRemote: editor.family === 'islet' });
+      const workspace = folders.length === 1 && editor.family !== 'islet'
         ? { target: folders[0].path }
         : await prepareWorkspace({ root, editor, project, folders, useExisting: request.useExistingWorkspace === true });
-      const args = editor.family === 'code' ? ['--new-window', workspace.target]
+      const args = editor.family === 'islet' ? ['open', '--new-window', '--workspace', workspace.target]
+        : editor.family === 'code' ? ['--new-window', workspace.target]
         : editor.family === 'sublime' ? ['--new-window', ...(folders.length > 1 ? ['--project'] : []), workspace.target]
           : [workspace.target];
-      await launch(installation.executable, args);
+      await launch(installation.executable, [...(installation.prefixArgs || []), ...args], { isletAppPath: installation.isletAppPath });
       return { editorId: id, editorName: editor.name, folderCount: workspace.existing ? null : folders.length, workspacePath: workspace.target, usedExisting: Boolean(workspace.existing) };
     })();
     pending.set(key, task);

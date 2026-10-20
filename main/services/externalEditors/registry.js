@@ -1,4 +1,5 @@
 const EDITORS = [
+  { id: 'islet', name: 'Islet', family: 'islet', apps: ['Islet'], commands: ['islet'], windows: [] },
   { id: 'vscode', name: 'VS Code', family: 'code', apps: ['Visual Studio Code'], commands: ['code'], windows: ['Microsoft VS Code/Code.exe'] },
   { id: 'antigravity', name: 'Antigravity IDE', family: 'code', apps: ['Antigravity IDE', 'Antigravity'], commands: ['antigravity-ide', 'antigravity'], windows: ['Antigravity IDE/Antigravity IDE.exe', 'Antigravity/Antigravity.exe'] },
   { id: 'pycharm', name: 'PyCharm', family: 'jetbrains', productCodes: ['PY', 'PC'], moduleType: 'PYTHON_MODULE', apps: ['PyCharm', 'PyCharm CE'], commands: ['pycharm', 'pycharm64', 'pycharm.sh'], windows: ['JetBrains/PyCharm/bin/pycharm64.exe'] },

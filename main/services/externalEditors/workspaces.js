@@ -44,21 +44,28 @@ function workspaceJson(source) {
   return { value, range: ranges[0] };
 }
 
-async function resolveFolders(project) {
+async function resolveFolders(project, { allowRemote = false } = {}) {
   const tabs = project.tabs.filter(tab => !tab.readOnly && !tab.runOutput);
   const remote = tabs.filter(tab => tab.host !== '__local__');
-  if (remote.length) throw failure('REMOTE_UNSUPPORTED', 'External editor workspaces currently support local folders. This project includes remote folders:', { folders: remote.map(tab => `${tab.manualTitle || 'Folder'} · ${tab.host || 'No connection'} · ${tab.currentPath || ''}`) });
+  if (remote.length && !allowRemote) throw failure('REMOTE_UNSUPPORTED', 'This editor adapter supports local folders. Choose Islet to open local and SSH folders together. This project includes remote folders:', { folders: remote.map(tab => `${tab.manualTitle || 'Folder'} · ${tab.host || 'No connection'} · ${tab.currentPath || ''}`) });
   const folders = [], missing = [], identities = new Set();
   for (const tab of tabs) {
     const directory = (tab.initialPath || (project.kind === 'project' ? tab.currentPath : tab.treeRootPath || tab.currentPath)) || '';
     try {
+      if (tab.host !== '__local__') {
+        if (typeof tab.host !== 'string' || tab.host.startsWith('-') || !/^([\w.-]+@)?[\w.:[\]-]+$/.test(tab.host) ||
+            typeof directory !== 'string' || !directory.startsWith('/') || /[\0\r\n]/.test(directory)) throw new Error('Invalid SSH folder');
+        const remotePath = path.posix.normalize(directory), hostId = `ssh:${tab.host}`, identity = `${hostId}\0${remotePath}`;
+        if (!identities.has(identity)) { folders.push({ name: String(tab.manualTitle || path.posix.basename(remotePath)), path: remotePath, hostId }); identities.add(identity); }
+        continue;
+      }
       if (typeof directory !== 'string' || !path.isAbsolute(directory) || /[\0\r\n]/.test(directory) || !(await fs.stat(directory)).isDirectory()) throw new Error('Invalid folder');
       const real = await fs.realpath(directory);
-      if (!identities.has(real)) { folders.push({ name: String(tab.manualTitle || path.basename(directory)), path: real }); identities.add(real); }
+      if (!identities.has(real)) { folders.push({ name: String(tab.manualTitle || path.basename(directory)), path: real, ...(allowRemote ? { hostId: 'local' } : {}) }); identities.add(real); }
     } catch { missing.push(directory || '(No folder configured)'); }
   }
   if (missing.length) throw failure('MISSING_FOLDERS', 'These project folders are missing or unavailable. Edit the saved setup or restore the folders, then try again.', { folders: missing });
-  if (!folders.length) throw failure('NO_FOLDERS', 'This group has no local project folders to open.');
+  if (!folders.length) throw failure('NO_FOLDERS', 'This group has no project folders to open.');
   return folders;
 }
 
@@ -117,7 +124,7 @@ async function prepareWorkspace({ root, editor, project, folders, useExisting = 
   const previousText = await read(manifestFile);
   let previous;
   try { previous = previousText && JSON.parse(previousText); } catch { throw failure('WORKSPACE_CONFLICT', 'The saved editor workspace metadata has changed. Restore its metadata before opening it.'); }
-  const manifest = previous || { version: 1, filename: `${label(project.name)}.${editor.family === 'sublime' ? 'sublime-project' : 'code-workspace'}` };
+  const manifest = previous || { version: 1, filename: `${label(project.name)}.${editor.family === 'islet' ? 'islet-workspace' : editor.family === 'sublime' ? 'sublime-project' : 'code-workspace'}` };
   // Metadata is local data, but never allow it to redirect writes outside its workspace.
   if (manifest.version !== 1 || typeof manifest.filename !== 'string' || path.basename(manifest.filename) !== manifest.filename) throw failure('WORKSPACE_CONFLICT', 'Invalid editor workspace metadata.');
   const target = editor.family === 'jetbrains' ? directory : path.join(directory, manifest.filename);
@@ -127,7 +134,19 @@ async function prepareWorkspace({ root, editor, project, folders, useExisting = 
     return { target, directory, existing: true };
   }
   const membership = JSON.stringify(folders);
-  if (editor.family !== 'jetbrains') {
+  if (editor.family === 'islet') {
+    const old = await read(target);
+    const roots = folders.map(folder => ({ id: hash(`${folder.hostId}\0${folder.path}`), hostId: folder.hostId, path: folder.path, label: folder.name }));
+    let value;
+    if (old !== null) {
+      try { value = JSON.parse(old); } catch { conflict('The Islet workspace file cannot be safely updated. Open the existing workspace to review it.'); }
+      if (!value || value.schemaVersion !== 1 || JSON.stringify(value.roots) !== JSON.stringify(manifest.roots)) conflict('The Islet workspace roots were changed. Open the existing workspace, or reconcile its folders with MarinaShell.');
+    } else if (previous) conflict('The generated Islet workspace was removed. Restore it before reopening.');
+    value = { ...value, schemaVersion: 1, id: value?.id || `marinashell-${hash(project.id)}`, name: project.name, roots };
+    const next = JSON.stringify(value, null, 2) + '\n';
+    if (next !== old) await atomic(target, next);
+    manifest.roots = roots;
+  } else if (editor.family !== 'jetbrains') {
     const old = await read(target);
     let next;
     if (old !== null) {

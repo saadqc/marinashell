@@ -22,7 +22,7 @@ export function createExternalEditors(state, persistence) {
     const view = modal(`Open ${name || 'project'} in editor`);
     view.dialog.classList.add('external-editor-picker');
     const hint = document.createElement('p'); hint.className = 'form-hint';
-    hint.textContent = 'Open the configured local folders together in one workspace.';
+    hint.textContent = 'Open configured folders together in one workspace. Islet also supports SSH folders.';
     const list = document.createElement('div'); list.className = 'external-editor-options';
     const status = document.createElement('p'); status.className = 'form-hint'; status.setAttribute('role', 'status');
     view.body.append(hint, list, status);

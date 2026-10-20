@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.22 — 2026-10-20
+
+- Added **Islet** to project/group editor actions, global defaults, and per-project preferences.
+- Detect Islet app bundles and installed launchers automatically, or choose a custom path in **Settings → Editor → External editors**. Missing installations show the Islet-specific setup dialog.
+- Open named workspaces containing local and SSH folders together. Folder labels, order, and host identities are preserved without copying credentials or starting terminal sessions.
+- Preserve Islet workspace preferences and report conflicts when its roots were edited independently. App bundles use their bundled runtime and CLI.
+
 ## v0.2.21 — 2026-10-20
 
 - Open an existing project or group in **PyCharm, Antigravity IDE, VS Code, Sublime Text, WebStorm, or IntelliJ IDEA** from project options, grouped terminal menus, and saved-project libraries.

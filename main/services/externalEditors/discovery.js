@@ -15,7 +15,17 @@ async function resolveInstallation(editor, location, { platform = process.platfo
   if (typeof location !== 'string' || /[\0\r\n]/.test(location) || !path.isAbsolute(location)) return null;
   if (platform === 'darwin' && location.endsWith('.app')) {
     const contents = path.join(location, 'Contents');
-    if (editor.family === 'jetbrains') {
+    if (editor.family === 'islet') {
+      let info;
+      try { info = await fs.readFile(path.join(contents, 'Info.plist'), 'utf8'); } catch { return null; }
+      if (!/<key>CFBundleIdentifier<\/key>\s*<string>dev\.islet\.editor<\/string>/.test(info)) return null;
+      const runtime = path.join(contents, 'Resources/resources/runtime/node');
+      const cli = path.join(contents, 'Resources/_up_/scripts/islet.mjs');
+      if (!await executable(runtime, platform) || !await executable(path.join(contents, 'MacOS/islet'), platform)) return null;
+      try { if (!(await fs.stat(cli)).isFile()) return null; } catch { return null; }
+      return { path: location, executable: runtime, prefixArgs: [cli], isletAppPath: location,
+        version: info.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)?.[1] || '' };
+    } else if (editor.family === 'jetbrains') {
       const product = await readJson(path.join(contents, 'Resources/product-info.json'));
       if (!editor.productCodes.includes(product?.productCode)) return null;
       const launch = product.launch?.find(item => item.os === 'macOS' && item.arch === process.arch) || product.launch?.find(item => item.os === 'macOS');

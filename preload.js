@@ -3,6 +3,8 @@ contextBridge.exposeInMainWorld('preloadReady', true);
 contextBridge.exposeInMainWorld('api', {
   onCleanupGroups: handler => ipcRenderer.on('workspace:cleanup-groups-request', (_event, payload) => handler(payload)),
   respondCleanupGroups: payload => ipcRenderer.send('workspace:cleanup-groups-response', payload),
+  directoryReady: () => ipcRenderer.send('workspace:directory-ready'),
+  onOpenDirectory: handler => ipcRenderer.on('workspace:open-directory', (_event, directory) => handler(directory)),
   onOpenMenu: handler => ipcRenderer.on('workspace:open', (_event, action) => handler(action)),
   onRunConfigurationsChanged: handler => ipcRenderer.on('run-configurations:changed', () => handler()),
   onConfigurationRetired: handler => ipcRenderer.on('run-configurations:retired', (_event, payload) => handler(payload)),
@@ -32,7 +34,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   updateSettings: (patch) => ipcRenderer.invoke('settings:update', patch),
   getHosts: () => ipcRenderer.invoke('ssh:hosts'),
-  connect: (tabId, host) => ipcRenderer.invoke('ssh:connect', { tabId, host }),
+  connect: (tabId, host, options = {}) => ipcRenderer.invoke('ssh:connect', { tabId, host, ...(options?.cwd !== undefined ? { cwd: options.cwd } : {}) }),
   disconnect: (tabId) => ipcRenderer.invoke('ssh:disconnect', { tabId }),
   kill: (tabId) => ipcRenderer.invoke('ssh:kill', { tabId }),
   write: (tabId, data) => ipcRenderer.send('ssh:write', { tabId, data }),

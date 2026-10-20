@@ -1086,7 +1086,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     setTimeout(() => { if (session.ptyProcess === terminal) injectPromptTracking(session, null); }, 600);
   }
 
-  function spawnLocalShell(tabId) {
+  function spawnLocalShell(tabId, cwd) {
     const session = getSession(tabId);
     if (!session) {
       return;
@@ -1112,7 +1112,7 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
         name: 'xterm-color',
         cols: 80,
         rows: 24,
-        cwd: os.homedir(),
+        cwd: cwd || os.homedir(),
         env: startup.env
       });
     } catch (error) {
@@ -1486,10 +1486,10 @@ function createSessionManager({ sendToRenderer, logDebug, getSettings, requestPa
     }
   }
 
-  async function connectLocal(tabId) {
+  async function connectLocal(tabId, { cwd } = {}) {
     await disconnect(tabId);
     try {
-      spawnLocalShell(tabId);
+      spawnLocalShell(tabId, cwd);
       startMetrics(tabId);
     } catch (err) {
       await disconnect(tabId);

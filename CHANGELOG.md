@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.24 — 2026-10-20
+
+- Open a local folder in a fresh terminal with `--open-directory`, including from Islet’s **Open in Terminal** action.
+- Folder requests reach the existing MarinaShell window when it is already running and wait for the workspace to finish loading when it starts.
+- Paths are validated as local directories and passed directly as the terminal’s working directory. Spaces, quotes, and Unicode names are supported.
+
 ## v0.2.23 — 2026-10-20
 
 - External editor settings now use one selector. View and change only the selected editor’s path, installation status, and detected installations; saved paths for other editors are preserved. Islet remains available in the list even when it is not installed.

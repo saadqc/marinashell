@@ -10,6 +10,9 @@ const { createSessionManager } = require('./services/sessionManager');
 const { createPasswordStore } = require('./services/passwordStore');
 const { createPluginManager } = require('./services/pluginManager');
 
+// A second launch forwards directory requests to the existing application.
+if (!app.requestSingleInstanceLock({ directoryArgv: process.argv })) { app.quit(); return; }
+
 app.commandLine.appendSwitch('disable-background-networking');
 app.commandLine.appendSwitch(
   'disable-features',
@@ -24,6 +27,25 @@ let passwordStore = null;
 let pluginManager = null;
 const pendingPasswordRequests = new Map();
 let passwordRequestCounter = 0;
+const { resolveDirectory, createDirectoryHandoff } = require('./services/openDirectory');
+function showMainWindow() {
+  if (!app.isReady() || !state) return;
+  if (!mainWindow) createWindow();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show(); mainWindow.focus();
+}
+const directoryHandoff = createDirectoryHandoff({
+  show: showMainWindow,
+  send: directory => mainWindow?.webContents.send('workspace:open-directory', directory),
+  report: message => app.whenReady().then(() => dialog.showErrorBox('Cannot open folder', message))
+});
+directoryHandoff.enqueue(process.argv);
+app.on('second-instance', (_event, argv, _workingDirectory, data) => {
+  showMainWindow();
+  // Electron may reorder command-line switches; additionalData retains argv order.
+  directoryHandoff.enqueue(Array.isArray(data?.directoryArgv) ? data.directoryArgv : argv);
+});
+app.on('activate', () => showMainWindow());
 
 function logDebug(...args) {
   if (process.env.MARINASHELL_DEBUG) {
@@ -159,8 +181,11 @@ function createWindow() {
     }
   });
 
+  directoryHandoff.setReady(false);
+  mainWindow.webContents.on('did-start-loading', () => directoryHandoff.setReady(false));
   mainWindow.loadFile(path.join(__dirname, '..', 'index.html'));
   mainWindow.on('closed', () => {
+    directoryHandoff.setReady(false);
     mainWindow = null;
     flushPasswordRequests();
   });
@@ -249,6 +274,11 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('groups:delete', (_event, id) => groupsLibrary.remove(id));
 
+  ipcMain.on('workspace:directory-ready', event => {
+    if (!require('./services/externalEditors').trustedSender(event, [mainWindow])) return;
+    directoryHandoff.setReady(true);
+  });
+
   ipcMain.handle('app:get-state', () => state);
   ipcMain.handle('app:update-state', (event, patch) => {
     if (!patch || typeof patch !== 'object') {
@@ -332,7 +362,8 @@ app.whenReady().then(() => {
     }
     if (host === LOCAL_HOST_VALUE) {
       try {
-        await sessionManager.connectLocal(tabId);
+        const cwd = payload.cwd === undefined ? undefined : await resolveDirectory(payload.cwd);
+        await sessionManager.connectLocal(tabId, { cwd });
         state = saveState(state, { lastHost: host });
         return { ok: true };
       } catch (err) {

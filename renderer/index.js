@@ -409,6 +409,19 @@ window.addEventListener('marinashell:detach-terminal', () => {
       }
     };
 
+    // Subscribe only after restored tabs and terminal handlers are ready. The main
+    // process queues startup and second-instance requests until this handshake.
+    let directoryOpening = Promise.resolve();
+    api.onOpenDirectory?.(directory => {
+      directoryOpening = directoryOpening.then(async () => {
+        const tab = sessionTabs.createNewTab({ host: '__local__', path: directory, groupId: '', connect: false });
+        dockLayout.mountViewInActive('terminal');
+        await sessionTabs.connectTab(tab, '__local__', { path: directory, cwd: directory });
+        sessionTabs.focusWorkspace();
+      }).catch(error => persistenceService.setStatus(error.message || 'Unable to open the local folder.', true));
+    });
+    api.directoryReady?.();
+
     installMcpBridge({ api, state, sessionTabs, persistenceService });
     await pluginLoader.loadPlugins(pluginContext);
     renderLucide(document);

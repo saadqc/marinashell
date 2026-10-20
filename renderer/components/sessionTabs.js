@@ -1397,7 +1397,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       tab.sessionType = host === LOCAL_HOST_VALUE ? 'local' : 'ssh';
       const label = tab.sessionType === 'local' ? 'local shell' : host;
       persistenceService.setStatus(`Connecting to ${label}...`, false, tab);
-      const result = await state.api.connect(tab.id, host);
+      const result = await state.api.connect(tab.id, host, { cwd: options.cwd });
       if (!result || !result.ok) {
         persistenceService.setStatus(result && result.error ? result.error : 'Connection failed', true, tab);
         setConnectedForTab(tab, false);

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.23 — 2026-10-20
+
+- External editor settings now use one selector. View and change only the selected editor’s path, installation status, and detected installations; saved paths for other editors are preserved. Islet remains available in the list even when it is not installed.
+- Opening an Islet workspace automatically selects Python interpreters from matching run configurations or group defaults, scoped to each folder and connection. Named conda/mamba environments and pyenv versions can be resolved through runtime discovery.
+- Interpreter choices made in Islet are preserved. MarinaShell-managed choices update when configurations change, and conflicting environments show a clear explanation.
+
 ## v0.2.22 — 2026-10-20
 
 - Added **Islet** to project/group editor actions, global defaults, and per-project preferences.

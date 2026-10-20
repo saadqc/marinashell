@@ -448,7 +448,7 @@ export async function editConfigurations({ api, state, call, selectedId, onSaved
         try {
           const result = await call('group-defaults-set', {
             groupId: defaultsGroup.id, name: defaultsGroup.name,
-            defaults: { cwd: draft.cwd, interpreter: draft.interpreter, manager: draft.manager, managerPath: draft.managerPath,
+            defaults: { host: draft.host, type: draft.type, cwd: draft.cwd, interpreter: draft.interpreter, manager: draft.manager, managerPath: draft.managerPath,
                         environment: draft.environment, envFiles: draft.envFiles, setupScripts: draft.setupScripts, inheritEnv: draft.inheritEnv }
           });
           groupDefaultsCache.set(defaultsGroup.id, result.defaults);

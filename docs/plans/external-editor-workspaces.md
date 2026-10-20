@@ -6,9 +6,11 @@ Add **Open in editor** to existing projects and groups. A project containing Bac
 
 ## Islet integration
 
-Islet is available in the editor chooser, per-project defaults, and Settings → Editor → External editors. On macOS, discovery checks system/user Applications folders and the installed `islet` CLI. A custom app bundle or executable can be selected. App bundles launch through their bundled runtime and CLI, so a separate Node installation is unnecessary.
+Islet is available in the editor chooser, per-project defaults, and Settings → Editor → External editors. Settings uses one selector and shows installation controls only for the selected editor. Hidden editor overrides are retained, and unavailable editors remain selectable. On macOS, discovery checks system/user Applications folders and the installed `islet` CLI. A custom app bundle or executable can be selected. App bundles launch through their bundled runtime and CLI, so a separate Node installation is unnecessary.
 
 MarinaShell creates a named `.islet-workspace` outside source repositories. Local roots are canonicalized; SSH roots retain their connection alias and absolute remote path. Repeated roots on the same host are deduplicated, while identical paths on different hosts remain separate. Existing workspace preferences are retained, and manual root changes require reconciliation. Launching uses Islet’s `open --new-window --workspace` interface and never opens MarinaShell terminal sessions.
+
+Python run configurations and group defaults can supply each root’s interpreter automatically. Matching uses the connection and most specific workspace root. Conda/mamba and pyenv metadata can resolve named environments through bounded runtime queries; opening the editor does not launch the configured application, install dependencies, read environment files, or run setup scripts. Conflicting Python environments produce a clear dialog. Explicit interpreter choices made in Islet are preserved; generated choices update with MarinaShell configuration changes. Older defaults without a connection are used only for a single-host project.
 
 Islet currently provides an Apple Silicon DMG for macOS 13.5 or newer. Download it from [Islet releases](https://github.com/saadqc/Islet/releases); select the app or its installed launcher in Settings if automatic discovery cannot find it. Missing installations use the same named modal and path-setting actions as other editors.
 

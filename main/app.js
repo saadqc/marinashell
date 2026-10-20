@@ -222,6 +222,18 @@ app.whenReady().then(() => {
   require('./services/externalEditors').registerExternalEditors({
     ipcMain, dialog, getWindows: () => [mainWindow, settingsWindow],
     getSettings: () => settings, getState: () => state, library: groupsLibrary,
+    interpreterHandoff: require('./services/externalEditors/interpreters').createInterpreterHandoff({
+      getConfigurations: () => {
+        const retired = new Set(require('./services/libraryStore').createLibraryStore('retired-configurations').read().map(item => item.id));
+        return require('./services/libraryStore').createLibraryStore('run-configurations').read().filter(item => !retired.has(item.id));
+      },
+      getDefaults: () => require('./services/libraryStore').createLibraryStore('run-group-defaults').read(),
+      command: (host, command, options) => {
+        const runs = pluginManager.getService('runs');
+        if (!runs) throw new Error('Enable Run Configurations to resolve this Python environment.');
+        return runs.manager.command(host, command, options);
+      }
+    }),
     openSettings: () => createSettingsWindow('preferences-editor'),
     configure: patch => {
       settings = saveSettings({ ...settings, editor: { ...settings.editor, externalEditors: patch } });

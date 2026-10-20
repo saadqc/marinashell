@@ -1,8 +1,7 @@
-# MarinaShell v0.2.22
+# MarinaShell v0.2.23
 
-- Added **Islet** to project/group editor actions, global defaults, and per-project preferences.
-- Detect Islet app bundles and installed launchers automatically, or choose a custom path in **Settings → Editor → External editors**. Missing installations show the Islet-specific setup dialog.
-- Open named workspaces containing local and SSH folders together. Folder labels, order, and host identities are preserved without copying credentials or starting terminal sessions.
-- Preserve Islet workspace preferences and report conflicts when its roots were edited independently. App bundles use their bundled runtime and CLI.
+- External editor settings now use one selector. View and change only the selected editor’s path, installation status, and detected installations; saved paths for other editors are preserved. Islet remains available in the list even when it is not installed.
+- Opening an Islet workspace automatically selects Python interpreters from matching run configurations or group defaults, scoped to each folder and connection. Named conda/mamba environments and pyenv versions can be resolved through runtime discovery.
+- Interpreter choices made in Islet are preserved. MarinaShell-managed choices update when configurations change, and conflicting environments show a clear explanation.
 
-Islet currently provides an Apple Silicon DMG for macOS 13.5 or newer. Other editor adapters retain their existing local-folder behavior. MarinaShell’s normal macOS, Windows, and Linux packages are included.
+Opening an editor does not run setup scripts, read environment files, or install dependencies. Environments defined only through those hooks need an explicit interpreter path. Islet currently provides an Apple Silicon DMG for macOS 13.5 or newer; MarinaShell includes its normal macOS, Windows, and Linux packages.

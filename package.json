@@ -1,13 +1,13 @@
 {
   "name": "marinashell",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "description": "macOS-first SSH client with xterm.js",
   "author": "saadqc <saadqc@users.noreply.github.com>",
   "main": "main.js",
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "test:external-editors": "node scripts/external-editors-test.js && node scripts/islet-editor-test.js && env -u ELECTRON_RUN_AS_NODE electron scripts/external-editors-electron-test.js",
+    "test:external-editors": "node scripts/external-editors-test.js && node scripts/islet-editor-test.js && node scripts/islet-interpreters-test.js && env -u ELECTRON_RUN_AS_NODE electron scripts/external-editors-electron-test.js",
     "start": "electron .",
     "start:gui": "env -u ELECTRON_RUN_AS_NODE electron .",
     "build:plugins": "esbuild plugins/editor/renderer.source.js --bundle --minify --format=esm --platform=browser --target=chrome124 --outfile=plugins/editor/renderer.mjs && node scripts/trim-trailing-whitespace.js plugins/editor/renderer.mjs",

@@ -118,7 +118,7 @@ async function vcsUpdate(idea, roots, oldRoots) {
   return old.replace(section[0], updated);
 }
 
-async function prepareWorkspace({ root, editor, project, folders, useExisting = false }) {
+async function prepareWorkspace({ root, editor, project, folders, resolveInterpreter, useExisting = false }) {
   const directory = path.join(root, hash(project.id), editor.id);
   const manifestFile = path.join(directory, 'marinashell.json');
   const previousText = await read(manifestFile);
@@ -140,8 +140,26 @@ async function prepareWorkspace({ root, editor, project, folders, useExisting = 
     let value;
     if (old !== null) {
       try { value = JSON.parse(old); } catch { conflict('The Islet workspace file cannot be safely updated. Open the existing workspace to review it.'); }
-      if (!value || value.schemaVersion !== 1 || JSON.stringify(value.roots) !== JSON.stringify(manifest.roots)) conflict('The Islet workspace roots were changed. Open the existing workspace, or reconcile its folders with MarinaShell.');
+      const membershipOnly = roots => Array.isArray(roots) ? roots.map(root => root && ({ id: root.id, hostId: root.hostId, path: root.path, label: root.label })) : roots;
+      if (!value || value.schemaVersion !== 1 || JSON.stringify(membershipOnly(value.roots)) !== JSON.stringify(membershipOnly(manifest.roots))) conflict('The Islet workspace roots were changed. Open the existing workspace, or reconcile its folders with MarinaShell.');
     } else if (previous) conflict('The generated Islet workspace was removed. Restore it before reopening.');
+    const generated = { ...(manifest.interpreters || {}) };
+    for (const root of roots) {
+      const existing = value?.roots?.find(item => item.id === root.id);
+      Object.assign(root, existing, { ...root });
+      for (const key of ['interpreter', 'password', 'privateKey', 'passphrase']) delete root[key];
+      const prior = manifest.interpreters?.[root.id];
+      const custom = existing && existing.interpreter !== prior;
+      if (custom) {
+        root.interpreter = existing.interpreter === undefined ? '' : existing.interpreter;
+      } else if (resolveInterpreter) {
+        const interpreter = await resolveInterpreter(folders.find(folder => hash(`${folder.hostId}\0${folder.path}`) === root.id));
+        if (interpreter !== undefined) { root.interpreter = interpreter; generated[root.id] = interpreter; }
+        else if (prior !== undefined) { root.interpreter = ''; generated[root.id] = ''; }
+        else delete generated[root.id];
+      } else if (existing?.interpreter !== undefined) root.interpreter = existing.interpreter;
+    }
+    manifest.interpreters = Object.fromEntries(Object.entries(generated).filter(([id]) => roots.some(root => root.id === id)));
     value = { ...value, schemaVersion: 1, id: value?.id || `marinashell-${hash(project.id)}`, name: project.name, roots };
     const next = JSON.stringify(value, null, 2) + '\n';
     if (next !== old) await atomic(target, next);

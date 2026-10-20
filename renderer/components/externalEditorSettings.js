@@ -27,19 +27,23 @@ async function configure(id, location) {
     if (id) { if (location) overrides[id] = location; else delete overrides[id]; }
     current = await invoke('configure', { defaultEditorId: defaultSelect.value, overrides });
     render(); status.textContent = 'Editor settings saved.';
-  } catch (error) { status.textContent = error.message; }
+  } catch (error) { render(); status.textContent = error.message; }
   finally {
     saving = false; defaultSelect.disabled = false; detect.disabled = false;
     container.querySelectorAll('button,input,select').forEach(element => { element.disabled = false; });
   }
 }
 function render() {
+  detect.textContent = 'Detect again';
   container.replaceChildren();
   defaultSelect.replaceChildren(new Option('Choose each time', ''));
-  for (const editor of current.editors) {
-    defaultSelect.add(new Option(editor.name, editor.id));
+  for (const editor of current.editors) defaultSelect.add(new Option(editor.name, editor.id));
+  defaultSelect.value = current.defaultEditorId;
+  const editor = current.editors.find(item => item.id === current.defaultEditorId);
+  detect.hidden = !editor;
+  if (editor) {
     const row = document.createElement('div'); row.className = 'external-editor-setting'; row.dataset.editorId = editor.id;
-    const name = document.createElement('label'); name.textContent = editor.name; name.htmlFor = `external-editor-path-${editor.id}`;
+    const name = document.createElement('label'); name.textContent = `${editor.name} application path`; name.htmlFor = `external-editor-path-${editor.id}`;
     const detail = document.createElement('span'); detail.className = 'hint';
     detail.textContent = editor.status === 'available' ? `${editor.override ? 'Custom path' : 'Auto-detected'}${editor.version ? ` · ${editor.version}` : ''}` : editor.status === 'invalid-path' ? 'Configured path unavailable. Choose an application or executable.' : 'Not installed or not detected';
     const input = document.createElement('input'); input.id = name.htmlFor; input.type = 'text'; input.value = editor.override || editor.path || '';
@@ -49,7 +53,7 @@ function render() {
     actions.append(button('Browse…', async () => {
       const result = await invoke('browse', { editorId: editor.id });
       if (result.path) await configure(editor.id, result.path);
-    }), button('Use detected path', () => configure(editor.id, '')));
+    }), detect, button('Use detected path', () => configure(editor.id, '')));
     row.append(name, detail, input, actions);
     if (editor.installations.length > 1) {
       const installations = document.createElement('select'); installations.setAttribute('aria-label', `${editor.name} installations`);
@@ -58,16 +62,27 @@ function render() {
       installations.addEventListener('change', () => { if (installations.value) configure(editor.id, installations.value); }); row.append(installations);
     }
     container.append(row);
+  } else {
+    const hint = document.createElement('p'); hint.className = 'hint';
+    hint.textContent = 'Choose an editor above to view its installation settings. Saved paths for other editors are kept.';
+    container.append(hint);
   }
-  defaultSelect.value = current.defaultEditorId;
 }
 async function load(refresh = false) {
-  if (loading) return;
+  if (loading || saving) return;
   loading = true;
-  detect.disabled = true; status.textContent = 'Detecting installed editors…';
+  detect.disabled = true; defaultSelect.disabled = true;
+  container.querySelectorAll('button,input,select').forEach(element => { element.disabled = true; });
+  status.textContent = current?.defaultEditorId ? 'Detecting the selected editor…' : 'Loading editor settings…';
   try { current = await invoke('list', { refresh }); render(); status.textContent = ''; }
-  catch (error) { status.textContent = error.message; }
-  finally { detect.disabled = false; loading = false; }
+  catch (error) {
+    status.textContent = error.message;
+    if (!current) { detect.hidden = false; detect.textContent = 'Try again'; container.replaceChildren(detect); }
+  }
+  finally {
+    detect.disabled = false; defaultSelect.disabled = false; loading = false;
+    container.querySelectorAll('button,input,select').forEach(element => { element.disabled = false; });
+  }
 }
 defaultSelect.addEventListener('change', () => configure());
 detect.addEventListener('click', () => load(true));

@@ -20,11 +20,17 @@ let state = {
 };
 let settings = structuredClone(DEFAULT_SETTINGS); settings.ui.session.restoreTabs.value = true;
 settings.editor.externalEditors.defaultEditorId.value = 'sublime';
-let mainWindow, settingsWindow, missing = false, settingsRequests = 0, connections = 0;
+let mainWindow, settingsWindow, missing = false, settingsRequests = 0, connections = 0, detectionRefreshes = 0, detectionFails = false;
+const alternateIslet = '/fixture/alternate-islet';
+const fixtureExecutable = '/fixture/editor-cli';
 const launches = [], errors = [];
 const discovery = {
-  list: async overrides => EDITORS.map(editor => ({ ...editor, override: overrides[editor.id] || '', path: overrides[editor.id] || process.execPath, version: 'test', status: overrides[editor.id] && overrides[editor.id] !== process.execPath ? 'invalid-path' : missing && editor.id === 'islet' ? 'not-installed' : 'available', installations: [{ path: process.execPath, executable: process.execPath, version: 'test' }] })),
-  resolve: async (editor, location) => location === process.execPath && !(missing && editor.id === 'islet') ? { executable: location } : null
+  list: async (overrides, refresh) => {
+    if (refresh) detectionRefreshes++;
+    if (detectionFails) throw new Error('Detection temporarily unavailable. Try again.');
+    return EDITORS.map(editor => ({ ...editor, override: overrides[editor.id] || '', path: overrides[editor.id] || fixtureExecutable, version: 'test', status: overrides[editor.id] && overrides[editor.id] !== fixtureExecutable && !(editor.id === 'islet' && overrides[editor.id] === alternateIslet) ? 'invalid-path' : missing && editor.id === 'islet' ? 'not-installed' : 'available', installations: [{ path: fixtureExecutable, executable: fixtureExecutable, version: 'test' }, ...(editor.id === 'islet' ? [{ path: alternateIslet, executable: alternateIslet, version: 'alternate' }] : [])] }));
+  },
+  resolve: async (editor, location) => location === fixtureExecutable && !(missing && editor.id === 'islet') ? { executable: location } : null
 };
 const routes = {
   'app:get-state': () => state, 'app:update-state': patch => (state = { ...state, ...patch }),
@@ -40,7 +46,7 @@ const routes = {
 for (const [channel, handler] of Object.entries(routes)) ipcMain.handle(channel, (_event, payload) => handler(payload));
 ipcMain.on('ssh:write', () => {}); ipcMain.on('ssh:resize', () => {});
 registerExternalEditors({
-  ipcMain, getWindows: () => [mainWindow, settingsWindow], dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [process.execPath] }) },
+  ipcMain, getWindows: () => [mainWindow, settingsWindow], dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [fixtureExecutable] }) },
   getState: () => state, getSettings: () => settings, library: { read: () => library }, root: path.join(root, 'workspaces'), discovery,
   openSettings: () => { settingsRequests++; },
   configure: patch => {
@@ -122,19 +128,46 @@ app.whenReady().then(async () => {
   await settingsWindow.loadFile(path.resolve('settings.html'), { hash: 'preferences-editor' });
   await initHelpers(settingsWindow);
   const inSettings = source => evaluate(settingsWindow, source);
-  await inSettings(`await waitFor(()=>document.querySelectorAll('.external-editor-setting').length===${EDITORS.length});`);
+  await inSettings(`await waitFor(()=>document.querySelectorAll('.external-editor-setting').length===1);`);
+  assert.equal(await inSettings(`return document.querySelector('#external-editor-default').options.length;`), EDITORS.length + 1);
+  assert.equal(await inSettings(`return document.querySelector('.external-editor-setting').dataset.editorId;`), 'sublime');
+  missing = true;
+  await inSettings(`const select=document.querySelector('#external-editor-default');select.value='islet';select.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('[data-editor-id="islet"] .hint')?.textContent.includes('Not installed'));`);
+  assert.equal(await inSettings(`return document.querySelectorAll('.external-editor-setting').length;`), 1);
+  missing = false;
   await inSettings(`const input=document.querySelector('[data-editor-id="islet"] input');input.value='/missing/editor';input.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('[data-editor-id="islet"] .hint').textContent.includes('unavailable'));`);
   assert.equal(settings.editor.externalEditors.overrides.value.islet, '/missing/editor');
-  await inSettings(`const row=document.querySelector('[data-editor-id="islet"]');[...row.querySelectorAll('button')].find(button=>button.textContent==='Browse…').click();await waitFor(()=>document.querySelector('[data-editor-id="islet"] input').value===${JSON.stringify(process.execPath)});`);
-  assert.equal(settings.editor.externalEditors.overrides.value.islet, process.execPath);
+  await inSettings(`const select=document.querySelector('#external-editor-default');select.value='vscode';select.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('[data-editor-id="vscode"]'));const input=document.querySelector('[data-editor-id="vscode"] input');input.value='/missing/code';input.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('[data-editor-id="vscode"] .hint').textContent.includes('unavailable'));select.value='islet';select.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('[data-editor-id="islet"] input')?.value==='/missing/editor');`);
+  assert.equal(settings.editor.externalEditors.overrides.value.vscode, '/missing/code');
+  await inSettings(`const select=document.querySelector('[aria-label="Islet installations"]');select.value=${JSON.stringify(alternateIslet)};select.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('[data-editor-id="islet"] input').value===${JSON.stringify(alternateIslet)});`);
+  assert.equal(settings.editor.externalEditors.overrides.value.islet, alternateIslet);
+  const beforeRefresh = detectionRefreshes;
+  await inSettings(`document.querySelector('#external-editor-detect').click();await waitFor(()=>!document.querySelector('#external-editor-detect').disabled);`);
+  assert.equal(detectionRefreshes, beforeRefresh + 1);
+  detectionFails = true;
+  await inSettings(`document.querySelector('#external-editor-detect').click();await waitFor(()=>document.querySelector('#external-editor-status').textContent.includes('temporarily unavailable'));`);
+  assert.equal(await inSettings(`return document.querySelector('#external-editor-default').disabled;`), false);
+  detectionFails = false;
+
+  await inSettings(`const row=document.querySelector('[data-editor-id="islet"]');[...row.querySelectorAll('button')].find(button=>button.textContent==='Browse…').click();await waitFor(()=>document.querySelector('[data-editor-id="islet"] input').value===${JSON.stringify(fixtureExecutable)});`);
+  assert.equal(settings.editor.externalEditors.overrides.value.islet, fixtureExecutable);
   await inSettings(`const row=document.querySelector('[data-editor-id="islet"]');[...row.querySelectorAll('button')].find(button=>button.textContent==='Use detected path').click();await waitFor(()=>document.querySelector('[data-editor-id="islet"] .hint').textContent.startsWith('Auto-detected'));document.querySelector('#external-editor-default').value='islet';document.querySelector('#external-editor-default').dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('#external-editor-status').textContent==='Editor settings saved.');`);
   assert.equal(settings.editor.externalEditors.overrides.value.islet, undefined);
   assert.equal(settings.editor.externalEditors.defaultEditorId.value, 'islet');
+  assert.equal(settings.editor.externalEditors.overrides.value.vscode, '/missing/code');
+  await inSettings(`const select=document.querySelector('#external-editor-default');select.value='';select.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelectorAll('.external-editor-setting').length===0);`);
+  assert.equal(settings.editor.externalEditors.overrides.value.vscode, '/missing/code');
+  await inSettings(`const select=document.querySelector('#external-editor-default');select.value='islet';select.dispatchEvent(new Event('change'));await waitFor(()=>document.querySelector('[data-editor-id="islet"]'));`);
   // Existing file-editor settings save must retain the independently updated paths/default.
   await inSettings(`const input=document.querySelector('#editor-local-command');input.value='custom-editor {path}';input.dispatchEvent(new Event('input'));await new Promise(resolve=>setTimeout(resolve,450));`);
   assert.equal(settings.editor.externalEditors.defaultEditorId.value, 'islet');
+  detectionFails = true;
   await settingsWindow.reload(); await initHelpers(settingsWindow);
-  await inSettings(`await waitFor(()=>document.querySelectorAll('.external-editor-setting').length===${EDITORS.length});`);
+  await inSettings(`await waitFor(()=>document.querySelector('#external-editor-status').textContent.includes('temporarily unavailable'));`);
+  assert.equal(await inSettings(`return document.querySelector('#external-editor-detect').hidden;`), false);
+  detectionFails = false;
+  await inSettings(`document.querySelector('#external-editor-detect').click();`);
+  await inSettings(`await waitFor(()=>document.querySelectorAll('.external-editor-setting').length===1);`);
   assert.equal(await inSettings(`return document.querySelector('#external-editor-default').value;`), 'islet');
   settingsWindow.showInactive();
   for (const width of [1000, 560]) {

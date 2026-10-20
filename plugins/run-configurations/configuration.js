@@ -53,6 +53,8 @@ function normalizeSetupScripts(input) {
 function normalizeDefaults(input = {}) {
   const source = input && typeof input === 'object' ? input : {};
   return {
+    ...(source.host ? { host: String(source.host) } : {}),
+    ...(['python', 'javascript', 'shell'].includes(source.type) ? { type: source.type } : {}),
     cwd: String(source.cwd || ''), interpreter: String(source.interpreter || ''),
     manager: ['system', 'conda', 'mamba', 'micromamba', 'pyenv', 'nvm'].includes(source.manager) ? source.manager : 'system',
     managerPath: String(source.managerPath || ''), environment: String(source.environment || ''),

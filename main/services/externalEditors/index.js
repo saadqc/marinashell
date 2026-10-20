@@ -26,7 +26,7 @@ function launchProcess(executable, args, { platform = process.platform, isletApp
   });
 }
 
-function createExternalEditors({ getSettings, getState, library, root = path.join(os.homedir(), '.marinashell/editor-workspaces'), discovery = createDiscovery(), launch = launchProcess } = {}) {
+function createExternalEditors({ getSettings, getState, library, root = path.join(os.homedir(), '.marinashell/editor-workspaces'), discovery = createDiscovery(), launch = launchProcess, interpreterHandoff } = {}) {
   const pending = new Map();
   function projectFor(request) {
     if (!request || typeof request !== 'object') throw failure('INVALID_PROJECT', 'Choose a project or group to open.');
@@ -58,9 +58,13 @@ function createExternalEditors({ getSettings, getState, library, root = path.joi
       const installation = item.path && await discovery.resolve(editor, item.path);
       if (!installation) throw failure(item.override ? 'INVALID_EDITOR_PATH' : 'EDITOR_MISSING', item.override ? `The configured path for ${editor.name} is unavailable or is not a supported launcher. Choose its application or executable in Settings.` : `${editor.name} is not installed, or its installation could not be found.`, { editorId: id });
       const folders = await resolveFolders(project, { allowRemote: editor.family === 'islet' });
+      const groups = (getState().tabGroups || []).filter(group => group.id === project.id || group.savedGroupId === project.id);
+      const interpreterProject = { ...project, configurationIds: [...new Set([...(project.configurationIds || []), ...groups.flatMap(group => group.configurationIds || [])])] };
+      const resolveInterpreter = editor.family === 'islet' && interpreterHandoff && request.useExistingWorkspace !== true
+        ? await interpreterHandoff(interpreterProject, folders, [project.id, ...groups.map(group => group.id)]) : undefined;
       const workspace = folders.length === 1 && editor.family !== 'islet'
         ? { target: folders[0].path }
-        : await prepareWorkspace({ root, editor, project, folders, useExisting: request.useExistingWorkspace === true });
+        : await prepareWorkspace({ root, editor, project, folders, resolveInterpreter, useExisting: request.useExistingWorkspace === true });
       const args = editor.family === 'islet' ? ['open', '--new-window', '--workspace', workspace.target]
         : editor.family === 'code' ? ['--new-window', workspace.target]
         : editor.family === 'sublime' ? ['--new-window', ...(folders.length > 1 ? ['--project'] : []), workspace.target]

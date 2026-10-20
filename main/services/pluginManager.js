@@ -312,6 +312,7 @@ function createPluginManager({ app, sessionManager, getMainWindow, getSettings, 
         shutdown,
         init,
         getPluginsList,
+        getService: name => { const entry = services.get(name); return entry && isEnabled(entry.owner) ? entry.service : null; },
         installPlugin,
         syncEnabled
     };

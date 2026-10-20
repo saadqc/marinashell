@@ -19,6 +19,17 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
   const showTerminal = () => document.querySelector('#tool-navigation [data-view="terminal"]')?.click();
   const emit = () => window.dispatchEvent(new Event('marinashell:groups-changed'));
 
+  async function editSavedSetup({ projectId, savedProjectId }) {
+    const library = await state.api.invoke('groups:list');
+    const group = state.appState.tabGroups.find(item => item.id === projectId);
+    const saved = library.find(item => item.id === (savedProjectId || group?.savedGroupId));
+    if (saved) editProject(saved);
+    else if (group) editProject({ name: group.name, layout: group.layout, externalEditor: group.externalEditor,
+      tabs: [...state.tabs.values()].filter(tab => tab.groupId === group.id && !tab.readOnly && !tab.runOutput)
+        .map(tab => ({ host: tab.host, currentPath: tab.initialPath || tab.treeRootPath || tab.currentPath, manualTitle: tab.manualTitle || 'Terminal' })) });
+    else throw new Error('This project is no longer available. Reopen the project list and try again.');
+  }
+
   function render() {
     const rail = document.getElementById('open-projects'); rail.replaceChildren();
     const active = getActiveTab(state);
@@ -69,6 +80,7 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
       if (folder && (!/^(\/|[A-Za-z]:[\\/])/.test(folder) || /[\r\n\0]/.test(folder))) { error.textContent = 'Enter an absolute directory path.'; return; }
       connect.disabled = true;
       const tab = target || sessionTabs.createNewTab({ host: host.value, path: folder || '/', groupId: currentGroup()?.id || '' });
+      if (folder) tab.initialPath = folder;
       if (name.value.trim()) tab.manualTitle = name.value.trim();
       view.close(); showTerminal();
       await sessionTabs.connectTab(tab, host.value, folder ? { restorePath: folder } : {});
@@ -83,6 +95,8 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     const view = modal(snapshot ? 'Edit project' : 'New project', { wide: true }); view.dialog.classList.add('project-editor');
     const name = input(snapshot?.name, 'Project name'); name.id = 'project-name';
     const layout = document.createElement('select'); layout.id = 'project-layout';
+    const editorSelect = document.createElement('select'); editorSelect.id = 'project-external-editor';
+    state.externalEditors.populateSelect(editorSelect, snapshot?.externalEditor?.preferredEditorId || '');
     for (const { id, title } of GROUP_LAYOUTS) layout.add(new Option(title, id));
     if (snapshot?.terminalLayout || snapshot?.dockLayout) layout.add(new Option('Keep current docking', 'custom'));
     layout.value = snapshot?.terminalLayout || snapshot?.dockLayout ? 'custom' : snapshot?.layout || '1x1';
@@ -101,17 +115,17 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     (snapshot?.tabs || [{ manualTitle:'Backend' }, { manualTitle:'Frontend' }, { manualTitle:'Worker' }, { manualTitle:'Docs' }]).forEach(add);
     const error = document.createElement('p'); error.className = 'form-error'; error.setAttribute('role','alert');
     const identity = document.createElement('div'); identity.className = 'project-identity'; identity.append(field('Project name', name), field('Saved layout', layout));
-    view.body.append(identity, hint, list, button('Add directory', () => add(), 'ghost-btn'), error);
+    view.body.append(identity, field('Preferred external editor', editorSelect), hint, list, button('Add directory', () => add(), 'ghost-btn'), error);
     async function save(andOpen) {
       if (!name.value.trim() || !rows.length) { error.textContent = 'Enter a project name and add at least one directory.'; return; }
-      const tabs = rows.map(({ title, host, directory, initial }) => ({ ...initial, sessionKey: initial.sessionKey || crypto.randomUUID(), manualTitle: title.value.trim(), host: host.value, currentPath: directory.value.trim(), treeRootPath: directory.value.trim(), connected: !initial.readOnly }));
+      const tabs = rows.map(({ title, host, directory, initial }) => ({ ...initial, sessionKey: initial.sessionKey || crypto.randomUUID(), manualTitle: title.value.trim(), host: host.value, currentPath: directory.value.trim(), initialPath: directory.value.trim(), treeRootPath: directory.value.trim(), connected: !initial.readOnly }));
       if (tabs.some(tab => !tab.manualTitle || !/^(\/|[A-Za-z]:[\\/])/.test(tab.currentPath) || /[\r\n\0]/.test(tab.currentPath))) { error.textContent = 'Every directory needs a name, connection, and absolute path.'; return; }
       view.footer.querySelectorAll('button').forEach(el => { el.disabled = true; });
       try {
         const currentDock = state.appState.projectLayouts?.[snapshot?.id]?.dockLayout || snapshot?.dockLayout;
         const dockLayout = layout.value === 'custom' && currentDock
           ? globalThis.MarinaDocking.reconcile(currentDock, tabs.filter(tab=>!tab.readOnly).map(tab=>tab.sessionKey)) : undefined;
-        const saved = await state.api.invoke('groups:save', { ...snapshot, kind: 'project', name: name.value.trim(), layout: layout.value === 'custom' ? snapshot.layout : layout.value, terminalLayout: layout.value === 'custom' ? snapshot.terminalLayout : undefined, dockLayout, tabs });
+        const saved = await state.api.invoke('groups:save', { ...snapshot, kind: 'project', externalEditor: { preferredEditorId: editorSelect.value }, name: name.value.trim(), layout: layout.value === 'custom' ? snapshot.layout : layout.value, terminalLayout: layout.value === 'custom' ? snapshot.terminalLayout : undefined, dockLayout, tabs });
         if (!saved?.id) throw new Error(saved?.error || 'The project could not be saved.');
         if (snapshot) {
           const projectLayouts = { ...(state.appState.projectLayouts || {}) };
@@ -124,6 +138,10 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
         // directories and connections are used when it next opens.
         const liveGroup = (state.appState?.tabGroups || []).find(group => group.savedGroupId === saved.id
           && [...state.tabs.values()].some(tab => tab.groupId === group.id));
+        if (liveGroup) {
+          liveGroup.externalEditor = saved.externalEditor;
+          await state.api.updateState({ tabGroups: state.appState.tabGroups });
+        }
         if (liveGroup && layout.value !== 'custom' && (liveGroup.layout !== layout.value || liveGroup.terminalLayout)) sessionTabs.setGroupLayout(liveGroup.id, layout.value);
         view.close(); emit();
         if (andOpen) { await sessionTabs.savedGroups.restore(saved); showTerminal(); }
@@ -151,7 +169,7 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
           const detail = document.createElement('small'); detail.textContent = `${project.tabs.length} directories · ${project.layout || '1x1'} · ${[...new Set(project.tabs.map(tab => tab.host === '__local__' ? 'Local' : tab.host))].join(', ')}`;
           info.append(title, detail);
           const open = button('Open', async () => { open.disabled = true; view.close(); try { await sessionTabs.savedGroups.restore(project); showTerminal(); } catch (err) { showError(err); } });
-          row.append(info, open, button('Edit', () => { view.close(); editProject(project); }, 'ghost-btn'), button('Delete', async () => {
+          row.append(info, open, button('Open in editor…', () => { view.close(); state.externalEditors.openSaved(project); }, 'ghost-btn'), button('Edit', () => { view.close(); editProject(project); }, 'ghost-btn'), button('Delete', async () => {
             if (!await confirmAction('Delete saved project?', `Delete “${project.name}” from the library? Its open sessions will stay open.`, 'Delete')) return;
             try { await state.api.invoke('groups:delete', project.id); projects = projects.filter(item => item.id !== project.id); draw(); } catch (err) { showError(err); }
           }, 'ghost-btn')); list.append(row);
@@ -175,12 +193,12 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     }
     const view = modal(group.name); view.dialog.classList.add('project-options');
     const controls = document.createElement('div'); controls.className = 'project-option-actions';
+    controls.append(button('Open in editor…', () => { view.close(); state.externalEditors.openGroup(group.id); }));
     const layoutHint = document.createElement('p'); layoutHint.className = 'form-hint';
     layoutHint.textContent = 'Drag terminal tabs onto a pane to group or split them. Terminal arrangements save automatically. Use Move Out to give a docked session its own tab.';
     view.body.append(layoutHint);
-    controls.append(button('Save current sessions and layout', async () => { view.close(); await sessionTabs.savedGroups.save(group.id, true); }), button('Edit saved setup', async () => {
-      view.close(); try { const library = await state.api.invoke('groups:list'); const saved = library.find(item => item.id === group.savedGroupId);
-      if (saved) editProject(saved); else editProject({ name: group.name, layout: group.layout, tabs: [...state.tabs.values()].filter(tab => tab.groupId === group.id).map(tab => ({ host: tab.host, currentPath: tab.currentPath, manualTitle: tab.manualTitle || 'Terminal' })) }); } catch (error) { showError(error); }
+    controls.append(button('Save current sessions and layout', async () => { view.close(); await sessionTabs.savedGroups.save(group.id, true); }), button('Edit saved setup', () => {
+      view.close(); editSavedSetup({ projectId: group.id }).catch(showError);
     }), button('Close project', async () => { view.close(); await sessionTabs.closeGroup(group.id); emit(); }, 'ghost-btn'));
     view.body.append(controls); view.footer.append(button('Done',view.close));
   }
@@ -196,6 +214,7 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
   menu.addEventListener('keydown', event => { if (event.key === 'Escape') menu.open = false; });
   for (const event of ['marinashell:groups-changed','marinashell:active-tab-changed','marinashell:session-state-changed','marinashell:tabs-rendered']) window.addEventListener(event, render);
   window.addEventListener('marinashell:connect-request', event => openConnect(event.detail || {}));
+  window.addEventListener('marinashell:edit-project', event => editSavedSetup(event.detail || {}).catch(showError));
   state.api.onOpenMenu?.(action => { if (action === 'connect') openConnect(); else if (action === 'new-project') editProject(); else openLibrary(); });
   return { render, openConnect, openLibrary, editProject, options };
 }

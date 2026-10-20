@@ -310,6 +310,9 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       hideTabContextMenu();
       renameTab(tabId);
     });
+    if (tab.groupId) addMenuButton(tabContextMenu, 'Open project in editor…', () => {
+      hideTabContextMenu(); state.externalEditors.openGroup(tab.groupId);
+    });
     if (tab.manualTitle) {
       addMenuButton(tabContextMenu, 'Use automatic title', () => {
         tab.manualTitle = '';
@@ -380,6 +383,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       }, { checked: !group.terminalLayout && (group.layout || '1x1') === layout.id });
     }
     addMenuLabel(tabContextMenu, 'Group');
+    addMenuButton(tabContextMenu, 'Open in editor…', () => { hideTabContextMenu(); state.externalEditors.openGroup(groupId); });
     addMenuButton(tabContextMenu, 'Save group…', () => { hideTabContextMenu(); savedGroups.save(groupId); });
     if (group.savedGroupId) addMenuButton(tabContextMenu, 'Update saved group', () => { hideTabContextMenu(); savedGroups.save(groupId, true); });
     addMenuButton(tabContextMenu, 'Close group…', () => { hideTabContextMenu(); closeGroup(groupId).catch(showError); }, { danger: true });
@@ -1034,6 +1038,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       treePages: new Map(),
       transferRows: new Map(),
       currentPath: initialPath,
+      initialPath: initial.initialPath || initial.treeRootPath || initialPath,
       treeRootPath: initial.treeRootPath || initialPath || '/',
       navHistory: [],
       navIndex: -1,

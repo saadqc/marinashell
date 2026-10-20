@@ -31,6 +31,7 @@ const settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); settings.ui.sessi
 const routes = {
   'app:get-state': () => state, 'app:update-state': patch => (state = { ...state, ...patch }),
   'settings:get': () => settings,
+  'external-editors:list': () => ({ ok: true, editors: [], defaultEditorId: '' }),
   'settings:update': patch => { Object.assign(settings, patch); fs.writeFileSync(path.join(root, 'settings.json'), JSON.stringify(settings)); return settings; }, 'ssh:password-response': () => ({ok:true}), 'ssh:hosts': () => [{ alias: 'test-remote' }],
   'ssh:connect': () => ({ ok: true }), 'ssh:disconnect': () => ({ ok: true }),
   'groups:list': () => groups.read(), 'groups:save': group => groups.upsert(group), 'groups:delete': id => groups.remove(id),

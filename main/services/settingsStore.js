@@ -42,6 +42,7 @@ function loadSettings() {
 }
 
 function saveSettings(nextSettings) {
+  require('./externalEditors/registry').validateSettings(nextSettings);
   const merged = mergeSettings(DEFAULT_SETTINGS, nextSettings);
   const temporary = `${settingsPath()}.${randomUUID()}.tmp`;
   try {

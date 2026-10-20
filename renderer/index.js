@@ -3,6 +3,7 @@ import { createState } from './state.js';
 import { createSettingsService } from './services/settingsService.js';
 import { createPersistenceService } from './services/persistenceService.js';
 import { createEditorService } from './services/editorService.js';
+import { createExternalEditors } from './services/externalEditors.js';
 import { createFilesPanel } from './components/filesPanel.js';
 import { createActionsPanel } from './components/actionsPanel.js';
 import { createSessionTabs } from './components/sessionTabs.js';
@@ -56,6 +57,7 @@ const elements = {
 const state = createState(api, elements);
 const settingsService = createSettingsService(state);
 const persistenceService = createPersistenceService(state, settingsService);
+state.externalEditors = createExternalEditors(state, persistenceService);
 const editorBridge = { openFile: async () => { } };
 const editorModes = new Map();
 const actionsBridge = {

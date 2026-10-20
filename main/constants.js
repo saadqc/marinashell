@@ -19,6 +19,10 @@ const DEFAULT_SETTINGS = {
   git: { github: { paths: { type: 'object', value: {} } } },
   runs: { configurations: { mcpExpiryMs: { type: 'number', value: 3600000 } } },
   editor: {
+    externalEditors: {
+      defaultEditorId: { type: 'string', value: '' },
+      overrides: { type: 'object', value: {} }
+    },
     preferences: {
       debuggerCollapsed: { type: 'boolean', value: false },
       diffMode: { type: 'string', value: 'unified' }

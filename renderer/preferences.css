@@ -34,3 +34,17 @@ body .card { border: 0; padding-bottom: 12px; }
 /* Keep per-position shortcut editing compact in the settings window. */
 #navigation-shortcuts { display:grid; grid-template-columns:minmax(0,1fr) minmax(130px,200px); align-items:center; gap:8px 16px; margin:18px 0; }
 #navigation-shortcuts label, #navigation-shortcuts input { margin:0; }
+
+#external-editors-settings { border-top:1px solid var(--border); margin-top:28px; padding-top:24px; scroll-margin-top:16px; }
+.external-editor-setting { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 12px; padding:18px 0; border-bottom:1px solid var(--border); }
+.external-editor-setting label { margin:0; color:var(--text); font-weight:600; }
+.external-editor-setting > .hint { text-align:right; }
+.external-editor-setting input, .external-editor-setting > select { grid-column:1 / -1; margin:0; min-width:0; width:100%; }
+.external-editor-setting-actions { display:flex; flex-wrap:wrap; gap:8px; grid-column:1 / -1; }
+.external-editor-setting-actions button { margin:0; }
+#external-editor-status { margin-top:10px; }
+#external-editors-settings button { border:1px solid var(--border-strong); color:var(--text); background:var(--surface-raised); padding:7px 11px; cursor:pointer; }
+#external-editors-settings button:hover { background:var(--surface-hover); }
+#external-editors-settings button:disabled { opacity:0.55; cursor:default; }
+#external-editor-status:empty { display:none; }
+@media (max-width:640px) { .external-editor-setting { grid-template-columns:minmax(0,1fr); } .external-editor-setting > .hint { text-align:left; } }

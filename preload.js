@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('api', {
   getState: () => ipcRenderer.invoke('app:get-state'),
   updateState: (patch) => ipcRenderer.invoke('app:update-state', patch),
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  onExternalEditorSettings: handler => ipcRenderer.on('external-editors:show-settings', () => handler()),
+  onExternalEditorsChanged: handler => ipcRenderer.on('external-editors:settings-changed', (_event, value) => handler(value)),
   onEditorPreferencesChanged: handler => {
     const listener = (_event, value) => handler(value);
     ipcRenderer.on('editor:preferences-changed', listener);

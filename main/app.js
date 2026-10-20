@@ -173,9 +173,10 @@ function createWindow() {
   }
 }
 
-function createSettingsWindow() {
+function createSettingsWindow(section = '') {
   if (settingsWindow) {
     settingsWindow.focus();
+    if (section) settingsWindow.webContents.send('external-editors:show-settings');
     return;
   }
 
@@ -193,7 +194,7 @@ function createSettingsWindow() {
     }
   });
 
-  settingsWindow.loadFile(path.join(__dirname, '..', 'settings.html'));
+  settingsWindow.loadFile(path.join(__dirname, '..', 'settings.html'), section ? { hash: section } : {});
   settingsWindow.on('closed', () => {
     settingsWindow = null;
   });
@@ -218,6 +219,15 @@ app.whenReady().then(() => {
   buildMenu();
 
   const groupsLibrary = require('./services/libraryStore').createLibraryStore('saved-groups');
+  require('./services/externalEditors').registerExternalEditors({
+    ipcMain, dialog, getWindows: () => [mainWindow, settingsWindow],
+    getSettings: () => settings, getState: () => state, library: groupsLibrary,
+    openSettings: () => createSettingsWindow('preferences-editor'),
+    configure: patch => {
+      settings = saveSettings({ ...settings, editor: { ...settings.editor, externalEditors: patch } });
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send('external-editors:settings-changed', settings.editor.externalEditors);
+    }
+  });
   ipcMain.handle('groups:list', () => groupsLibrary.read());
   ipcMain.handle('groups:save', (_event, group) => {
     if (!group || !String(group.name || '').trim() || !Array.isArray(group.tabs)) throw new Error('Invalid saved group');

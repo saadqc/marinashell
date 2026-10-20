@@ -29,6 +29,7 @@ const { normalizeProject } = require('../main/services/projects');
 const routes = {
   'app:get-state': () => state, 'app:update-state': patch => (state = { ...state, ...patch }),
   'settings:get': () => settings, 'settings:open': () => { settingsOpened++; },
+  'external-editors:list': () => ({ ok: true, editors: [], defaultEditorId: '' }),
   'ssh:hosts': () => [{alias:'backend-host'},{alias:'worker-host'}], 'ssh:connect': payload => { connections.push(payload); return failConnection ? ({ ok: false, error: 'Fixture connection unavailable' }) : ({ ok: true }); }, 'ssh:disconnect': () => ({ ok: true }),
   'plugin:processes:list': () => ({ok:true,platform:'Fixture',sampledAt:Date.now()/1000,notes:[],processes:[{pid:1,name:'backend',user:'demo',cpuPercent:12,ramBytes:2048,readBytes:100,writeBytes:100,ports:[8080],identity:'one'},{pid:2,name:'worker',user:'demo',cpuPercent:5,ramBytes:4096,readBytes:null,writeBytes:null,ports:[9000],identity:'two'}]}),
   'plugin:processes:stop': payload => {processStops.push(payload);return {ok:true};},

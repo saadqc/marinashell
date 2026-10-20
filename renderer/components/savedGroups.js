@@ -17,6 +17,7 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
       const members = [...state.tabs.values()].filter(tab => !tab.readOnly && tab.groupId === groupId);
       const snapshot = {
         id: linked?.id || existing?.id, kind: 'project', name, layout: group.layout,
+        externalEditor: structuredClone(group.externalEditor || linked?.externalEditor || existing?.externalEditor),
         terminalLayout: group.terminalLayout,
         dockLayout: structuredClone(dockLayout),
         configurationIds: [...(group.configurationIds || [])],
@@ -24,6 +25,7 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
         tabs: members.map(tab => ({
           sessionKey: tab.sessionKey,
           host: tab.host, currentPath: tab.currentPath, treeRootPath: tab.treeRootPath,
+          initialPath: tab.initialPath,
           manualTitle: tab.manualTitle || getLabel(tab), tabColor: tab.tabColor,
           connected: !tab.readOnly, configurationId: tab.configurationId || '', readOnly: Boolean(tab.readOnly)
         }))
@@ -50,6 +52,7 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
       terminalLayout: snapshot.terminalLayout,
       dockLayout: structuredClone(latest?.dockLayout || snapshot.dockLayout),
       savedGroupId: snapshot.id, configurationIds: [...(snapshot.configurationIds || [])] };
+    group.externalEditor = structuredClone(snapshot.externalEditor);
     state.appState.tabGroups.push(group);
     const restored = definitions.map(initial => tabs.createTabState({ ...initial, groupId: group.id }));
     const desired = restored.find(tab => tab.sessionKey === latest?.activeSessionKey) || restored[snapshot.activeIndex] || restored[0];
@@ -111,7 +114,7 @@ export function createSavedGroups(state, tabs, askForText, getLabel) {
             restoreButton.disabled = true;
             try { await restore(group); view.close(); } catch (error) { showError(error); restoreButton.disabled = false; }
           });
-          row.append(info, restoreButton, button('Delete', async () => {
+          row.append(info, restoreButton, button('Open in editor…', () => { view.close(); state.externalEditors.openSaved(group); }, 'ghost-btn'), button('Delete', async () => {
             if (!await confirmAction('Delete saved group?', `Delete the selected snapshot of “${group.name}” from the saved library? Open groups are kept.`, 'Delete')) return;
             await state.api.invoke('groups:delete', group.id); await render();
           }, 'ghost-btn'));

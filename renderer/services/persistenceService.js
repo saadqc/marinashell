@@ -51,6 +51,7 @@ export function createPersistenceService(state, settingsService) {
       sessionKey: tab.sessionKey,
       host: tab.host || '',
       currentPath: tab.currentPath || '/',
+      initialPath: tab.initialPath || tab.treeRootPath || tab.currentPath || '/',
       treeRootPath: tab.treeRootPath || '/',
       connected: Boolean(tab.connected),
       manualTitle: tab.manualTitle || '',

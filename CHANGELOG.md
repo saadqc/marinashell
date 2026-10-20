@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.21 — 2026-10-20
+
+- Open an existing project or group in **PyCharm, Antigravity IDE, VS Code, Sublime Text, WebStorm, or IntelliJ IDEA** from project options, grouped terminal menus, and saved-project libraries.
+- Open all configured local folders together in one editor workspace, keeping folder names and order. Saved projects can open directly without starting terminal sessions.
+- Configure automatic discovery, custom installation paths, installation selection, and a global default in **Settings → Editor → External editors**. Projects can override the default editor.
+- Missing editors and folders now have clear dialogs with settings, editing, and retry actions. Workspace updates preserve editor settings and report conflicting folder changes.
+- PyCharm and other JetBrains adapters use a managed aggregate project outside source repositories. PyCharm retains separate repository roots and existing interpreter references.
+
+
 ## v0.2.20 — 2026-10-17
 
 - Added the optional **Git** plugin for local and SSH repositories: a changed-file list with addition/deletion counts, CodeMirror unified/split comparisons, previous/next change navigation, and branch comparisons from the merge base. Open Git from the tool rail or a terminal's Git Diff context action.

@@ -2,6 +2,7 @@ const LAYOUTS = new Set(['1x1', '2x1', '1x2', '3-left', '2x2']);
 const docking = require('../../renderer/services/dockingModel');
 const { randomUUID } = require('crypto');
 function normalizeProject(input) {
+  require('./externalEditors/registry').validatePreferences(input?.externalEditor);
   const name = String(input?.name || '').trim();
   if (!name || name.length > 100) throw new Error('Enter a project name of up to 100 characters.');
   if (!Array.isArray(input.tabs) || !input.tabs.length || input.tabs.length > 32) throw new Error('A project needs between 1 and 32 directories.');
@@ -9,11 +10,13 @@ function normalizeProject(input) {
     const host = String(entry.host || '').trim();
     const currentPath = String(entry.currentPath || '').trim();
     const manualTitle = String(entry.manualTitle || '').trim();
+    const initialPath = String(entry.initialPath || currentPath).trim();
+    if (!/^(\/|[A-Za-z]:[\\/])/.test(initialPath) || /[\r\n\0]/.test(initialPath)) throw new Error(`Use an absolute project root for ${manualTitle}.`);
     if (!host || /[\r\n\0]/.test(host)) throw new Error(`Choose a connection for directory ${index + 1}.`);
     if (!manualTitle) throw new Error(`Name directory ${index + 1}.`);
     if (entry.sessionKey !== undefined && (typeof entry.sessionKey !== 'string' || !entry.sessionKey || entry.sessionKey.length > 200)) throw new Error('Invalid terminal session key.');
     if (!/^(\/|[A-Za-z]:[\\/])/.test(currentPath) || /[\r\n\0]/.test(currentPath)) throw new Error(`Use an absolute directory path for ${manualTitle}.`);
-    return { ...entry, sessionKey: entry.sessionKey || randomUUID(), host, currentPath, treeRootPath: currentPath, manualTitle, connected: !entry.readOnly };
+    return { ...entry, initialPath, sessionKey: entry.sessionKey || randomUUID(), host, currentPath, treeRootPath: currentPath, manualTitle, connected: !entry.readOnly };
   });
   let terminalLayout;
   if (input.terminalLayout !== undefined) {

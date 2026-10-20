@@ -144,6 +144,15 @@
       <label for="editor-associations">File associations (JSON)</label>
       <textarea id="editor-associations"></textarea>
       <div class="hint">Array of {pattern, mode, commandTemplate, localCommandTemplate, sftpUriTemplate}</div>
+      <div id="external-editors-settings">
+        <h2>External editors</h2>
+        <p class="hint">Open a project's configured local folders together in your preferred editor. Paths are detected automatically; you can choose another installation below.</p>
+        <label for="external-editor-default">Default editor for projects and groups</label>
+        <select id="external-editor-default"><option value="">Choose each time</option></select>
+        <button id="external-editor-detect" type="button">Detect again</button>
+        <div id="external-editor-status" class="hint" role="status" aria-live="polite"></div>
+        <div id="external-editor-list"></div>
+      </div>
     </section>
     <section class="card" id="preferences-git">
       <h2>Git</h2>
@@ -263,6 +272,7 @@
   </main>
   <script src="settings.js"></script>
   <script type="module" src="plugins/mcp-server/settings.js"></script>
+  <script type="module" src="renderer/components/externalEditorSettings.js"></script>
 </body>
 
 </html>

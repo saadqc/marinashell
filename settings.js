@@ -95,6 +95,12 @@
   });
 
   let settings = null;
+  api.onExternalEditorsChanged?.(value => { if (settings) settings.editor.externalEditors = value; });
+  api.onExternalEditorSettings?.(() => {
+    history.replaceState(null, '', '#preferences-editor');
+    activateTab('#preferences-editor');
+    document.getElementById('external-editors-settings')?.scrollIntoView({ block: 'start' });
+  });
   api.onEditorPreferencesChanged?.(preferences => { if (settings) settings.editor = { ...settings.editor, preferences }; });
   let saveTimer = null;
 

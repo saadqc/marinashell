@@ -1,9 +1,14 @@
-# MarinaShell v0.2.24
+# MarinaShell v0.2.25
 
-Includes the compact external-editor selector, Islet integration, and automatic Python environment handoff introduced in v0.2.23.
+MarinaShell can now check for updates, download them automatically, and ask when you want to restart.
 
-- Open a local folder in a fresh terminal with `--open-directory`, including from Islet’s **Open in Terminal** action.
-- Folder requests reach the existing MarinaShell window when it is already running and wait for the workspace to finish loading when it starts.
-- Paths are validated as local directories and passed directly as the terminal’s working directory. Spaces, quotes, and Unicode names are supported.
+- **Check for Updates** in the application menu and Settings.
+- **Update** when a release is available, download progress, and **Restart and Update / Later** once it is verified.
+- Separate settings for automatic checks and automatic downloads.
+- Signed update metadata and verified downloads, with no paid Apple Developer membership required.
+- On Apple silicon macOS, install after an explicit restart confirmation, preserve workspace state, block unsaved editor content, and roll back if the new app fails to complete startup. Terminal sessions can be interrupted by restarting; the confirmation explains this.
+- Windows downloads a verified installer and offers **Open Installer**. Linux offers **Show Download** for its verified AppImage, which can then be replaced manually.
 
-On macOS, integrations should use `open -n -a MarinaShell --args --open-directory "/path/to/project"` to deliver arguments reliably. Each request creates an independent terminal tab. This handoff accepts local folders only.
+Install this version manually once to enable future in-app updates. The usual DMG, Windows installers, and Linux packages remain available; the additional archive, signatures, and JSON files are consumed by the updater.
+
+The macOS application remains ad-hoc signed and not notarized. Gatekeeper may require approval in Privacy & Security. Update signatures authenticate the release independently of Apple's publisher verification.

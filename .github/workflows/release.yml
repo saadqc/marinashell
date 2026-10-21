@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: marinashell-release-publication
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -19,7 +23,7 @@ jobs:
       matrix:
         # node-pty's current node-gyp toolchain does not yet recognize the
         # Visual Studio 2026 image behind windows-latest.
-        os: [ubuntu-latest, windows-2022, macos-latest]
+        os: [ubuntu-latest, windows-2022, macos-15]
 
     steps:
       - name: Resolve release tag
@@ -38,25 +42,59 @@ jobs:
 
       - run: npm ci
 
+      - name: Verify updater integrity and publication rules
+        run: node --test scripts/updater-test.js scripts/updater-publish-test.js
+
       - name: Build and package
         run: npm run dist -- --publish never
         env:
           # No notarization; macOS uses ad-hoc signing only.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: Upload artifacts to GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Assemble updater artifact and validation metadata
+        run: node scripts/package-updater.js --out-dir release/updater
+
+      - name: Rehearse macOS app replacement and rollback
+        if: runner.os == 'macOS'
+        run: node scripts/updater-macos-test.js
+
+      - name: Preserve verified platform assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          tag_name: ${{ steps.release.outputs.tag }}
-          name: MarinaShell ${{ steps.release.outputs.tag }}
-          body_path: RELEASE_NOTES.md
-          files: |
+          name: marinashell-${{ matrix.os }}
+          path: |
             release/**/*.AppImage
             release/**/*.deb
             release/**/*.dmg
             release/**/MarinaShell Setup *.exe
             release/**/*-win.zip
-          fail_on_unmatched_files: false
-          overwrite_files: true
+            release/updater/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish verified installers and signed update feed
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: echo "tag=${GITHUB_REF_NAME#release/}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: marinashell-*
+          path: release-bundles
+      - name: Sign and publish only after every platform passes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          UPDATER_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATER_SIGNING_PRIVATE_KEY }}
+        run: node scripts/publish-updater.js release-bundles

@@ -30,3 +30,6 @@ saved-groups.json
 
 # UI validation captures can contain local paths and terminal output.
 design/validation/
+
+# Generated updater assets
+updater-artifacts/

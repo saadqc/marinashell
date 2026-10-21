@@ -152,7 +152,7 @@ npm run dist
 
 Outputs go to `release/`.
 
-This project is **not code-signed** by default. For distribution outside your machine, you’ll want to configure signing + notarization in `package.json`’s `build.mac` settings.
+macOS releases are **ad-hoc signed and not notarized**. Gatekeeper may require approval in Privacy & Security. In-app updates use independently signed metadata and verified downloads; see [Application updates](docs/UPDATES.md). Apple Developer ID signing and notarization can be configured separately in `package.json`’s `build.mac` settings.
 
 ## Usage tips
 

@@ -119,7 +119,7 @@
 <body>
   <header>
     <h1>Settings</h1>
-    <nav class="preferences-nav" aria-label="Settings sections"><a href="#preferences-editor">Editor</a><a href="#preferences-git">Git</a><a href="#preferences-workspace">Workspace</a><a href="#preferences-shell">Local shell</a><a href="#preferences-shortcuts">Shortcuts</a><a href="#preferences-plugins">Plugins</a><a href="#preferences-mcp">Agent access</a></nav>
+    <nav class="preferences-nav" aria-label="Settings sections"><a href="#preferences-editor">Editor</a><a href="#preferences-git">Git</a><a href="#preferences-workspace">Workspace</a><a href="#preferences-shell">Local shell</a><a href="#preferences-shortcuts">Shortcuts</a><a href="#preferences-plugins">Plugins</a><a href="#preferences-mcp">Agent access</a><a href="#preferences-updates">Updates</a></nav>
   </header>
   <main>
     <section class="card" id="preferences-editor">
@@ -268,9 +268,11 @@
       <p id="mcp-error" role="status" aria-live="polite"></p>
       <div id="mcp-controls"></div>
     </section>
+    <section class="card" id="preferences-updates"><h2>Updates</h2><div id="updates-settings"></div></section>
     <div class="status" id="settings-status">Saved</div>
   </main>
   <script src="settings.js"></script>
+  <script type="module">import { installUpdateSettings } from "./renderer/components/updates.js"; installUpdateSettings(window.api, document.getElementById("updates-settings")); window.api.onUpdateShow(() => { location.hash = "#preferences-updates"; });</script>
   <script type="module" src="plugins/mcp-server/settings.js"></script>
   <script type="module" src="renderer/components/externalEditorSettings.js"></script>
 </body>

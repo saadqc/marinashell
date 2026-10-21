@@ -30,6 +30,7 @@ let writes = 0;
 const settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); settings.ui.session.restoreTabs.value = true;
 const routes = {
   'app:get-state': () => state, 'app:update-state': patch => (state = { ...state, ...patch }),
+  'updates:get': () => ({ status: 'development', currentVersion: '0.2.25', preferences: { automaticChecks: true, automaticDownload: true } }),
   'settings:get': () => settings,
   'external-editors:list': () => ({ ok: true, editors: [], defaultEditorId: '' }),
   'settings:update': patch => { Object.assign(settings, patch); fs.writeFileSync(path.join(root, 'settings.json'), JSON.stringify(settings)); return settings; }, 'ssh:password-response': () => ({ok:true}), 'ssh:hosts': () => [{ alias: 'test-remote' }],
@@ -231,7 +232,7 @@ app.whenReady().then(async () => {
   try {
     await preferences.loadFile(path.resolve('settings.html'));
     assert.deepEqual(await preferences.webContents.executeJavaScript("[...document.querySelectorAll('main > section.card')].map(section => section.id)"),
-      ['preferences-editor', 'preferences-git', 'preferences-workspace', 'preferences-shell', 'preferences-shortcuts', 'preferences-plugins', 'preferences-mcp']);
+      ['preferences-editor', 'preferences-git', 'preferences-workspace', 'preferences-shell', 'preferences-shortcuts', 'preferences-plugins', 'preferences-mcp', 'preferences-updates']);
     assert.equal(await preferences.webContents.executeJavaScript("document.querySelectorAll('section.card section.card').length"), 0);
     await preferences.webContents.executeJavaScript(`(async () => {
       for (let i=0; i<100 && !document.querySelector('#session-tab-title-template').value; i++) await new Promise(r=>setTimeout(r,50));

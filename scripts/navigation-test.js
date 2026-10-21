@@ -28,6 +28,7 @@ let failConnection = true; let library = []; let tunnelProfiles = []; let extern
 const { normalizeProject } = require('../main/services/projects');
 const routes = {
   'app:get-state': () => state, 'app:update-state': patch => (state = { ...state, ...patch }),
+  'updates:get': () => ({ status: 'development', currentVersion: '0.2.25', preferences: { automaticChecks: true, automaticDownload: true } }),
   'settings:get': () => settings, 'settings:open': () => { settingsOpened++; },
   'external-editors:list': () => ({ ok: true, editors: [], defaultEditorId: '' }),
   'ssh:hosts': () => [{alias:'backend-host'},{alias:'worker-host'}], 'ssh:connect': payload => { connections.push(payload); return failConnection ? ({ ok: false, error: 'Fixture connection unavailable' }) : ({ ok: true }); }, 'ssh:disconnect': () => ({ ok: true }),

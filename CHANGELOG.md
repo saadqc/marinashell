@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.25 — 2026-10-21
+
+- Check for updates from the application menu or Settings, with an Update action, download progress, and a restart prompt when a verified update is ready.
+- Automatic checks and downloads are enabled by default and can be disabled independently. Downloads never force a restart or install on ordinary quit.
+- Update metadata is authenticated with a pinned Ed25519 public key; downloads are checked against the signed size and SHA-256 digest before use.
+- Apple silicon macOS updates use a validated app bundle, a guarded restart, and rollback if the updated application cannot finish startup. Windows offers a verified installer with Open Installer; Linux offers Show Download for a verified AppImage and manual replacement.
+- Release automation publishes the update feed only after every platform completes and uploaded assets match their validated hashes.
+
 ## v0.2.24 — 2026-10-20
 
 - Open a local folder in a fresh terminal with `--open-directory`, including from Islet’s **Open in Terminal** action.

@@ -1,3 +1,4 @@
+import { installUpdateUI, installRestartGuard } from './components/updates.js';
 import { installMcpBridge } from './services/mcpBridge.js';
 import { createState } from './state.js';
 import { createSettingsService } from './services/settingsService.js';
@@ -57,6 +58,8 @@ const elements = {
 const state = createState(api, elements);
 const settingsService = createSettingsService(state);
 const persistenceService = createPersistenceService(state, settingsService);
+installUpdateUI(api);
+installRestartGuard(api, state, persistenceService);
 state.externalEditors = createExternalEditors(state, persistenceService);
 const editorBridge = { openFile: async () => { } };
 const editorModes = new Map();
@@ -424,6 +427,8 @@ window.addEventListener('marinashell:detach-terminal', () => {
 
     installMcpBridge({ api, state, sessionTabs, persistenceService });
     await pluginLoader.loadPlugins(pluginContext);
+    state.updateReady = true;
+    api.updateStartupReady?.();
     renderLucide(document);
 
   } catch (err) {

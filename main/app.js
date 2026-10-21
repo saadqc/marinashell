@@ -25,6 +25,7 @@ let state = null;
 let settings = null;
 let passwordStore = null;
 let pluginManager = null;
+let updateService = null;
 const pendingPasswordRequests = new Map();
 let passwordRequestCounter = 0;
 const { resolveDirectory, createDirectoryHandoff } = require('./services/openDirectory');
@@ -121,6 +122,7 @@ function buildMenu() {
           click: () => createSettingsWindow()
         },
         { type: 'separator' },
+        { label: 'Check for Updates…', click: () => { createSettingsWindow('preferences-updates'); updateService?.check(); } },
         { role: 'about' },
         { role: 'quit' }
       ]
@@ -201,7 +203,8 @@ function createWindow() {
 function createSettingsWindow(section = '') {
   if (settingsWindow) {
     settingsWindow.focus();
-    if (section) settingsWindow.webContents.send('external-editors:show-settings');
+    if (section === 'preferences-updates') settingsWindow.webContents.send('updates:show');
+    else if (section) settingsWindow.webContents.send('external-editors:show-settings');
     return;
   }
 
@@ -241,6 +244,7 @@ app.whenReady().then(() => {
     }
   });
   pluginManager.init();
+  updateService = require('./services/updater').registerUpdater({ app, ipcMain, dialog, shell, getWindows: () => [mainWindow, settingsWindow], getMainWindow: () => mainWindow });
   buildMenu();
 
   const groupsLibrary = require('./services/libraryStore').createLibraryStore('saved-groups');

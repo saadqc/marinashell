@@ -1,6 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('preloadReady', true);
 contextBridge.exposeInMainWorld('api', {
+  updateStartupReady: () => ipcRenderer.send('updates:startup-ready'),
+  onUpdateState: handler => { const listener = (_event, value) => handler(value); ipcRenderer.on('updates:state', listener); return () => ipcRenderer.removeListener('updates:state', listener); },
+  onUpdatePrepare: handler => ipcRenderer.on('updates:prepare', (_event, value) => handler(value)),
+  respondUpdatePrepare: value => ipcRenderer.send('updates:prepared', value),
+  onUpdateUnlock: handler => ipcRenderer.on('updates:unlock', handler),
+  onUpdateShow: handler => ipcRenderer.on('updates:show', handler),
   onCleanupGroups: handler => ipcRenderer.on('workspace:cleanup-groups-request', (_event, payload) => handler(payload)),
   respondCleanupGroups: payload => ipcRenderer.send('workspace:cleanup-groups-response', payload),
   directoryReady: () => ipcRenderer.send('workspace:directory-ready'),

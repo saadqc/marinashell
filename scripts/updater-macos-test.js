@@ -7,6 +7,7 @@ const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const assert = require('node:assert/strict');
 const tar = require('tar');
+const asar = require('@electron/asar');
 const { prepareMacUpdate, validateBundle } = require('../main/services/updater/mac');
 const { hashFile } = require('../main/services/updater/security');
 const config = require('../main/services/updater/config');
@@ -27,6 +28,8 @@ async function main() {
     await fs.writeFile(path.join(application, 'package.json'), JSON.stringify({ name: 'updater-rehearsal', version, main: 'main.js' }));
     const marker = path.join(root, `started-${version}${fail ? '-failed' : ''}.json`);
     await fs.writeFile(path.join(application, 'main.js'), `const {app,BrowserWindow}=require('electron');const fs=require('node:fs');app.setPath('userData',${JSON.stringify(path.join(root, 'data-' + version))});app.whenReady().then(async()=>{if(${fail}){app.exit(7);return}const window=new BrowserWindow({show:false});await window.loadURL('data:text/html,Update%20rehearsal');if(process.env.MARINASHELL_UPDATE_ACK)fs.writeFileSync(process.env.MARINASHELL_UPDATE_ACK,JSON.stringify({nonce:process.env.MARINASHELL_UPDATE_NONCE,version:app.getVersion()}));fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,version:app.getVersion()}));setTimeout(()=>app.exit(0),1500)});`);
+    await asar.createPackage(application, path.join(bundle, 'Contents/Resources/app.asar'));
+    await fs.rm(application, { recursive: true, force: true });
     await run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', bundle], { timeout: 60000 }); await validateBundle(bundle, config, version);
     fixtures.push(bundle); return { bundle, marker };
   }

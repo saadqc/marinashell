@@ -109,3 +109,34 @@ test('malformed archive rejects without an uncaught process exception', async t 
   const out = path.join(root, 'out'); await fs.mkdir(out);
   await assert.rejects(extractArchive(archive, out, config), /Unsafe update archive path/);
 });
+
+test('extraction rejects duplicate paths, hard links, traversal and symlink ancestors before writing', async t => {
+  const root = await temporary(t);
+  const dir = name => ({ path: name, type: 'Directory', size: 0, mode: 0o755 });
+  const app = config.appName;
+  const cases = [
+    [dir(app), dir(app)],
+    [dir(app), { path: `${app}/link`, type: 'Link', linkpath: `${app}/file`, size: 0 }],
+    [dir(app), { path: `${app}/../../escaped`, type: 'File', size: 0 }],
+    [dir(app), dir(`${app}/real`), { path: `${app}/alias`, type: 'SymbolicLink', linkpath: 'real', size: 0 }, { path: `${app}/alias/file`, type: 'File', size: 0 }],
+    [dir(app), { path: `${app}/alias`, type: 'SymbolicLink', linkpath: '../outside', size: 0 }],
+    [dir(app), { path: `${app}/./alias`, type: 'SymbolicLink', linkpath: 'real', size: 0 }, { path: `${app}/alias/file`, type: 'File', size: 0 }],
+    [dir(app), { path: `${app}/file`, type: 'File', size: 0 }, { path: `${app}//file`, type: 'File', size: 0 }],
+    [dir(app), { path: `${app}/unknown`, type: 'File', size: 0, unknownType: true }]
+  ];
+  for (let i = 0; i < cases.length; i++) {
+    const archive = path.join(root, `unsafe-${i}.tar.gz`), out = path.join(root, `out-${i}`); await fs.mkdir(out);
+    const blocks = cases[i].map(entry => {
+      const header = new tar.Header(entry); header.encode();
+      if (entry.unknownType) {
+        header.block[156] = 'Z'.charCodeAt(0); header.block.fill(32, 148, 156);
+        const sum = header.block.reduce((total, byte) => total + byte, 0);
+        header.block.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 8, 'ascii');
+      }
+      return header.block;
+    });
+    await fs.writeFile(archive, require('node:zlib').gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024)])));
+    await assert.rejects(extractArchive(archive, out, config), /duplicate|Unsupported|Unsafe/);
+    assert.deepEqual(await fs.readdir(out), [], 'Archive preflight must reject before extraction');
+  }
+});

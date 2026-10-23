@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.27 — 2026-10-24
+
+- Fixed macOS update installation failing with “Invalid package …/app.asar” inside Electron. Extraction now uses the physical filesystem and macOS tar after archive validation, retaining checksum, signature and link checks.
+- This macOS package is unpacked so the existing v0.2.25 updater can install it. Added real Electron extraction, legacy-package compatibility, packaged startup/native-terminal and packed-fixture rollback checks to release qualification.
+
 ## v0.2.26 — 2026-10-24
 
 - Run controls now explain unknown process status and offer **Check status** directly in the sidebar. Runs from a confirmed previous host boot are marked ended, preserving output and allowing a new launch through the old single-instance lock. Unverified runs on the same boot remain protected.

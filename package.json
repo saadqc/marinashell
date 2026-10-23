@@ -1,6 +1,6 @@
 {
   "name": "marinashell",
-  "version": "0.2.26",
+  "version": "0.2.27",
   "description": "macOS-first SSH client with xterm.js",
   "author": "saadqc <saadqc@users.noreply.github.com>",
   "main": "main.js",
@@ -40,7 +40,8 @@
     "test:jsdebug:ui": "npm run build:plugins && env -u ELECTRON_RUN_AS_NODE electron scripts/jsdebug-electron-test.js",
     "test:jsdebug:browser": "node scripts/jsdebug-browser-test.js",
     "test:open-directory": "node scripts/open-directory-test.js && env -u ELECTRON_RUN_AS_NODE electron scripts/open-directory-electron-test.js",
-    "test:updater": "node --test scripts/updater-test.js && env -u ELECTRON_RUN_AS_NODE electron scripts/updater-electron-test.js"
+    "test:updater": "node --test scripts/updater-test.js && env -u ELECTRON_RUN_AS_NODE electron scripts/updater-electron-test.js",
+    "test:updater:archive": "node scripts/updater-archive-electron-test.js"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -112,7 +113,8 @@
       "icon": "assets/icons/dock.png",
       "hardenedRuntime": false,
       "identity": null,
-      "notarize": false
+      "notarize": false,
+      "asar": false
     },
     "dmg": {
       "title": "MarinaShell",

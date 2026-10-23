@@ -1,5 +1,7 @@
 'use strict';
-const fs = require('node:fs/promises');
+// Update bundles are physical files, including app.asar, not virtual archives.
+const physicalFs = process.versions.electron ? require('original-fs') : require('node:fs');
+const fs = physicalFs.promises;
 const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
@@ -35,21 +37,36 @@ async function validateLinks(root) {
 }
 async function extractArchive(archive, destination, config) {
   let count = 0, expanded = 0, invalid;
+  const entries = new Set(), links = new Set();
   await new Promise((resolve, reject) => {
-    const input = require('node:fs').createReadStream(archive);
+    const input = physicalFs.createReadStream(archive);
     const parser = new tar.Parser({ strict: true });
     const fail = error => { input.destroy(); reject(error); };
     input.on('error', fail); parser.on('error', fail); parser.on('end', resolve);
+    parser.on('ignoredEntry', () => parser.abort(new Error('Unsupported update archive entry.')));
     parser.on('entry', entry => {
       try {
         archiveEntry(entry, config.appName);
+        const name = path.posix.normalize(entry.path.replace(/\/$/, ''));
+        if (entries.has(name)) throw new Error('Update archive contains duplicate paths.');
+        entries.add(name);
+        if (entry.type === 'SymbolicLink') links.add(name);
         if (++count > 50000 || (expanded += Number(entry.size) || 0) > 3 * 1024 ** 3) throw new Error('Update archive exceeds extraction limits.');
         entry.resume();
       } catch (error) { parser.abort(error); }
     });
     input.pipe(parser);
   });
-  await tar.x({ file: archive, cwd: destination, strict: true, preservePaths: false, noChmod: false, filter: (_name, entry) => {
+  for (const name of entries) {
+    for (let parent = path.posix.dirname(name); parent !== '.'; parent = path.posix.dirname(parent)) {
+      if (links.has(parent)) throw new Error('Unsafe update archive symlink ancestor.');
+    }
+  }
+  if (process.platform === 'darwin') {
+    // tar.x uses Electron's patched fs.open and cannot create app.asar. Keep
+    // bsdtar's default traversal/symlink protections; never enable -P or -U.
+    await exec('/usr/bin/tar', ['-xzpf', archive, '-C', destination, '--no-same-owner'], { timeout: 120000, maxBuffer: 1024 * 1024 });
+  } else await tar.x({ file: archive, cwd: destination, strict: true, preservePaths: false, noChmod: false, filter: (_name, entry) => {
     try { archiveEntry(entry, config.appName); return !invalid; }
     catch (error) { invalid = error; return false; }
   } });

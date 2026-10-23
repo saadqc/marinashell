@@ -54,6 +54,13 @@ jobs:
       - name: Assemble updater artifact and validation metadata
         run: node scripts/package-updater.js --out-dir release/updater
 
+      - name: Verify packed extraction and legacy bridge inside Electron
+        if: runner.os == 'macOS'
+        run: |
+          npm run test:updater:archive
+          npm run test:updater:archive -- --release
+          node scripts/updater-package-smoke-test.js
+
       - name: Rehearse macOS app replacement and rollback
         if: runner.os == 'macOS'
         run: node scripts/updater-macos-test.js

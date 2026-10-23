@@ -79,7 +79,10 @@ app.whenReady().then(async () => {
   console.log('PASS: configuration status, copy command, stale status invalidation, actual pointer install/recheck using unsaved environment, no overflow');
   await run(`await api.updateState({selectedRunConfigurationId:${JSON.stringify(config.configuration.id)}});window.dispatchEvent(new CustomEvent('marinashell:editor:open',{detail:{host:'__local__',tabId:'__local__',path:${JSON.stringify(source)}}}));`);
   await wait(`document.querySelectorAll('.mse-breakpoint-gutter .cm-gutterElement').length >= 6`, 'Python breakpoint gutter');
-  await pointer('.mse-breakpoint-gutter .cm-gutterElement:nth-child(5)');
+  // CodeMirror may insert gutter spacers; target the rendered source line.
+  const breakpointPoint = await run(`const gutter=document.querySelector('.mse-breakpoint-gutter').getBoundingClientRect();const line=[...document.querySelectorAll('.cm-lineNumbers .cm-gutterElement')].find(el=>el.textContent.trim()==='4').getBoundingClientRect();return {x:Math.round(gutter.x+gutter.width/2),y:Math.round(line.y+line.height/2)};`);
+  window.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...breakpointPoint });
+  window.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...breakpointPoint });
   await wait(`document.querySelector('.mse-breakpoint.present')`, 'Pointer adds breakpoint');
   await pointer('.mse-debug-toggle');
   await wait(`document.querySelector('.mse-debug-companion.collapsed')`, 'Debugger collapses');

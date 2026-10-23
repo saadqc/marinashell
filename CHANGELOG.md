@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.26 — 2026-10-24
+
+- Run controls now explain unknown process status and offer **Check status** directly in the sidebar. Runs from a confirmed previous host boot are marked ended, preserving output and allowing a new launch through the old single-instance lock. Unverified runs on the same boot remain protected.
+
 ## v0.2.25 — 2026-10-21
 
 - Check for updates from the application menu or Settings, with an Update action, download progress, and a restart prompt when a verified update is ready.

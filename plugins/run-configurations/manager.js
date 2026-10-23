@@ -8,6 +8,12 @@ const { normalize, quote, pathExpression, buildCommand, parseEnv, parseArguments
 const runner = fs.readFileSync(path.join(__dirname, 'runner.sh'), 'utf8');
 const ended = run => ['exited', 'blocked', 'failed'].includes(run.status);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+function bootKey(value) {
+  const text = String(value || '').trim();
+  const mac = /^\{\s*sec\s*=\s*(\d+),\s*usec\s*=\s*(\d+)\s*\}/.exec(text);
+  if (mac) return `darwin:${mac[1]}:${mac[2]}`;
+  return /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(text) ? `linux:${text.toLowerCase()}` : '';
+}
 function parseEnvSnapshot(base64) {
   const values = {};
   for (const record of Buffer.from(String(base64 || ''), 'base64').toString('utf8').split('\0')) {
@@ -34,6 +40,26 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
   }
   async function verifyHost(run) {
     if (run.hostIdentity !== await hostIdentity(run.host)) throw new Error('SSH host settings changed since this run started; select the original host before controlling it.');
+  }
+  async function applyStatus(run, parts) {
+    run.status = parts[0] || 'unknown';
+    run.exitCode = parts[1]?.trim() ? Number(parts[1]) : null;
+    run.endReason = '';
+    run.error = '';
+    if (run.status !== 'unknown') return;
+    run.error = 'Run owner cannot be verified. Check the execution host connection, then check status again.';
+    const recordedBoot = bootKey(parts[6]);
+    if (!recordedBoot) return;
+    // Old runner scripts leave "running" behind after a reboot. A verified
+    // change of boot proves that none of that run's processes can survive.
+    // Missing owners on the same boot remain unknown; never signal stale PIDs.
+    try {
+      const currentBoot = bootKey(await command(run.host, 'if [ -r /proc/sys/kernel/random/boot_id ]; then cat /proc/sys/kernel/random/boot_id; else sysctl -n kern.boottime; fi'));
+      if (currentBoot && currentBoot.split(':')[0] === recordedBoot.split(':')[0] && currentBoot !== recordedBoot) {
+        run.status = 'exited'; run.exitCode = null; run.endReason = 'host-restarted';
+        run.error = 'Execution host restarted; the previous run ended and its exit code is unavailable.';
+      }
+    } catch (error) { run.error = `Cannot verify execution host restart: ${error.message}`; }
   }
   // Runs a user-selected setup script on the execution host in its chosen shell
   // and captures the variables it adds or changes. The script's own output never
@@ -88,8 +114,7 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
     const stdout = await command(run.host, `bash ${quote(runPath(run) + '/runner.sh')} status ${quote(runPath(run))} ${Math.max(0, Number(offset) || 0)} ${Math.max(0, Number(generation) || 0)}`);
     const parts = stdout.split('\n');
     const previous = run.status;
-    run.status = parts[0] || 'unknown';
-    run.exitCode = parts[1]?.trim() ? Number(parts[1]) : null;
+    await applyStatus(run, parts);
     run.supervisorPid = Number(parts[2]) || null;
     run.pid = Number(parts[3]) || null;
     run.processGroupId = run.pid;
@@ -104,7 +129,7 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
     if (!decoder || offset === 0 || reset) decoder = new StringDecoder('utf8');
     const output = decode ? decoder.write(buffer) : '';
     if (decode) decoders.set(run.id, decoder);
-    run.error = ''; run.checkedAt = new Date().toISOString();
+    run.checkedAt = new Date().toISOString();
     if (run.status !== previous) saveRuns();
     return { run: { ...run }, output, offset: (reset ? 0 : offset) + buffer.length, generation: nextGeneration, reset, hasMore: (reset ? 0 : offset) + buffer.length < size };
   }
@@ -125,9 +150,8 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       const stdout = await command(run.host, `bash ${quote(runPath(run) + '/runner.sh')} status ${quote(runPath(run))} 0 0 | head -c 2048`);
       const parts = stdout.split('\n');
       const previous = run.status;
-      if (parts[0]) run.status = parts[0];
-      run.exitCode = parts[1]?.trim() ? Number(parts[1]) : null;
-      run.error = ''; run.checkedAt = new Date().toISOString();
+      await applyStatus(run, parts);
+      run.checkedAt = new Date().toISOString();
       if (run.status !== previous) saveRuns();
     } catch (error) {
       run.status = 'unknown'; run.error = error.message;
@@ -245,8 +269,10 @@ function createRunManager({ execute, hostIdentity, tmuxAvailable = () => false, 
       if (previousPath) {
         const match = /\/([a-f0-9-]{36})$/.exec(previousPath);
         if (!match || previousPath !== `${home}/.marinashell/runs/${match[1]}`) throw new Error('Single-instance lock has an invalid owner');
-        const status = (await command(c.host, `bash ${quote(previousPath + '/runner.sh')} status ${quote(previousPath)} 0 0`)).split('\n')[0];
-        if (status === 'exited' || status === 'blocked') await command(c.host, `rm -f ${quote(lock + '/run')} && rmdir ${quote(lock)}`);
+        const parts = (await command(c.host, `bash ${quote(previousPath + '/runner.sh')} status ${quote(previousPath)} 0 0`)).split('\n');
+        const previous = { host: c.host };
+        await applyStatus(previous, parts);
+        if (previous.status === 'exited' || previous.status === 'blocked') await command(c.host, `rm -f ${quote(lock + '/run')} && rmdir ${quote(lock)}`);
         else throw new Error('This configuration already has a remote run. Reconnect to its existing output tab before starting another instance.');
       }
     }

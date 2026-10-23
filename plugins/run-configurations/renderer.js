@@ -22,6 +22,7 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
   // minus the ones dismissed with the row's ✕. Never touches stored records.
   const sessionRunIds = new Set(); const dismissedRunIds = new Set();
   let launching = false;
+  let checkingRunId = '';
   let controls;
   const actionButtons = new Map();
   function icon(name, label, action, className = '') {
@@ -40,7 +41,7 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
   }
   function describe(run) {
     if (!run) return '';
-    const label = { starting: 'Starting', running: 'Running', stopping: 'Stopping — press Stop again to force kill', unknown: 'Disconnected / status unknown', exited: `Exited (${run.exitCode ?? '?'})`, blocked: 'Single instance already running', failed: 'Failed' }[run.status] || run.status;
+    const label = run.endReason === 'host-restarted' ? 'Ended — execution host restarted (exit code unavailable)' : { starting: 'Starting', running: 'Running', stopping: 'Stopping — press Stop again to force kill', unknown: 'Disconnected / status unknown', exited: `Exited (${run.exitCode ?? '?'})`, blocked: 'Single instance already running', failed: 'Failed' }[run.status] || run.status;
     return `${label} · ${run.host === '__local__' ? 'Local' : run.host}${run.tmux ? ' · tmux' : ''}${run.executionMode === 'debug' ? ' · Debug' : ''}`;
   }
   function selectConfig(id) {
@@ -102,15 +103,23 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
         }
         const element = actionButtons.get(id); const reason = action.unsupported?.(config);
         element.disabled = !config || launching || Boolean(active) || Boolean(reason);
-        element.title = reason || (active ? 'Stop this configuration before debugging' : action.label);
+        element.title = reason || (run?.status === 'unknown' ? 'Check run status before debugging' : active ? 'Stop this configuration before debugging' : action.label);
       }
     }
     play.hidden = Boolean(active && !config?.multiInstance); play.disabled = !config || launching;
     restart.hidden = !active; stop.hidden = !active;
     restart.disabled = !run || run.status === 'unknown' || run.status === 'stopping';
     stop.disabled = !run || run.status === 'unknown';
-    stop.title = run?.status === 'stopping' ? 'Force kill' : 'Stop'; stop.setAttribute('aria-label', stop.title);
-    status.textContent = describe(run); status.title = run?.error || status.textContent;
+    restart.title = run?.status === 'unknown' ? 'Check run status before restarting' : run?.status === 'stopping' ? 'Wait for this run to stop before restarting' : 'Restart';
+    stop.title = run?.status === 'unknown' ? 'Check run status before stopping' : run?.status === 'stopping' ? 'Force kill' : 'Stop';
+    stop.setAttribute('aria-label', run?.status === 'stopping' ? 'Force kill' : 'Stop');
+    const unknown = run?.status === 'unknown';
+    health.hidden = !unknown && run?.endReason !== 'host-restarted';
+    checkStatus.hidden = !unknown;
+    checkStatus.disabled = Boolean(checkingRunId);
+    checkStatus.textContent = checkingRunId === run?.id ? 'Checking…' : 'Check status';
+    status.textContent = unknown ? `Status unknown. ${run.error || 'Check status to restore run controls.'}` : describe(run);
+    status.title = run?.error || status.textContent;
     renderRunChip();
 
     for (const [id, view] of views) {
@@ -318,6 +327,16 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
   const play = icon('play', 'Run', start, 'run-play');
   const restart = icon('rotate-cw', 'Restart', () => restartRun(activeRun()?.id));
   const stop = icon('square', 'Stop', () => stopRun(activeRun()?.id));
+  const checkStatus = button('Check status', async () => {
+    const run = activeRun(); if (!run || checkingRunId) return;
+    checkingRunId = run.id; updateControls();
+    try { await refreshRun(run.id); }
+    catch (error) { run.error = error.message; showError(error); }
+    finally { checkingRunId = ''; updateControls(); }
+  }, 'run-check-status');
+  const health = document.createElement('div'); health.className = 'run-health'; health.hidden = true;
+  status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+  health.append(status, checkStatus);
   const runList = document.createElement('div'); runList.className = 'running-configurations';
   const edit = button('Edit configurations…', openEditor);
   const recover = button('Runs…', async () => {
@@ -338,7 +357,7 @@ export default function activate({ api, state, sessionTabs, dockLayout, register
   const manage = icon('settings-2', 'Edit configurations', openEditor);
   heading.append(title, manage);
   controls = document.createElement('div'); controls.className = 'run-launcher'; controls.append(chooser, play, restart, stop);
-  toolbar.append(heading, controls, runList); icons(toolbar);
+  toolbar.append(heading, controls, health, runList); icons(toolbar);
   subscribeRunActions(updateControls);
   registerCommand?.('Edit run configurations', openEditor);
   registerCommand?.('Browse configuration runs', () => recover.click());

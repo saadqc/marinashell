@@ -1,14 +1,10 @@
-# MarinaShell v0.2.25
+# MarinaShell v0.2.26
 
-MarinaShell can now check for updates, download them automatically, and ask when you want to restart.
+Run configurations recover after an execution-host restart instead of leaving Run, Debug, Restart, and Stop disabled indefinitely.
 
-- **Check for Updates** in the application menu and Settings.
-- **Update** when a release is available, download progress, and **Restart and Update / Later** once it is verified.
-- Separate settings for automatic checks and automatic downloads.
-- Signed update metadata and verified downloads, with no paid Apple Developer membership required.
-- On Apple silicon macOS, install after an explicit restart confirmation, preserve workspace state, block unsaved editor content, and roll back if the new app fails to complete startup. Terminal sessions can be interrupted by restarting; the confirmation explains this.
-- Windows downloads a verified installer and offers **Open Installer**. Linux offers **Show Download** for its verified AppImage, which can then be replaced manually.
+- Runs from a verified previous host boot are marked ended, preserving their output and allowing a fresh launch.
+- Stale single-instance locks from those runs are released when launching again.
+- Unknown runs show an explanation and a **Check status** action directly in the sidebar, including when their output pane is closed.
+- Runs whose process ownership cannot be verified on the current boot remain protected against duplicate launches and unsafe process signals.
 
-Install this version manually once to enable future in-app updates. The usual DMG, Windows installers, and Linux packages remain available; the additional archive, signatures, and JSON files are consumed by the updater.
-
-The macOS application remains ad-hoc signed and not notarized. Gatekeeper may require approval in Privacy & Security. Update signatures authenticate the release independently of Apple's publisher verification.
+Update from **Check for Updates** in MarinaShell v0.2.25 or later. On Apple silicon macOS, download the update and choose **Restart and Update** when ready. Existing configurations, run history, and workspace settings are preserved.

@@ -95,6 +95,10 @@
 .run-launcher { display:flex; align-items:center; gap:3px; min-width:0; }
 #sidebar #run-toolbar select { min-width:0; max-width:none; flex:1; height:29px; padding:4px 6px; font-size:11px; border-radius:4px; background:var(--surface-canvas); }
 .run-launcher .icon-btn { flex-shrink:0; width:25px; height:27px; padding:4px; }
+.run-health { display:flex; align-items:flex-start; gap:6px; font-size:11px; line-height:1.4; color:var(--text-muted); }
+.run-health[hidden], .run-health button[hidden] { display:none; }
+.run-health .run-status { flex:1; min-width:0; overflow-wrap:anywhere; }
+.run-health .run-check-status { flex-shrink:0; padding:3px 5px; font:inherit; color:var(--accent); background:transparent; border:1px solid var(--border); border-radius:4px; }
 .running-configurations { display:flex; flex-direction:column; gap:2px; overflow:auto; max-height:220px; }
 .running-configurations:empty { display:none; }
 .running-configuration { display:flex; align-items:center; gap:2px; width:100%; padding:7px 4px; border-radius:4px; font-size:11px; }

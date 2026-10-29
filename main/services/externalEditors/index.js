@@ -31,7 +31,14 @@ function createExternalEditors({ getSettings, getState, library, root = path.joi
   function projectFor(request) {
     if (!request || typeof request !== 'object') throw failure('INVALID_PROJECT', 'Choose a project or group to open.');
     let project;
-    if (typeof request.savedProjectId === 'string') project = library.read().find(item => item.id === request.savedProjectId);
+    if (typeof request.tabId === 'string') {
+      const tab = (getState().tabs || []).find(item => item.id === request.tabId && !item.readOnly && !item.runOutput);
+      if (tab && tab.currentPath) project = {
+        id: `terminal-${tab.id}`, kind: 'project', name: tab.manualTitle || path.basename(tab.currentPath) || 'Terminal folder',
+        tabs: [{ ...tab, initialPath: tab.currentPath, treeRootPath: tab.currentPath }]
+      };
+    }
+    else if (typeof request.savedProjectId === 'string') project = library.read().find(item => item.id === request.savedProjectId);
     else if (typeof request.projectId === 'string') {
       const state = getState();
       const group = state.tabGroups?.find(item => item.id === request.projectId);

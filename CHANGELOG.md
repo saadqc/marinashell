@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.28 — 2026-10-29
+
+- Added **Open in Editor** to terminal and terminal-tab context menus. It opens only that terminal's current local or SSH folder using the global default editor, with an editor picker when no default is configured. Saved project folders and per-project editor overrides remain separate.
+- Verified both local folder launch and single-folder SSH handoff to Islet in the real Electron workflow.
+
 ## v0.2.27 — 2026-10-24
 
 - Fixed macOS update installation failing with “Invalid package …/app.asar” inside Electron. Extraction now uses the physical filesystem and macOS tar after archive validation, retaining checksum, signature and link checks.

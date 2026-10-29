@@ -91,5 +91,16 @@ export function createExternalEditors(state, persistence) {
       await open({ projectId: groupId }, group.name, preferred);
     } catch (error) { showError(error); }
   }
-  return { openGroup, populateSelect, openSaved: project => open({ savedProjectId: project.id }, project.name, project.externalEditor?.preferredEditorId || '') };
+  async function openTerminal(tabId) {
+    try {
+      if (await persistence.persistTabs() === false) throw new Error('The terminal location could not be saved. Try again.');
+      const tab = state.tabs.get(tabId);
+      if (!tab || tab.readOnly || tab.runOutput || !tab.currentPath) throw new Error('This terminal has no editable current folder.');
+      const { defaultEditorId } = await request('list');
+      if (!defaultEditorId) return open({ tabId }, tab.manualTitle || 'terminal folder');
+      const result = await request('open', { tabId });
+      persistence.setStatus(`Sent current folder to ${result.editorName}`);
+    } catch (error) { showError(error); }
+  }
+  return { openGroup, openTerminal, populateSelect, openSaved: project => open({ savedProjectId: project.id }, project.name, project.externalEditor?.preferredEditorId || '') };
 }

@@ -310,6 +310,10 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       hideTabContextMenu();
       renameTab(tabId);
     });
+    const openEditor = addMenuButton(tabContextMenu, 'Open in Editor', () => {
+      hideTabContextMenu(); state.externalEditors.openTerminal(tabId);
+    });
+    openEditor.disabled = tab.readOnly || tab.runOutput || !tab.currentPath;
     if (tab.groupId) addMenuButton(tabContextMenu, 'Open project in editor…', () => {
       hideTabContextMenu(); state.externalEditors.openGroup(tab.groupId);
     });
@@ -437,6 +441,10 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     }
 
     addMenuLabel(terminalContextMenu, 'Terminal');
+    const openEditor = addMenuButton(terminalContextMenu, 'Open in Editor', () => {
+      hideTerminalContextMenu(); state.externalEditors.openTerminal(tabId);
+    });
+    openEditor.disabled = tab.readOnly || tab.runOutput || !tab.currentPath;
     const selectedText = tab.term.getSelection();
     const copyButton = addMenuButton(terminalContextMenu, 'Copy', () => {
       if (selectedText) state.api.copyToClipboard(selectedText);

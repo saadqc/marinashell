@@ -124,6 +124,27 @@ app.whenReady().then(async () => {
   fs.writeFileSync(path.join(screenshotDir, 'external-editor-picker.png'), (await mainWindow.webContents.capturePage()).toPNG());
   await run(`clickText('Cancel');`);
 
+  // Terminal actions use the current folder and the global default, never the
+  // saved group's complete folder list or its per-project editor preference.
+  const menuScreens = '/Users/saad/islet-ui-screens/marinashell-terminal-editor';
+  fs.mkdirSync(menuScreens, { recursive: true });
+  await run(`const tab=editorFixture.state.tabs.get('tab-Active');tab.initialPath=${JSON.stringify(folders[0].currentPath)};tab.currentPath=${JSON.stringify(folders[1].currentPath)};tab.container.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:300,clientY:240}));`);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  fs.writeFileSync(path.join(menuScreens, 'terminal-context-menu.png'), (await mainWindow.webContents.capturePage()).toPNG());
+  await run(`[...document.querySelectorAll('.context-menu.open button')].find(button=>button.textContent==='Open in Editor').click();`);
+  for (let i = 0; i < 100 && launches.length < 5; i++) await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(launches.length, 5);
+  assert.deepEqual(launches[4].args, ['--new-window', folders[1].currentPath]);
+  assert.equal(await run(`return document.querySelectorAll('.external-editor-picker').length;`), 0);
+  settings.editor.externalEditors.defaultEditorId.value = 'islet';
+  await run(`const tab=editorFixture.state.tabs.get('tab-Active');tab.host='fixture-host';tab.currentPath='/srv/current-folder';document.querySelector('.session-tab[data-tab-id="tab-Active"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:100}));[...document.querySelectorAll('.context-menu.open button')].find(button=>button.textContent==='Open in Editor').click();`);
+  for (let i = 0; i < 100 && launches.length < 6; i++) await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(launches.length, 6);
+  const terminalWorkspace = JSON.parse(fs.readFileSync(launches[5].args[3]));
+  assert.deepEqual(terminalWorkspace.roots.map(root => ({ hostId: root.hostId, path: root.path })), [{ hostId: 'ssh:fixture-host', path: '/srv/current-folder' }]);
+  await run(`const tab=editorFixture.state.tabs.get('tab-Active');tab.host='__local__';tab.currentPath=${JSON.stringify(folders[0].currentPath)};`);
+  settings.editor.externalEditors.defaultEditorId.value = 'sublime';
+
   settingsWindow = create();
   await settingsWindow.loadFile(path.resolve('settings.html'), { hash: 'preferences-editor' });
   await initHelpers(settingsWindow);

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.29 — 2026-11-12
+
+- Git Diff and Pull Requests follow the selected terminal's repository when switching project groups or terminal tabs.
+- Added **Reopen terminal…** to project options. Closed or killed terminals start a fresh shell in their configured directory on the same host.
+- Right-click a filename in terminal output and choose **Open in Terminal** to edit the file in CodeMirror. **Open in External Editor** opens the terminal's current folder in the configured external editor.
+
 ## v0.2.28 — 2026-10-29
 
 - Added **Open in Editor** to terminal and terminal-tab context menus. It opens only that terminal's current local or SSH folder using the global default editor, with an editor picker when no default is configured. Saved project folders and per-project editor overrides remain separate.

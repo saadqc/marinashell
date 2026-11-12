@@ -33,11 +33,13 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
   function render() {
     const rail = document.getElementById('open-projects'); rail.replaceChildren();
     const active = getActiveTab(state);
-    const groups = (state.appState?.tabGroups || []).filter(group => [...state.tabs.values()].some(tab => tab.groupId === group.id));
+    const groups = (state.appState?.tabGroups || []).filter(group =>
+      group.closedTerminals?.length || [...state.tabs.values()].some(tab => tab.groupId === group.id));
     function item(name, groupId, tabs) {
       const el = button('', () => {
         const group = groups.find(group => group.id === groupId);
         const tab = tabs.find(tab => tab.id === group?.lastActiveTabId) || tabs[0];
+        if (!tab && group) { reopenTerminals(group.id); return; }
         if (tab) sessionTabs.setActiveSessionTab(tab.id);
         showTerminal();
       }, 'project-switch');
@@ -179,6 +181,37 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     } catch (err) { list.textContent = err.message; }
   }
 
+  async function reopenTerminals(groupId) {
+    const view = modal('Reopen terminal'); view.dialog.classList.add('project-library');
+    const list = document.createElement('div');
+    list.textContent = 'Loading terminals…';
+    view.body.append(list); view.footer.append(button('Cancel', view.close, 'ghost-btn'));
+    try {
+      const terminals = await sessionTabs.savedGroups.reopenable(groupId);
+      list.replaceChildren();
+      if (!terminals.length) list.textContent = 'No terminals to reopen.';
+      for (const terminal of terminals) {
+        const row = document.createElement('div'); row.className = 'workspace-library-row';
+        const info = document.createElement('div');
+        const title = document.createElement('strong'); title.textContent = terminal.manualTitle;
+        const detail = document.createElement('small');
+        detail.textContent = `${terminal.host === '__local__' ? 'Local' : terminal.host} · ${terminal.initialPath || terminal.currentPath}`;
+        info.append(title, detail);
+        const reopen = button('Reopen', async () => {
+          view.close();
+          try {
+            const opening = sessionTabs.savedGroups.reopenTerminal(groupId, terminal);
+            sessionTabs.setWorkspaceMode('terminal');
+            showTerminal();
+            await opening;
+          } catch (error) { showError(error); }
+        });
+        reopen.setAttribute('aria-label', `Reopen ${terminal.manualTitle}`);
+        row.append(info, reopen); list.append(row);
+      }
+    } catch (error) { list.textContent = error.message; }
+  }
+
   async function options(groupId = currentGroup()?.id) {
     const group = state.appState.tabGroups.find(item => item.id === groupId);
     if (!group) {
@@ -193,6 +226,7 @@ export function createProjects({ state, sessionTabs, dockLayout }) {
     }
     const view = modal(group.name); view.dialog.classList.add('project-options');
     const controls = document.createElement('div'); controls.className = 'project-option-actions';
+    controls.append(button('Reopen terminal…', () => { view.close(); reopenTerminals(group.id); }));
     controls.append(button('Open in editor…', () => { view.close(); state.externalEditors.openGroup(group.id); }));
     const layoutHint = document.createElement('p'); layoutHint.className = 'form-hint';
     layoutHint.textContent = 'Drag terminal tabs onto a pane to group or split them. Terminal arrangements save automatically. Use Move Out to give a docked session its own tab.';

@@ -11,7 +11,6 @@ app.setPath('userData', root);
 const fixture = path.join(root, 'navigation-fixture.mjs');
 fs.writeFileSync(fixture, `export default function activate(context) {
   window.fixture = { mounts: 0, disposals: 0, commands: 0, dock: context.dockLayout, state: context.state, sessions: context.sessionTabs };
-  context.registerView('editor', {title:'Editor',requiresConnection:false,mount(container){container.textContent='Editor fixture';}});
   context.registerCommand('Fixture command', () => window.fixture.commands++);
   context.registerTab('fixture', 'Fixture', panel => { panel.textContent = 'Sidebar plugin'; });
   context.registerView('fixture', { title: 'Fixture', requiresConnection: false, mount(container) {
@@ -24,7 +23,7 @@ fs.writeFileSync(fixture, `export default function activate(context) {
 let state = { tabs: [{ id: 'one', host: '__local__', manualTitle: 'Local work' }], activeTabId: 'one', tabGroups: [{id:'startup-orphan', name:'Old group'}] };
 const settings = structuredClone(DEFAULT_SETTINGS); settings.ui.session.restoreTabs.value = true;
 let settingsOpened = 0;
-let failConnection = true; let library = []; let tunnelProfiles = []; let externalLinks = []; const connections = []; const writes = []; const processStops=[]; const logRequests=[];
+let failConnection = true; let library = []; let tunnelProfiles = []; let externalLinks = []; const connections = []; const writes = []; const processStops=[]; const logRequests=[]; const killed = [];
 const { normalizeProject } = require('../main/services/projects');
 const routes = {
   'app:get-state': () => state, 'app:update-state': patch => (state = { ...state, ...patch }),
@@ -32,13 +31,15 @@ const routes = {
   'settings:get': () => settings, 'settings:open': () => { settingsOpened++; },
   'external-editors:list': () => ({ ok: true, editors: [], defaultEditorId: '' }),
   'ssh:hosts': () => [{alias:'backend-host'},{alias:'worker-host'}], 'ssh:connect': payload => { connections.push(payload); return failConnection ? ({ ok: false, error: 'Fixture connection unavailable' }) : ({ ok: true }); }, 'ssh:disconnect': () => ({ ok: true }),
+  'ssh:kill': ({tabId}) => { killed.push(tabId); return { ok: true }; },
   'plugin:processes:list': () => ({ok:true,platform:'Fixture',sampledAt:Date.now()/1000,notes:[],processes:[{pid:1,name:'backend',user:'demo',cpuPercent:12,ramBytes:2048,readBytes:100,writeBytes:100,ports:[8080],identity:'one'},{pid:2,name:'worker',user:'demo',cpuPercent:5,ramBytes:4096,readBytes:null,writeBytes:null,ports:[9000],identity:'two'}]}),
   'plugin:processes:stop': payload => {processStops.push(payload);return {ok:true};},
   'logs:open': payload=>{logRequests.push(payload);return {ok:true};},
   'files:is-file': payload => /(?:AGENTS\.md|app's log\.txt)$/.test(payload.path),
+  'plugin:editor:read': () => ({ok:true,content:'# Terminal opened this file\n',stat:{size:28,mtimeMs:1000,mode:33188}}),
   'clipboard:read': () => '',
   'sftp:list': () => [{name:"app's log.txt",path:"/srv/app's log.txt",type:'-',size:20}], 'local:list': () => [{name:"app's log.txt",path:"/srv/app's log.txt",type:'-',size:20}],
-  'plugins:list': () => [{ id: 'fixture', name: 'Navigation fixture', enabled: true, rendererEntry: pathToFileURL(fixture).href }, {id:'tunnels',name:'Tunnels',enabled:true,rendererEntry:pathToFileURL(path.resolve('plugins/tunnels/renderer.js')).href}, {id:'processes',name:'Processes',enabled:true,rendererEntry:pathToFileURL(path.resolve('plugins/processes/renderer.js')).href}],
+  'plugins:list': () => [{ id: 'fixture', name: 'Navigation fixture', enabled: true, rendererEntry: pathToFileURL(fixture).href }, {id:'editor',name:'Editor',enabled:true,rendererEntry:pathToFileURL(path.resolve('plugins/editor/renderer.mjs')).href}, {id:'tunnels',name:'Tunnels',enabled:true,rendererEntry:pathToFileURL(path.resolve('plugins/tunnels/renderer.js')).href}, {id:'processes',name:'Processes',enabled:true,rendererEntry:pathToFileURL(path.resolve('plugins/processes/renderer.js')).href}],
   'plugin:tunnels:list': () => ({ok:true,data:tunnelProfiles}), 'plugin:tunnels:save': profile => { tunnelProfiles=[{...require('../plugins/tunnels/manager').normalize(profile),id:'tunnel-fixture',status:'stopped'}]; return {ok:true}; }, 'plugin:tunnels:start': () => { tunnelProfiles[0].status='active'; return {ok:true}; }, 'plugin:tunnels:stop': () => {tunnelProfiles[0].status='stopped';return {ok:true};},
   'groups:list': () => library, 'groups:save': item => { const saved = { ...normalizeProject(item), id: item.id || 'saved-project' }; library = [saved]; return saved; }, 'groups:delete': id => { library = library.filter(item=>item.id!==id); }, 'shell:open-external': payload => { externalLinks.push(payload); return true; }
 };
@@ -165,6 +166,35 @@ app.whenReady().then(async () => {
   assert.equal(await run(`return [...document.querySelectorAll('.terminal-pane.grid-visible')].every(el=>!el.style.gridColumn&&!el.style.gridRow)`),true);
   assert.deepEqual(await run(`return visualPaneIds()`),await run(`return [...fixture.state.tabs.values()].filter(t=>t.groupId).map(t=>t.id)`));
   console.log('PASS: three-pane geometry, left-to-right tab drag order, four-pane reorder and saved project restoration');
+  const worker = await run(`const tab=[...fixture.state.tabs.values()].find(tab=>tab.manualTitle==='Worker');return {id:tab.id,key:tab.sessionKey,group:tab.groupId};`);
+  window.webContents.send('ssh:cwd', {tabId:worker.id,cwd:'/srv/worker/nested'});
+  await run(`await waitFor(()=>fixture.state.tabs.get(${JSON.stringify(worker.id)}).currentPath==='/srv/worker/nested');
+    await fixture.sessions.closeTab(${JSON.stringify(worker.id)});
+    window.openReopenPicker=()=>{document.querySelector('#project-options-btn').click();[...document.querySelectorAll('.project-options button')].find(b=>b.textContent==='Reopen terminal…').click();};
+    openReopenPicker(); await waitFor(()=>document.querySelector('[aria-label="Reopen Worker"]'));`);
+  assert.equal(state.tabGroups.find(group=>group.id===worker.group).closedTerminals[0].currentPath, '/srv/worker');
+  fs.writeFileSync(path.join(root, 'reopen-project-terminal.png'), (await window.webContents.capturePage()).toPNG());
+  assert.equal(await run(`return document.querySelectorAll('.project-library .workspace-library-row').length`), 1);
+  assert.match(await run(`return document.querySelector('.project-library .workspace-library-row small').textContent`), /worker-host · \/srv\/worker$/);
+  await run(`document.querySelector('[aria-label="Reopen Worker"]').click();
+    await waitFor(()=>fixture.state.tabs.get(fixture.state.activeTabId).connected);`);
+  const reopened = await run(`const tab=fixture.state.tabs.get(fixture.state.activeTabId);return {id:tab.id,key:tab.sessionKey,group:tab.groupId,path:tab.currentPath};`);
+  assert.notEqual(reopened.id, worker.id);
+  assert.deepEqual({ ...reopened, id: worker.id }, { ...worker, path: '/srv/worker' });
+  assert.equal(connections.at(-1).host, 'worker-host');
+  window.webContents.send('ssh:cwd', {tabId:reopened.id,cwd:'/srv/worker/another-folder'});
+  await run(`const tab=fixture.state.tabs.get(fixture.state.activeTabId);
+    await waitFor(()=>tab.currentPath==='/srv/worker/another-folder');
+    await new Promise(resolve=>tab.term.write('old scrollback',resolve));
+    tab.container.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:300}));
+    [...document.querySelectorAll('.context-menu.open button')].find(b=>b.textContent==='Kill terminal').click();
+    await waitFor(()=>!tab.connected);
+    openReopenPicker(); await waitFor(()=>document.querySelector('[aria-label="Reopen Worker"]'));
+    document.querySelector('[aria-label="Reopen Worker"]').click(); await waitFor(()=>tab.connected);`);
+  assert.deepEqual(killed, [reopened.id]);
+  assert.equal(await run(`const tab=fixture.state.tabs.get(fixture.state.activeTabId);return tab.currentPath==='/srv/worker' && !tab.term.buffer.active.getLine(0).translateToString(true).includes('old scrollback');`), true);
+  assert.equal(library[0].tabs.find(tab=>tab.sessionKey===worker.key).initialPath, '/srv/worker');
+  console.log('PASS: closed and killed project terminals start a fresh shell at the configured directory');
   // Shortcuts follow the visible project strip and must be captured before xterm.
   const shortcutWrites = writes.length;
   await run(`
@@ -212,8 +242,7 @@ app.whenReady().then(async () => {
   assert.equal(await run(`pressShortcut('k');return !document.querySelector('.command-palette')`),true);
   assert.equal(await run(`return pressShortcut(']') && fixture.state.activeTabId===shortcutIds[1]`),true);
   assert.equal(await run(`pressShortcut('Tab',{metaKey:false,ctrlKey:true});return fixture.state.activeTabId===shortcutIds[1]`),true,'Custom cycle binding replaces the default');
-  await run(`pressShortcut('p',{shiftKey:true});`);
-  assert.equal(await run(`return Boolean(document.querySelector('.command-palette'))`),true);
+  await run(`pressShortcut('p',{shiftKey:true}); await waitFor(()=>document.querySelector('.command-palette'));`);
   assert.match(await run(`return document.querySelector('#command-search kbd').textContent`),/Shift P/);
   await run(`document.querySelector('.command-palette').dispatchEvent(new Event('cancel',{cancelable:true}));for(const tab of extraShortcutTabs)await fixture.sessions.closeTab(tab.id,{approved:true});`);
   // Adjacent creation API splits only the requested pane, keeping LR tab order.
@@ -221,11 +250,15 @@ app.whenReady().then(async () => {
   const beforeAdjacentActive = await run(`return fixture.state.activeTabId`);
   const beforeAdjacent = await run(`return fixture.state.tabs.size`);
   await run(`window.adjacentSource=fixture.sessions.createNewTab({host:'__local__',path:'/srv/adjacent',groupId:'',connect:true});await waitFor(()=>adjacentSource.connected);`);
-  async function contextClick(tabId, label) {
-    const position = await run(`const rect=fixture.state.tabs.get(${JSON.stringify(tabId)}).container.getBoundingClientRect();return {x:Math.round(rect.left+Math.min(rect.width/2,80)),y:Math.round(rect.top+Math.min(rect.height/2,80))};`);
+  async function contextClick(tabId, label, cell) {
+    const position = await run(`const tab=fixture.state.tabs.get(${JSON.stringify(tabId)});const cell=${JSON.stringify(cell || null)};
+      const rect=(cell ? tab.container.querySelector('.xterm-screen') : tab.container).getBoundingClientRect();
+      return cell ? {x:Math.round(rect.left+(cell.column+.5)*rect.width/tab.term.cols),y:Math.round(rect.top+(cell.row+.5)*rect.height/tab.term.rows)}
+        : {x:Math.round(rect.left+Math.min(rect.width/2,80)),y:Math.round(rect.top+Math.min(rect.height/2,80))};`);
     window.webContents.sendInputEvent({type:'mouseDown',button:'right',clickCount:1,...position});
     window.webContents.sendInputEvent({type:'mouseUp',button:'right',clickCount:1,...position});
     const button = await run(`await waitFor(()=>[...document.querySelectorAll('.context-menu.open button')].some(b=>b.textContent===${JSON.stringify(label)}));const button=[...document.querySelectorAll('.context-menu.open button')].find(b=>b.textContent===${JSON.stringify(label)});const rect=button.getBoundingClientRect();return {x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)};`);
+    if (label === 'Open in Terminal') fs.writeFileSync(path.join(root, 'terminal-file-menu.png'), (await window.webContents.capturePage()).toPNG());
     assert.equal(await run(`return document.elementFromPoint(${button.x},${button.y})?.textContent`),label,'Menu button is reachable');
     window.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...button});
     window.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...button});
@@ -278,17 +311,18 @@ app.whenReady().then(async () => {
   await run(`linkTest.links[0].activate(new MouseEvent('click',{button:0,...linkTest.modifier})); linkTest.tab.term.options.linkHandler.activate(new MouseEvent('click',{button:0,...linkTest.modifier}),'https://example.org');`);
   await new Promise(r=>setTimeout(r,100)); assert.equal(externalLinks.length,2);
   assert.equal(await run(`return Boolean(document.querySelector('#saved-list') || document.querySelector('#recent-list') || document.querySelector('#tunnels-list'))`),false);
-  await run(`window.openedFile=null; window.addEventListener('marinashell:editor:open',event=>{window.openedFile=event.detail;}); const tab=fixture.state.tabs.get(fixture.state.activeTabId); tab.term.reset(); await new Promise(resolve=>tab.term.write('AGENTS.md',resolve)); tab.term.select(0,0,9);`);
-  await contextClick(await run(`return fixture.state.activeTabId`), 'Open in editor');
-  await run(`await waitFor(()=>window.openedFile);`);
+  await run(`window.openedFile=null; window.addEventListener('marinashell:editor:open',event=>{window.openedFile=event.detail;}); const tab=fixture.state.tabs.get(fixture.state.activeTabId); tab.term.reset(); await new Promise(resolve=>tab.term.write('src   AGENTS.md   tests',resolve));`);
+  await contextClick(await run(`return fixture.state.activeTabId`), 'Open in Terminal', {column:9,row:0});
+  await run(`await waitFor(()=>window.openedFile && document.querySelector('.cm-content')?.textContent.includes('Terminal opened this file'));`);
   assert.match(await run(`return window.openedFile.path`),/AGENTS\.md$/);
-  await run(`window.openedFile=null;window.fileTab=fixture.state.tabs.get(fixture.state.activeTabId);window.openFileMenu=()=>fileTab.container.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:300}));window.fileButton=label=>[...document.querySelectorAll('.context-menu.open button')].find(b=>b.textContent===label);fileTab.term.clearSelection();fileTab.hoveredLink={type:'file',path:'/srv/AGENTS.md'};openFileMenu();`);
-  assert.equal(await run(`return fileButton('Open in editor').disabled&&fileButton('Tail last 500 lines').disabled`),true,'No selection disables both file actions even with a hovered file');
-  await run(`fileButton('Open in editor').click();fileButton('Tail last 500 lines').click();`);
+  await run(`document.querySelector('[data-view="terminal"]').click();window.openedFile=null;window.fileTab=fixture.state.tabs.get(fixture.state.activeTabId);window.openFileMenu=()=>fileTab.container.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:300}));window.fileButton=label=>[...document.querySelectorAll('.context-menu.open button')].find(b=>b.textContent===label);fileTab.term.clearSelection();fileTab.hoveredLink={type:'file',path:'/srv/AGENTS.md'};openFileMenu();`);
+  assert.equal(await run(`return fileButton('Open in Terminal').disabled&&fileButton('Tail last 500 lines').disabled`),true,'Clicking outside the terminal text with no selection disables file actions');
+  assert.equal(await run(`return fileButton('Open in External Editor').disabled`),false);
+  await run(`fileButton('Open in Terminal').click();fileButton('Tail last 500 lines').click();`);
   assert.equal(await run(`return window.openedFile`),null);
-  await run(`fileTab.term.select(0,0,9);openFileMenu();fileTab.term.clearSelection();fileButton('Open in editor').click();`);
+  await run(`fileTab.term.select(6,0,9);openFileMenu();fileTab.term.clearSelection();fileButton('Open in Terminal').click();`);
   assert.equal(await run(`return window.openedFile`),null,'Cleared selection does nothing on click');
-  await run(`fileTab.term.reset();await new Promise(resolve=>fileTab.term.write('not-a-file',resolve));fileTab.term.select(0,0,10);openFileMenu();fileButton('Open in editor').click();await new Promise(resolve=>setTimeout(resolve,100));`);
+  await run(`fileTab.term.reset();await new Promise(resolve=>fileTab.term.write('not-a-file',resolve));fileTab.term.select(0,0,10);openFileMenu();fileButton('Open in Terminal').click();await new Promise(resolve=>setTimeout(resolve,100));`);
   assert.equal(await run(`return window.openedFile`),null,'Selected non-file is a no-op');
   await run(`fileTab.term.reset();await new Promise(resolve=>fileTab.term.write("/srv/app's log.txt",resolve));fileTab.term.select(0,0,"/srv/app's log.txt".length);openFileMenu();fileButton('Tail last 500 lines').click();`);
   await run(`await new Promise(resolve=>setTimeout(resolve,100));fileTab.term.clearSelection();fileTab.hoveredLink=null;`);
@@ -298,6 +332,7 @@ app.whenReady().then(async () => {
   await run(`document.querySelector('.tree-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:150,clientY:250})); [...document.querySelectorAll('.open button')].find(button=>button.textContent==='Tail last 500 lines').click();`);
   assert.equal(logRequests.length,2);assert.match(logRequests[1].path,/app's log.txt$/);
   assert.equal(await run(`return fixture.state.tabs.size`),tabsBeforeTail);
+  console.log('PASS: right-clicking a filename opens it in CodeMirror, external editor is labeled separately, and file selections still work');
   await run(`document.querySelector('#command-search').click(); const search=document.querySelector('.command-palette input'); search.value='Show Process List'; search.dispatchEvent(new Event('input')); search.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); await waitFor(()=>document.querySelectorAll('.process-dialog tbody tr').length===2);`);
   assert.equal(await run(`return document.querySelector('.process-dialog tbody tr td').textContent`),'worker');
   await run(`document.querySelector('.process-action button').click(); await waitFor(()=>!document.querySelector('.process-action button').disabled);`);
@@ -314,6 +349,17 @@ app.whenReady().then(async () => {
   await run(`const name=document.querySelector('[aria-label="Filter processes by name"]'); name.value='absent';name.dispatchEvent(new Event('input'));`);
   assert.equal(await run(`return document.querySelector('.process-dialog tbody').textContent`),'No matching processes.');
   await run(`document.querySelector('.process-dialog').dispatchEvent(new Event('cancel',{cancelable:true}));`);
+  await run(`fixture.state.appState.tabGroups.push({id:'reopen-last',name:'One repository',layout:'1x1'});
+    const tab=fixture.sessions.createTabState({groupId:'reopen-last',host:'__local__',currentPath:'/srv/one',manualTitle:'One'});
+    fixture.sessions.setActiveSessionTab(tab.id);
+    await fixture.sessions.closeTab(tab.id);
+    document.querySelector('[data-project-id="reopen-last"]').click();
+    await waitFor(()=>document.querySelector('[aria-label="Reopen One"]'));
+    document.querySelector('[aria-label="Reopen One"]').click();
+    await waitFor(()=>fixture.state.tabs.get(fixture.state.activeTabId).connected);
+    await fixture.sessions.closeGroup('reopen-last');`);
+  assert.equal(connections.at(-1).cwd, '/srv/one', 'An unsaved group can reopen its last terminal at its original local directory');
+  assert(!state.tabGroups.some(group=>group.id==='reopen-last'), 'Explicit Close project removes a previously reopened group');
   // Cleanup uses live tabs with restore disabled, preserving same-name groups and saved projects.
   const savedLibrary = structuredClone(library);
   settings.ui.session.restoreTabs.value = false;
@@ -347,6 +393,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(errors, []);
   console.log('PASS: startup group cleanup, Settings cleanup with restore disabled, same-name active groups preserved, last-member removal persisted, configurable tab/search shortcuts, native keyboard dispatch, terminal focus, mixed-host project creation/reopen/split restoration, duplicate-open prevention, modifier-click links, tunnel profile UI, command search, focus restoration, settings/extensions, sidebar plugins, connection retry, retained tools, nested splits, responsive controls');
 }).catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {
+  if (process.env.MARINASHELL_KEEP_TEST_CAPTURES) console.log('Test captures:', root);
   cleanupSettings?.destroy();
-  window?.destroy(); fs.rmSync(root, { recursive: true, force: true }); app.exit(process.exitCode || 0);
+  window?.destroy(); if (!process.env.MARINASHELL_KEEP_TEST_CAPTURES) fs.rmSync(root, { recursive: true, force: true }); app.exit(process.exitCode || 0);
 });

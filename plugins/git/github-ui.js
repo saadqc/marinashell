@@ -31,7 +31,7 @@ export function mountPullRequests(container, { repository, call, api, branch, se
   })));
   toolbar.append(picker.menu, connection.menu, branchMenu.menu, button('New PR', () => create()), openPr);
   root.append(toolbar, status, review); container.replaceChildren(root);
-  let disposed = false; let epoch = 0; let listEpoch = 0; let connectionEpoch = 0; let disposeDiff; let available = false;
+  let disposed = false; let epoch = 0; let listEpoch = 0; let connectionEpoch = 0; let disposeDiff; let createDialog; let available = false;
   const safe = async fn => { try { await fn(); } catch (error) { if (!disposed) { status.textContent = error.message; if (picker.menu.open && !list.children.length) listCount.textContent = error.message; } } };
   const request = (name, payload = {}) => call(name, { contextId: repository.id, remote: remote.value, ...payload });
   const openUrl = async value => { const url = new URL(value); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid browser URL'); await api.openExternal(url.href); };
@@ -112,23 +112,29 @@ export function mountPullRequests(container, { repository, call, api, branch, se
   async function create() {
     if (!available) { status.textContent = 'Configure GitHub CLI authentication before creating a PR'; return; }
     const view = modal('Create pull request', { wide: true }); const fields = {};
+    createDialog = view;
     for (const [key, label, initial] of [['title', 'Title', ''], ['body', 'Description', ''], ['base', 'Base branch', 'main'], ['head', 'Head branch', branch], ['headRemote', 'Head remote', remote.value]]) {
       const row = el('label', label, 'git-form-field'); const control = el(key === 'body' ? 'textarea' : 'input'); control.value = initial; row.append(control); view.body.append(row); fields[key] = control;
     }
     const draft = el('input'); draft.type = 'checkbox'; const draftRow = el('label', 'Draft'); draftRow.append(draft); view.body.append(draftRow);
     const message = el('p'); message.setAttribute('role', 'status'); const preview = el('div', '', 'git-pr-preview'); view.body.append(message, preview);
     const requestId = crypto.randomUUID(); let previewCleanup;
-    view.dialog.addEventListener('close', () => previewCleanup?.());
+    view.dialog.addEventListener('close', () => {
+      if (createDialog === view) createDialog = null;
+      previewCleanup?.();
+    }, { once: true });
     view.footer.append(button('Cancel', view.close), button('Preview diff', () => safe(async () => {
       try {
-        const data = await request('snapshot', { base: fields.base.value }); preview.replaceChildren();
+        const data = await request('snapshot', { base: fields.base.value });
+        if (!view.dialog.open) return;
+        preview.replaceChildren();
         for (const row of data.files) preview.append(button(row.path, async () => {
-          try { const result = await request('content', { snapshotId: data.id, fileId: row.id }); previewCleanup?.(); const host = el('div', '', 'git-pr-preview-diff'); preview.append(host); if (result.unavailable) host.textContent = result.unavailable; else previewCleanup = mountDiff(host, result); } catch (error) { message.textContent = error.message; }
+          try { const result = await request('content', { snapshotId: data.id, fileId: row.id }); if (!view.dialog.open) return; previewCleanup?.(); const host = el('div', '', 'git-pr-preview-diff'); preview.append(host); if (result.unavailable) host.textContent = result.unavailable; else previewCleanup = mountDiff(host, result); } catch (error) { message.textContent = error.message; }
         })); message.textContent = `${data.files.length} files since ${fields.base.value} merge base`;
       } catch (error) { message.textContent = error.message; }
     })), button('Create PR', async event => {
       const control = event.currentTarget; control.disabled = true;
-      try { const result = await request('github-create', { input: { ...Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.value])), draft: draft.checked, requestId } }); message.textContent = result.existing ? 'Existing PR found' : 'PR created'; view.close(); loadedReviews.clear(); await loadList(); }
+      try { const result = await request('github-create', { input: { ...Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.value])), draft: draft.checked, requestId } }); if (disposed) return; message.textContent = result.existing ? 'Existing PR found' : 'PR created'; view.close(); loadedReviews.clear(); await loadList(); }
       catch (error) { message.textContent = error.message; }
       finally { control.disabled = false; }
     }));
@@ -140,7 +146,7 @@ export function mountPullRequests(container, { repository, call, api, branch, se
     connection.menu.open = false; selectedNumber = null; await refresh();
   }));
   query.addEventListener('keydown', event => { if (event.key === 'Enter') loadList(); }); refresh();
-  const cleanup = () => { disposed = true; epoch++; listEpoch++; connectionEpoch++; loadedReviews.clear(); disposeDiff?.(); root.remove(); };
+  const cleanup = () => { disposed = true; epoch++; listEpoch++; connectionEpoch++; loadedReviews.clear(); createDialog?.close(); disposeDiff?.(); root.remove(); };
   cleanup.refresh = refresh;
   return cleanup;
 }

@@ -140,6 +140,13 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     return groupId ? getTabGroups().find((group) => group.id === groupId) || null : null;
   }
 
+  function removeEmptyGroup(groupId) {
+    const group = getTabGroup(groupId);
+    if (group && !group.closedTerminals?.length && ![...state.tabs.values()].some(tab => tab.groupId === groupId)) {
+      state.appState.tabGroups = getTabGroups().filter(item => item !== group);
+    }
+  }
+
   function persistGroups() {
     if (!state.appState || !state.api) return;
     persistenceService.persistTabs();
@@ -243,9 +250,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const previousGroupId = tab.groupId || '';
     getTabGroups().push(group);
     tab.groupId = group.id;
-    if (previousGroupId && !Array.from(state.tabs.values()).some((item) => item.groupId === previousGroupId)) {
-      state.appState.tabGroups = getTabGroups().filter((item) => item.id !== previousGroupId);
-    }
+    removeEmptyGroup(previousGroupId);
     renderSessionTabs();
     updateTerminalGrid();
     persistGroups();
@@ -267,9 +272,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     if (!tab) return;
     const previousGroupId = tab.groupId || '';
     tab.groupId = groupId || '';
-    if (previousGroupId && previousGroupId !== groupId && !Array.from(state.tabs.values()).some((item) => item.groupId === previousGroupId)) {
-      state.appState.tabGroups = getTabGroups().filter((group) => group.id !== previousGroupId);
-    }
+    removeEmptyGroup(previousGroupId);
     renderSessionTabs();
     updateTerminalGrid();
     persistGroups();
@@ -310,7 +313,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       hideTabContextMenu();
       renameTab(tabId);
     });
-    const openEditor = addMenuButton(tabContextMenu, 'Open in Editor', () => {
+    const openEditor = addMenuButton(tabContextMenu, 'Open in External Editor', () => {
       hideTabContextMenu(); state.externalEditors.openTerminal(tabId);
     });
     openEditor.disabled = tab.readOnly || tab.runOutput || !tab.currentPath;
@@ -360,8 +363,8 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     positionContextMenu(tabContextMenu, x, y);
   }
 
-  async function closeGroup(groupId) {
-    if (state.runController?.beforeCloseProject && !await state.runController.beforeCloseProject(groupId)) return;
+  async function closeGroup(groupId, { approved = false } = {}) {
+    if (!approved && state.runController?.beforeCloseProject && !await state.runController.beforeCloseProject(groupId)) return;
     const members = [...state.tabs.values()].filter(tab => tab.groupId === groupId);
     const runs = members.filter(tab => tab.runId);
     if (runs.length && !state.runController) { showError(new Error('Enable Run Configurations to stop and close these runs.')); return; }
@@ -370,7 +373,11 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     await persistenceService.persistTabs();
     state.closingProjects ||= new Set();
     state.closingProjects.add(groupId);
-    try { for (const tab of members) await closeTab(tab.id, { approved: true }); }
+    try {
+      for (const tab of members) await closeTab(tab.id, { approved: true });
+      state.appState.tabGroups = getTabGroups().filter(group => group.id !== groupId);
+      await persistenceService.persistTabs();
+    }
     finally { state.closingProjects.delete(groupId); }
     await state.runController?.closedProject?.(groupId);
   }
@@ -402,7 +409,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     positionContextMenu(tabContextMenu, x, y);
   }
 
-  function showTerminalContextMenu(x, y, tabId) {
+  function showTerminalContextMenu(event, tabId) {
     terminalContextMenu.innerHTML = '';
     const tab = state.tabs.get(tabId);
     if (!tab) return;
@@ -410,22 +417,26 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       hideTerminalContextMenu(); Promise.resolve(action.run(tab)).catch(showError);
     });
 
-    const file = terminalFileAt(tab);
+    const file = terminalFileAt(tab, event);
+    const stillCurrent = () => {
+      if (!file || state.tabs.get(tabId) !== tab || !tab.connected) return false;
+      const current = terminalFileAt(tab, event);
+      return current?.selection === file.selection && current.path === file.path && current.line === file.line;
+    };
     addMenuLabel(terminalContextMenu, 'File');
-    for (const [label, action] of [['Open in editor', 'editor'], ['Tail last 500 lines', 'tail']]) {
+    for (const [label, action] of [['Open in Terminal', 'editor'], ['Tail last 500 lines', 'tail']]) {
       const button = addMenuButton(terminalContextMenu, label, async () => {
         hideTerminalContextMenu();
-        // Recheck on click and after the async stat: stale selections never act.
-        if (!file || terminalFileAt(tab)?.selection !== file.selection || !tab.connected) return;
+        if (!stillCurrent()) return;
         try {
-          if (await state.api.invoke('files:is-file', { tabId, path: file.path })
-            && state.tabs.get(tabId) === tab && tab.connected && terminalFileAt(tab)?.selection === file.selection) {
+          if (await state.api.invoke('files:is-file', { tabId, path: file.path }) && stillCurrent()) {
             fileAction(tab, file.path, action, action === 'editor' ? file.line : null);
           }
         } catch { /* A missing or inaccessible file is a no-op. */ }
       });
       button.disabled = !file || !tab.connected;
-      button.title = button.disabled ? 'Select a file path in a connected terminal' : 'Use the selected file';
+      button.title = button.disabled ? 'Right-click a filename or select its path in a connected terminal'
+        : action === 'editor' ? 'Open this file in MarinaShell’s built-in editor' : 'Tail this file';
     }
     const contextLink = tab.hoveredLink && tab.hoveredLink.uri ? { ...tab.hoveredLink } : null;
     if (contextLink) {
@@ -441,7 +452,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     }
 
     addMenuLabel(terminalContextMenu, 'Terminal');
-    const openEditor = addMenuButton(terminalContextMenu, 'Open in Editor', () => {
+    const openEditor = addMenuButton(terminalContextMenu, 'Open in External Editor', () => {
       hideTerminalContextMenu(); state.externalEditors.openTerminal(tabId);
     });
     openEditor.disabled = tab.readOnly || tab.runOutput || !tab.currentPath;
@@ -479,14 +490,16 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
     const moveOutButton = addMenuButton(terminalContextMenu, 'Move Out', () => { hideTerminalContextMenu(); dockWorkspace.moveOut(tabId); });
     moveOutButton.disabled = !dockWorkspace.isDocked(tabId);
 
-    const killButton = addMenuButton(terminalContextMenu, 'Kill terminal', () => {
-      if (state.api && typeof state.api.kill === 'function') {
-        state.api.kill(tabId);
-      }
+    const killButton = addMenuButton(terminalContextMenu, 'Kill terminal', async () => {
       hideTerminalContextMenu();
+      try {
+        const result = await state.api.kill(tabId);
+        if (!result?.ok) throw new Error(result?.error || 'Could not kill terminal.');
+        if (state.tabs.get(tabId) === tab) markDisconnected(tab);
+      } catch (error) { showError(error); }
     }, { danger: true });
     killButton.disabled = !tab.connected || tab.readOnly;
-    positionContextMenu(terminalContextMenu, x, y);
+    positionContextMenu(terminalContextMenu, event.clientX, event.clientY);
   }
 
   function getWrappedTerminalText(term, bufferLineNumber) {
@@ -945,11 +958,10 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       tab.term._core?._renderService?._pausedResizeTask?.flush();
       tab.term.dispose();
     });
+    if (!state.closingProjects?.has(tab.groupId)) savedGroups.rememberClosed(tab);
     dockWorkspace.remove(tab);
     state.tabs.delete(tabId);
-    if (tab.groupId && !Array.from(state.tabs.values()).some((item) => item.groupId === tab.groupId)) {
-      state.appState.tabGroups = getTabGroups().filter((group) => group.id !== tab.groupId);
-    }
+    removeEmptyGroup(tab.groupId);
     if (state.activeTabId === tabId) {
       const nextInGroup = tab.groupId
         ? Array.from(state.tabs.values()).find((item) => item.groupId === tab.groupId)
@@ -963,6 +975,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       }
     } else {
       renderSessionTabs();
+      updateTerminalGrid();
     }
     persistenceService.persistTabs();
   }
@@ -989,6 +1002,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
         if (event.button === 0 && (navigator.platform.toLowerCase().includes('mac') ? event.metaKey : event.ctrlKey)) openExternalTarget(tabState, uri);
       } },
       cursorBlink: !initial.readOnly,
+      rightClickSelectsWord: false,
       disableStdin: Boolean(initial.readOnly),
       convertEol: Boolean(initial.readOnly),
       theme: {
@@ -1015,7 +1029,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       event.preventDefault();
       event.stopPropagation();
       hideTabContextMenu();
-      showTerminalContextMenu(event.clientX, event.clientY, id);
+      showTerminalContextMenu(event, id);
     });
 
     const initialPath = initial.currentPath || '/';
@@ -1321,18 +1335,7 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
 
     state.api.onSshExit((payload) => {
       const tab = getTab(state, payload.tabId);
-      if (!tab) return;
-      if (tab.activeTunnels && typeof tab.activeTunnels.clear === 'function') {
-        tab.activeTunnels.clear();
-      }
-      setConnectedForTab(tab, false);
-      tab.isBusy = false;
-      persistenceService.setStatus('Disconnected', true, tab);
-      filesPanel.resetTreeForTab(tab, true);
-      if (tab.id === state.activeTabId) {
-        filesPanel.renderTree();
-
-      }
+      if (tab) markDisconnected(tab, true);
       try {
         window.dispatchEvent(new CustomEvent('marinashell:ssh-exit', { detail: payload }));
       } catch (err) { }
@@ -1406,6 +1409,10 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       const label = tab.sessionType === 'local' ? 'local shell' : host;
       persistenceService.setStatus(`Connecting to ${label}...`, false, tab);
       const result = await state.api.connect(tab.id, host, { cwd: options.cwd });
+      if (state.tabs.get(tab.id) !== tab) {
+        if (result?.ok) await state.api.disconnect(tab.id);
+        return false;
+      }
       if (!result || !result.ok) {
         persistenceService.setStatus(result && result.error ? result.error : 'Connection failed', true, tab);
         setConnectedForTab(tab, false);
@@ -1451,16 +1458,16 @@ export function createSessionTabs(state, persistenceService, filesPanel, actions
       return;
     }
     await state.api.disconnect(tab.id);
-    if (tab.activeTunnels && typeof tab.activeTunnels.clear === 'function') {
-      tab.activeTunnels.clear();
-    }
-    setConnectedForTab(tab, false);
-    persistenceService.setStatus('Disconnected', false, tab);
-    filesPanel.resetTreeForTab(tab, true);
-    if (tab.id === state.activeTabId) {
-      filesPanel.renderTree();
+    if (state.tabs.get(tab.id) === tab) markDisconnected(tab);
+  }
 
-    }
+  function markDisconnected(tab, unexpected = false) {
+    tab.activeTunnels.clear();
+    tab.isBusy = false;
+    setConnectedForTab(tab, false);
+    persistenceService.setStatus('Disconnected', unexpected, tab);
+    filesPanel.resetTreeForTab(tab, true);
+    if (tab.id === state.activeTabId) filesPanel.renderTree();
   }
 
   function setConnectedForTab(tab, next) {

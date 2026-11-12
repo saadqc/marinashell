@@ -3,6 +3,10 @@ const fs = require('fs'); const os = require('os'); const path = require('path')
 const { execFileSync } = require('child_process');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'marina-git-ui-'));
 const repository = path.join(root, 'repository'); fs.mkdirSync(repository);
+const frontend = path.join(root, 'frontend'); fs.mkdirSync(frontend);
+execFileSync('git', ['init', '-b', 'frontend-main'], { cwd: frontend, stdio: 'pipe' });
+fs.writeFileSync(path.join(frontend, 'frontend-only.txt'), 'Frontend working change\n');
+const noRepository = path.join(root, 'no-repository'); fs.mkdirSync(noRepository);
 const git = (...args) => execFileSync('git', args, { cwd: repository, stdio: 'pipe' });
 git('init', '-b', 'main'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid');
 const file = path.join(repository, 'src/features/browse/ChangesetNavigationFixture.js'); fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -12,8 +16,36 @@ for (const i of [5, 35, 65]) lines[i] += ' // changed'; fs.writeFileSync(file, l
 for (let i = 0; i < 25; i++) fs.writeFileSync(path.join(path.dirname(file), `AdditionalChangesetFixture${i}.js`), `export const value = ${i};\n`);
 os.homedir = () => root; process.env.HOME = root; app.setPath('userData', root);
 fs.mkdirSync(path.join(root, '.marinashell'));
-fs.writeFileSync(path.join(root, '.marinashell', 'settings.json'), JSON.stringify({ plugins: { enabled: { list: { value: ['git', 'editor', 'run-configurations'] } } }, ui: { session: { restoreTabs: { value: true } } } }));
-fs.writeFileSync(path.join(root, 'state.json'), JSON.stringify({ tabs: [{ id: 'fixture', host: '__local__', currentPath: repository, sessionType: 'local', connected: true }], activeTabId: 'fixture' }));
+const gh = path.join(root, 'gh-fixture');
+fs.writeFileSync(gh, `#!/bin/sh
+case "$1:$2" in
+  --version:) echo 'gh version fixture';;
+  auth:status) echo '{"hosts":{"github.com":[{"login":"fixture","active":true}]}}';;
+  pr:list)
+    case "$4" in
+      github.com/fixture/infrastructure) title="Infrastructure PR";;
+      github.com/fixture/frontend) title="Frontend PR";;
+      *) exit 1;;
+    esac
+    printf '[{"number":1,"title":"%s","state":"OPEN","headRefName":"feature","baseRefName":"main"}]\\n' "$title";;
+  api:*)
+    case "$*" in
+      *compare*) echo '{"merge_base_commit":{"sha":"base"}}';;
+      *files?per_page=100*) echo '[]';;
+      *) echo '{"base":{"ref":"main","sha":"base"},"head":{"ref":"feature","sha":"head"},"user":{"login":"fixture"}}';;
+    esac;;
+  *) exit 1;;
+esac
+`, { mode: 0o755 });
+fs.writeFileSync(path.join(root, '.marinashell', 'settings.json'), JSON.stringify({ plugins: { enabled: { list: { value: ['git', 'editor', 'run-configurations'] } } }, ui: { session: { restoreTabs: { value: true } } }, git: { github: { paths: { value: { __local__: gh } } } } }));
+const tabs = [
+  { id: 'fixture', currentPath: repository, groupId: 'infrastructure' },
+  { id: 'frontend', currentPath: frontend, groupId: 'gene' },
+  { id: 'outside', currentPath: noRepository, groupId: 'gene' },
+  { id: 'scratchpad', currentPath: noRepository, groupId: '' }
+].map(tab => ({ ...tab, host: '__local__', sessionType: 'local', connected: true }));
+const tabGroups = [{ id: 'infrastructure', name: 'Infrastructure' }, { id: 'gene', name: 'GeneVariant' }];
+fs.writeFileSync(path.join(root, 'state.json'), JSON.stringify({ tabs, tabGroups, activeTabId: 'fixture' }));
 if (process.env.MARINASHELL_TEST_APP) { app.setAppPath(process.env.MARINASHELL_TEST_APP); require(path.join(process.env.MARINASHELL_TEST_APP, 'main/app')); } else require('../main/app');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms)); let window;
 let sshFixture;
@@ -149,6 +181,36 @@ app.whenReady().then(async () => {
   await run(`document.querySelector('.git-workspace').closest('.dock-leaf').querySelector('[data-action="refresh"]').click()`);
   await wait(`document.querySelector('.git-workspace').getAttribute('aria-busy')==='false' && document.querySelector('.git-files').textContent.includes('refresh-fixture.txt')`, 'Dock refresh updates Git files');
   assert.equal(await run(`return document.querySelector('.git-status').textContent`), '', 'Successful refresh has no redundant status row');
+  git('remote', 'add', 'origin', 'https://github.com/fixture/infrastructure.git');
+  execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/fixture/frontend.git'], { cwd: frontend });
+  await run(`document.querySelector('[data-view="terminal"]').click();
+    document.querySelector('[data-tab-id="fixture"] .xterm').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true}));
+    [...document.querySelectorAll('.context-menu.open button')].find(button=>button.textContent==='Git Diff').click();`);
+  await wait(`document.querySelector('.git-workspace[aria-busy="false"]') && document.querySelector('.git-files')?.textContent.includes('refresh-fixture.txt')`, 'Git Diff from terminal context menu');
+  await run(`const s=document.querySelector('[aria-label="Compare against branch"]');s.value='main';s.dispatchEvent(new Event('change'))`);
+  await wait(`document.querySelector('.git-workspace[aria-busy="false"] .git-comparison summary')?.textContent==='Since main'`, 'Infrastructure comparison selected');
+  await run(`[...document.querySelectorAll('.git-tabs button')].find(button=>button.textContent==='Pull Requests').click()`);
+  await wait(`document.querySelector('.git-pr-picker summary')?.textContent==='#1 Infrastructure PR'`, 'Infrastructure pull requests');
+  await run(`document.querySelector('[data-project-id="gene"]').click()`);
+  await wait(`!document.querySelector('[data-view="git"]').hidden`, 'Git available in GeneVariant');
+  await run(`document.querySelector('[data-view="git"]').click();
+    if (document.querySelector('.git-prs')?.textContent.includes('Infrastructure PR')) throw Error('Previous project PR stayed visible');`);
+  await wait(`document.querySelector('.git-pr-picker summary')?.textContent==='#1 Frontend PR'`, 'Pull Requests follows the GeneVariant Frontend terminal');
+  assert.equal(await run(`return document.querySelector('.git-pr-connection summary').title.split(' · ')[1]`), 'github.com/fixture/frontend');
+  const projectScreenshot = path.join(root, 'git-active-project.png');
+  fs.writeFileSync(projectScreenshot, (await window.webContents.capturePage()).toPNG());
+  console.log('PROJECT SCREENSHOT', projectScreenshot);
+  await run(`[...document.querySelectorAll('.git-tabs button')].find(button=>button.textContent==='Diff').click()`);
+  await wait(`document.querySelector('.git-files')?.textContent.includes('frontend-only.txt')`, 'Diff follows the Frontend terminal');
+  await run(`document.querySelector('#session-tabs [data-tab-id="outside"]').click()`);
+  await wait(`document.querySelector('.git-status')?.textContent==='This terminal is outside a Git worktree.'`, 'Non-repository terminal clears Git view');
+  assert.equal(await run(`return Boolean(document.querySelector('.git-files, .git-prs, .git-operations'))`), false);
+  await run(`document.querySelector('[data-project-id="infrastructure"]').click()`);
+  await wait(`!document.querySelector('[data-view="git"]').hidden`, 'Git available in Infrastructure');
+  await run(`document.querySelector('[data-view="git"]').click()`);
+  await wait(`document.querySelector('.git-files')?.textContent.includes('refresh-fixture.txt')`, 'Diff returns to the Infrastructure repository');
+  console.log('PASS: Git Diff and Pull Requests follow project and terminal selection after opening Git from the terminal menu');
+  await run(`document.querySelector('[data-project-id=""]').click()`);
   const configuration = await run(`return api.invoke('plugin:run-configurations:save',{configuration:{name:'Manual',type:'shell',mode:'commands',target:'true',cwd:${JSON.stringify(repository)},expiryDurationMs:900000}})`);
   assert(configuration.ok, configuration.error); assert.equal(configuration.configuration.createdVia, 'ui');
   await run(`document.querySelector('#run-toolbar [aria-label="Edit configurations"]').click()`);

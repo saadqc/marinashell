@@ -148,8 +148,7 @@ export function installMcpBridge({
         );
         if (members.some((t) => t.runId))
           throw new Error("Close managed run output in MarinaShell first.");
-        for (const member of members)
-          await sessionTabs.closeTab(member.id, { approved: true });
+        await sessionTabs.closeGroup(args.projectId, { approved: true });
         value = { closed: args.projectId };
       } else if (action === "layout.set") {
         sessionTabs.setGroupLayout(args.projectId, args.layout);

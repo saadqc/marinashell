@@ -27,7 +27,7 @@ export function createPersistenceService(state, settingsService) {
     const referenced = new Set([...state.tabs.values()].map(tab => tab.groupId).filter(Boolean));
     const retained = new Map();
     for (const group of groups) {
-      if (group && typeof group.id === 'string' && referenced.has(group.id) && !retained.has(group.id)) {
+      if (group && typeof group.id === 'string' && (referenced.has(group.id) || group.closedTerminals?.length) && !retained.has(group.id)) {
         retained.set(group.id, group);
       }
     }

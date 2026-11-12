@@ -1,12 +1,5 @@
-# MarinaShell v0.2.28
+# MarinaShell v0.2.29
 
-Open a terminal's current folder directly in your preferred external editor.
-
-- Added **Open in Editor** to terminal and terminal-tab context menus.
-- Uses the global default editor selected in MarinaShell settings. If no default is configured, the editor picker opens.
-- Opens only that terminal's current folder, including its SSH location when the selected editor supports it. The action does not open all folders from the saved project or use the project's editor override.
-- Keeps the existing **Open project in editor…** action for opening the complete project.
-
-Local folder launches and single-folder SSH handoff to Islet are covered by the real Electron workflow. Existing saved workspaces, settings and update safeguards are preserved.
-
-This release retains the macOS updater compatibility fix from v0.2.27. The macOS preview is ad-hoc signed and not notarized. Windows and Linux installers are published by the same release workflow after their platform checks pass.
+- **Git follows the active terminal.** Diff and Pull Requests switch to the selected terminal's repository as you move between projects and tabs.
+- **Reopen a project terminal.** Choose **Reopen terminal…** from the project menu to start a fresh shell in a closed or killed terminal's configured directory. If the last terminal was closed, click the project icon to open the picker.
+- **Edit files from terminal output.** Right-click a filename and choose **Open in Terminal** to open it in MarinaShell's CodeMirror editor. **Open in External Editor** opens the terminal's current folder in your configured external editor.
